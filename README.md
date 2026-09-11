@@ -113,9 +113,8 @@ CESAL/
 ├── logs/                          # Training & inference logs
 │
 ├── environment/                   # Python dependency lists
-│   ├── cloud/requirements.txt     #   Training, eval, cloud inference
-│   ├── edge/requirements.txt      #   ExecuTorch edge inference, dashboard
-│   └── llm/requirements.txt       #   LLM incident classification (transformers)
+│   ├── cloud/requirements.txt     #   Training, eval, cloud inference, LLM incident response
+│   └── edge/requirements.txt      #   ExecuTorch edge inference, dashboard
 │
 │ ── Tooling ──────────────────────────────────────────────────────────────
 └── tools/
@@ -133,7 +132,7 @@ All commands run from the project root. CESAL uses **two Conda environments**, o
 | Environment      | Tier      | Stack                              | What runs in it                                                                                                                                     |
 | ---------------- | --------- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `cesal-edge`  | **Edge**  | PyTorch 2.6 (CPU) + ExecuTorch 0.5 | Dashboard, Q-BAT edge inference (`.pte` via ExecuTorch), pipeline orchestration. CPU is sufficient.                                                 |
-| `cesal-cloud` | **Cloud** | PyTorch 2.4 + CUDA 12.4            | BAT ensemble training (81 models) and cloud re-check inference. GPU strongly recommended; the inference pipeline launches this env as a subprocess. |
+| `cesal-cloud` | **Cloud** | PyTorch 2.4 + CUDA 12.4 + transformers 4.47 | BAT ensemble training (81 models), cloud re-check inference, and LLM-based incident classification and response (`incident_response/`). GPU strongly recommended; the inference pipeline launches this env as a subprocess. |
 
 **Why two environments?** Edge and cloud have different runtime needs. Edge uses ExecuTorch (compact, CPU-only, runs `.pte` quantized models), while cloud uses full-precision PyTorch with CUDA. Splitting them keeps each install minimal and avoids version conflicts between ExecuTorch and CUDA PyTorch.
 
@@ -211,19 +210,12 @@ A built-in **? Help** button in the dashboard guides you through all features. O
 
 ### Optional — LLM-based incident classification and controlled response
 
-`incident_response/` classifies abnormal HDFS log sequences into the 10 known anomaly types or `Other anomaly type` (unknown) with a RAG-enhanced LLM, then maps each label to a predefined response workflow (Table 1). It uses its own environment with a CUDA GPU; models that exceed GPU memory are partly offloaded to CPU RAM.
-
-```bash
-conda create -yn cesal-llm python=3.10.0
-conda activate cesal-llm
-pip install -r environment/llm/requirements.txt \
-    --extra-index-url https://download.pytorch.org/whl/cu130
-pip install -e .
-```
+`incident_response/` classifies abnormal HDFS log sequences into the 10 known anomaly types or `Other anomaly type` (unknown) with a RAG-enhanced LLM, then maps each label to a predefined response workflow (Table 1). It runs in the cloud environment (`cesal-cloud`) and needs a CUDA GPU; models that exceed GPU memory are partly offloaded to CPU RAM.
 
 Meta-Llama-3.1-8B-Instruct and gemma-2-9b-it are gated on Hugging Face: accept their licenses and run `hf auth login` first. The open-set test set (4,124 unique abnormal sequences) and the knowledge base (top-100 sequences per known type) are bundled in `data/HDFS/open_set/`; rebuild them from loghub's `HDFS_v1/preprocessed/Event_traces.csv` with `python -m incident_response.data_prep`.
 
 ```bash
+conda activate cesal-cloud
 python run.py classify                          # evaluate all four LLMs in configs/llm/hdfs.yaml
 python run.py classify qwen2.5-14b-instruct     # CESAL's default backbone only
 python -m incident_response.workflows --label "Replica immediately deleted"
@@ -239,7 +231,7 @@ Results go to `outputs/hdfs/llm/` (per-sequence predictions with retrieval evide
 ```bash
 conda activate cesal-edge
 python run.py infer hdfs      # detection outputs (skip if outputs/hdfs/*.npy already exist)
-conda activate cesal-llm
+conda activate cesal-cloud
 python run.py respond         # queues → classification → workflows
 ```
 

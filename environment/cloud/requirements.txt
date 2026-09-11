@@ -1,4 +1,8 @@
+# Cloud environment (cesal-cloud) — BAT training and cloud inference, plus the LLM-based
+# incident classification and response module (incident_response/).
+# Install with:  pip install -r environment/cloud/requirements.txt --extra-index-url https://download.pytorch.org/whl/cu124
 absl-py==2.2.2
+accelerate==1.2.1
 asttokens
 astunparse==1.6.3
 backcall
@@ -24,6 +28,7 @@ google-auth-oauthlib==1.0.0
 google-pasta==0.2.0
 grpcio==1.70.0
 h5py==3.11.0
+huggingface-hub==0.36.2
 idna==3.10
 importlib_metadata==8.5.0
 importlib_resources==6.4.5
@@ -83,11 +88,11 @@ PyYAML
 pyzmq
 requests==2.32.3
 requests-oauthlib==2.0.0
-river==0.19.0
 rsa==4.9.1
+safetensors==0.8.0
 scikit-learn==1.3.2
-scikit-multiflow==0.5.3
 scipy==1.10.1
+sentencepiece==0.2.2
 six==1.17.0
 sortedcontainers==2.4.0
 stack-data
@@ -98,12 +103,14 @@ tensorflow-estimator==2.13.0
 tensorflow-io-gcs-filesystem==0.34.0
 termcolor==2.4.0
 threadpoolctl==3.5.0
+tokenizers==0.21.4
 torch==2.4.0+cu124
 torchaudio==2.4.0+cu124
 torchvision==0.19.0+cu124
 tornado
 tqdm==4.67.1
 traitlets
+transformers==4.47.1
 triton==3.0.0
 typing_extensions
 tzdata==2025.2
