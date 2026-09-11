@@ -1,0 +1,49 @@
+# ── Checkpoints ──────────────────────────────────────────────────────────────
+# BAT full-precision checkpoints (3.5 GB) — downloaded at first launch
+checkpoints/bat/
+# Q-BAT quantized checkpoints (218 MB) — bundled in image via COPY
+# (no exclusion needed; the default includes them)
+
+# ── ExecuTorch source (3 GB C++ build tree) ───────────────────────────────────
+# Only the compiled binary is included (explicit COPY in Dockerfile).
+inference_pipeline/executorch/
+
+# ── Training and conversion pipelines ────────────────────────────────────────
+training_pipeline/
+edge_pipeline/
+
+# ── Unused legacy directories ─────────────────────────────────────────────────
+cloud/
+edge/
+tests/
+environment/
+
+# ── tools/ — only the two files explicitly COPY'd into the image are kept ────
+# (download_checkpoints.py: helper invoked at runtime;
+#  deploy/spaces_startup.py: the container entrypoint set via CMD)
+tools/
+!tools/download_checkpoints.py
+!tools/deploy/
+!tools/deploy/spaces_startup.py
+
+# ── Runtime artefacts ────────────────────────────────────────────────────────
+logs/
+__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+
+# ── Local database — too large; app creates a fresh one on startup ─────────────
+dashboard/ceco_lad.db
+
+# ── Git and IDE ───────────────────────────────────────────────────────────────
+.git/
+.gitignore
+.vscode/
+.idea/
+
+# ── Docs ──────────────────────────────────────────────────────────────────────
+pictures/
+*.md
+LICENSE

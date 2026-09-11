@@ -1,0 +1,2837 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CECO-LAD Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+:root {
+  --bg:      #f1f5f9;
+  --card:    #ffffff;
+  --border:  #e2e8f0;
+  --text:    #0f172a;
+  --muted:   #64748b;
+  --blue:    #2563eb;
+  --green:   #16a34a;
+  --red:     #dc2626;
+  --amber:   #d97706;
+  --purple:  #7c3aed;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--bg); color: var(--text);
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 13px; line-height: 1.6;
+}
+
+/* ── Header ─────────────────────────────────────────────── */
+.hdr {
+  display: flex; align-items: center; gap: 14px;
+  padding: 12px 24px; border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; background: var(--card); z-index: 10;
+  box-shadow: 0 1px 4px rgba(0,0,0,.06);
+}
+.hdr h1 { font-size: 18px; font-weight: 700; letter-spacing: -0.02em; }
+.badge {
+  background: var(--blue); color: #fff;
+  padding: 2px 10px; border-radius: 999px; font-size: 11px; font-weight: 600;
+}
+.hdr-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+.status-pill {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 12px; border-radius: 999px;
+  border: 1px solid var(--border); font-size: 12px;
+}
+.dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--muted); flex-shrink: 0;
+}
+.dot.running { background: var(--green); animation: blink 1s ease-in-out infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+/* ── Layout ─────────────────────────────────────────────── */
+.layout {
+  display: grid; grid-template-columns: 290px 1fr;
+  gap: 16px; max-width: 1440px;
+  margin: 0 auto; padding: 16px 20px;
+}
+@media (max-width: 860px) { .layout { grid-template-columns: 1fr; } }
+
+/* ── Card ───────────────────────────────────────────────── */
+.card {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 12px; padding: 18px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.05), 0 1px 2px rgba(0,0,0,.04);
+}
+.card + .card { margin-top: 12px; }
+.card-title {
+  font-size: 11px; font-weight: 600; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .07em; margin-bottom: 14px;
+}
+
+/* ── Buttons ─────────────────────────────────────────────── */
+.btn {
+  padding: 7px 14px; border: 1px solid var(--border);
+  border-radius: 8px; background: transparent; color: var(--text);
+  cursor: pointer; font-size: 13px; transition: background .12s, border-color .12s;
+}
+.btn:hover:not(:disabled) { background: var(--bg); }
+.btn.active  { background: var(--blue); border-color: var(--blue); color: #fff; }
+.btn:disabled { opacity: .35; cursor: not-allowed; }
+
+.btn-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.btn-col { display: flex; flex-direction: column; gap: 6px; }
+
+.run-btn  { background: var(--green); border-color: var(--green); color:#fff; font-weight:600; width:100%; justify-content:center; }
+.stop-btn { background: var(--red);   border-color: var(--red);   color:#fff; font-weight:600; width:100%; }
+.run-btn:hover:not(:disabled)  { background: #16a34a; border-color:#16a34a; }
+.stop-btn:hover:not(:disabled) { background: #dc2626; border-color:#dc2626; }
+
+/* ── Form elements ───────────────────────────────────────── */
+.field { margin-bottom: 14px; }
+.field:last-child { margin-bottom: 0; }
+label.lbl { display: block; font-size: 11px; color: var(--muted); margin-bottom: 5px; font-weight:500; letter-spacing:.03em; }
+select, input[type=range] {
+  width: 100%; background: var(--card); border: 1px solid var(--border);
+  color: var(--text); border-radius: 8px; padding: 7px 10px; font-size: 13px;
+}
+select:focus { outline: none; border-color: var(--blue); }
+.range-row { display: flex; align-items: center; gap: 8px; }
+.range-row input { flex: 1; }
+.range-val { font-size: 13px; color: var(--amber); font-weight: 600; min-width: 36px; text-align: right; }
+
+/* ── Console ─────────────────────────────────────────────── */
+.console {
+  background: #1a1d27; border: 1px solid #cbd5e1;
+  border-radius: 8px; padding: 12px 14px;
+  height: 260px; overflow-y: auto;
+  font-family: 'Fira Code', 'Cascadia Code', 'Courier New', monospace;
+  font-size: 12px; line-height: 1.65;
+  box-shadow: inset 0 2px 4px rgba(0,0,0,.12);
+}
+.console-hdr {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 10px;
+}
+.ll   { color: #475569; }
+.li   { color: #60a5fa; }
+.le   { color: #f87171; }
+.lm   { color: #86efac; }  /* metric line */
+.lw   { color: #fbbf24; }  /* warning */
+.ls   { color: #a78bfa; }  /* stage header */
+
+/* ── Tabs ────────────────────────────────────────────────── */
+.tabs-bar {
+  display: flex; gap: 2px; border-bottom: 1px solid var(--border);
+  margin-bottom: 18px; overflow-x: auto;
+}
+.tab {
+  padding: 8px 16px; cursor: pointer; font-size: 13px;
+  color: var(--muted); border-radius: 6px 6px 0 0; white-space: nowrap;
+  border: 1px solid transparent; border-bottom: none;
+  transition: color .15s;
+}
+.tab:hover { color: var(--text); }
+.tab.active {
+  color: var(--text); border-color: var(--border);
+  background: var(--card); margin-bottom: -1px;
+}
+.tab-pane { display: none; }
+.tab-pane.active { display: block; }
+
+/* ── Metric cards ────────────────────────────────────────── */
+.kpi-row { display: grid; grid-template-columns: repeat(4,1fr); gap: 10px; margin-bottom: 18px; }
+@media (max-width: 700px) { .kpi-row { grid-template-columns: repeat(2,1fr); } }
+.kpi {
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 10px; padding: 14px 16px;
+}
+.kpi .kpi-label { font-size: 11px; color: var(--muted); font-weight:500; }
+.kpi .kpi-val   { font-size: 26px; font-weight: 700; margin: 2px 0 2px; line-height:1; }
+.kpi .kpi-sub   { font-size: 11px; color: var(--muted); }
+.c-blue   .kpi-val { color: var(--blue); }
+.c-green  .kpi-val { color: var(--green); }
+.c-amber  .kpi-val { color: var(--amber); }
+.c-red    .kpi-val { color: var(--red); }
+
+/* ── Table ───────────────────────────────────────────────── */
+.tbl { width:100%; border-collapse:collapse; }
+.tbl th,.tbl td { padding:9px 13px; text-align:left; border-bottom:1px solid var(--border); }
+.tbl th { font-size:11px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
+.tag {
+  padding:3px 10px; border-radius:999px; font-size:11px; font-weight:700;
+  display:inline-block;
+}
+.tag-edge   { background:rgba(37,99,235,.10);   color:var(--blue); }
+.tag-hybrid { background:rgba(22,163,74,.10);   color:var(--green); }
+.tag-cloud  { background:rgba(124,58,237,.10);  color:var(--purple); }
+
+/* ── Timeline canvas ─────────────────────────────────────── */
+.tl-row { margin-bottom: 12px; }
+.tl-label { font-size:11px; font-weight:600; color:var(--muted); margin-bottom:4px; letter-spacing:.04em; }
+.tl-canvas { display:block; width:100%; height:36px; border-radius:5px; image-rendering:pixelated; }
+.legend { display:flex; gap:16px; margin-top:10px; font-size:12px; color:var(--muted); flex-wrap:wrap; }
+.legend span { display:flex; align-items:center; gap:5px; }
+.ldot { width:10px; height:10px; border-radius:2px; flex-shrink:0; }
+
+/* ── Routing stats ───────────────────────────────────────── */
+.rt-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:18px; }
+.rt-stat {
+  text-align:center; padding:14px;
+  background:var(--bg); border:1px solid var(--border); border-radius:10px;
+}
+.rt-stat .num { font-size:22px; font-weight:700; }
+.rt-stat .desc { font-size:11px; color:var(--muted); margin-top:3px; }
+.bar-track { background:var(--bg); border-radius:4px; height:8px; overflow:hidden; margin-top:5px; }
+.bar-fill  { height:100%; border-radius:4px; transition:width .4s; }
+
+/* ── Threshold list ──────────────────────────────────────── */
+.th-grid {
+  display:grid; grid-template-columns:repeat(auto-fill,minmax(270px,1fr));
+  gap:7px; max-height:340px; overflow-y:auto;
+}
+.th-item {
+  display:flex; justify-content:space-between; align-items:center;
+  padding:7px 12px; background:var(--bg); border:1px solid var(--border);
+  border-radius:7px;
+}
+.th-name { color:var(--muted); font-family:monospace; font-size:11px; }
+.th-val  { color:var(--amber); font-weight:600; font-size:12px; }
+
+/* ── Log viewer ──────────────────────────────────────────── */
+.log-list { display:flex; flex-direction:column; gap:4px; margin-bottom:12px; max-height:180px; overflow-y:auto; }
+.log-entry {
+  padding:5px 11px; border:1px solid var(--border);
+  border-radius:7px; cursor:pointer; font-size:11px; font-family:monospace;
+  display:flex; justify-content:space-between; align-items:center;
+}
+.log-entry:hover,.log-entry.sel { background:var(--border); }
+
+/* ── Chart wrapper ───────────────────────────────────────── */
+.chart-box { position:relative; height:260px; }
+
+/* ── Empty state ─────────────────────────────────────────── */
+.empty { text-align:center; padding:52px 20px; color:var(--muted); }
+.empty .ico { font-size:40px; margin-bottom:10px; }
+.empty p { font-size:13px; }
+
+/* ── Sidebar quick-stats ─────────────────────────────────── */
+.qs-row {
+  display:flex; justify-content:space-between; align-items:center;
+  padding:6px 0; border-bottom:1px solid var(--border); font-size:13px;
+}
+.qs-row:last-child { border-bottom:none; }
+.qs-label { color:var(--muted); }
+
+/* ── Config summary card ─────────────────────────────────── */
+.cfg-row { display:flex; justify-content:space-between; padding:5px 0; border-bottom:1px solid var(--border); font-size:12px; }
+.cfg-row:last-child { border-bottom:none; }
+.cfg-key  { color:var(--muted); }
+.cfg-val  { font-weight:500; max-width:65%; text-align:right; word-break:normal; }
+.cfg-model-list { display:flex; flex-direction:column; gap:3px; margin-top:5px; }
+.cfg-model { font-size:11px; color:var(--muted); font-family:monospace; }
+.pill-ok  { background:rgba(22,163,74,.12);   color:var(--green);  padding:2px 9px; border-radius:999px; font-size:11px; font-weight:600; white-space:nowrap; }
+.pill-warn{ background:rgba(217,119,6,.12);  color:var(--amber);  padding:2px 9px; border-radius:999px; font-size:11px; font-weight:600; white-space:nowrap; }
+.pill-no  { background:rgba(100,116,139,.12);color:var(--muted);  padding:2px 9px; border-radius:999px; font-size:11px; font-weight:600; white-space:nowrap; }
+
+/* ── Live progress panel ─────────────────────────────────── */
+.progress-card { margin-top:12px; }
+.stage-track { display:flex; gap:0; margin-bottom:16px; }
+.stage-step {
+  flex:1; text-align:center; padding:8px 4px;
+  border-bottom:2px solid var(--border); font-size:11px; color:var(--muted);
+  transition:color .2s, border-color .2s;
+}
+.stage-step.active  { color:var(--blue);  border-color:var(--blue);  font-weight:600; }
+.stage-step.done    { color:var(--green); border-color:var(--green); }
+.stage-step .s-icon { font-size:15px; display:block; margin-bottom:3px; }
+
+.live-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+@media (max-width:700px) { .live-grid { grid-template-columns:1fr; } }
+
+.live-box {
+  background:var(--bg); border:1px solid var(--border);
+  border-radius:8px; padding:12px;
+}
+.live-box-title { font-size:11px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; margin-bottom:8px; }
+
+.thresh-row { display:flex; justify-content:space-between; padding:4px 0;
+  border-bottom:1px solid rgba(51,65,85,.5); font-size:12px; }
+.thresh-row:last-child { border-bottom:none; }
+.thresh-name { font-family:monospace; color:var(--muted); font-size:11px; }
+.thresh-val  { color:var(--amber); font-weight:600; }
+
+.live-metric-row { display:flex; justify-content:space-between; align-items:center;
+  padding:4px 0; border-bottom:1px solid rgba(51,65,85,.5); font-size:12px; }
+.live-metric-row:last-child { border-bottom:none; }
+
+.op-line { font-size:12px; color:var(--blue); min-height:18px;
+  font-family:monospace; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.routing-info { font-size:13px; }
+.routing-info .big { font-size:22px; font-weight:700; }
+
+.prog-bar-wrap { background:var(--border); border-radius:4px; height:6px; margin-top:6px; overflow:hidden; }
+.prog-bar-fill { height:100%; border-radius:4px; background:var(--blue); transition:width .4s; }
+
+/* ── Pipeline overview flow ──────────────────────────────── */
+.flow-wrap { display:flex; align-items:stretch; overflow-x:auto; gap:0; margin-bottom:16px; }
+.flow-step {
+  flex:1; min-width:92px; text-align:center; padding:14px 8px;
+  background:var(--bg); border:1px solid var(--border); border-radius:10px;
+  transition:border-color .25s, background .25s;
+}
+.flow-step.f-active { border-color:var(--blue);  background:rgba(37,99,235,.08); }
+.flow-step.f-done   { border-color:var(--green); background:rgba(22,163,74,.07); }
+.flow-step .f-ico   { font-size:22px; display:block; margin-bottom:5px; }
+.flow-step .f-num   { font-size:10px; color:var(--muted); margin-bottom:2px; letter-spacing:.04em; text-transform:uppercase; }
+.flow-step .f-title { font-size:12px; font-weight:700; color:var(--text); margin-bottom:3px; }
+.flow-step .f-desc  { font-size:10px; color:var(--muted); line-height:1.45; }
+.flow-arr { display:flex; align-items:center; padding:0 4px; color:var(--border); font-size:16px; flex-shrink:0; user-select:none; }
+
+/* ── Sidebar wizard steps ────────────────────────────────── */
+.step-hdr { display:flex; align-items:center; margin-bottom:10px; }
+.step-num {
+  display:inline-flex; align-items:center; justify-content:center;
+  width:21px; height:21px; border-radius:50%;
+  background:var(--blue); color:#fff; font-size:11px; font-weight:700;
+  margin-right:8px; flex-shrink:0;
+}
+.step-title { font-size:11px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.07em; }
+.card-help {
+  font-size:11px; color:var(--muted); line-height:1.6;
+  margin-bottom:12px; padding:7px 10px;
+  background:rgba(37,99,235,.07); border-radius:6px;
+  border-left:2px solid rgba(37,99,235,.35);
+}
+
+/* ── Enhanced dataset buttons ────────────────────────────── */
+.ds-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; }
+.ds-btn {
+  padding:9px 5px; border:1px solid var(--border); border-radius:8px;
+  background:transparent; color:var(--muted);
+  cursor:pointer; text-align:center; transition:all .12s; line-height:1.3;
+}
+.ds-btn:hover { background:var(--bg); color:var(--text); }
+.ds-btn.active { background:var(--blue); border-color:var(--blue); color:#fff; }
+.ds-btn .ds-name { font-size:13px; font-weight:700; display:block; }
+.ds-btn .ds-sub  { font-size:9px; display:block; margin-top:2px; opacity:.75; line-height:1.3; }
+
+/* ── Metric guide ────────────────────────────────────────── */
+.metric-guide { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; margin-top:18px; }
+@media(max-width:600px){ .metric-guide { grid-template-columns:1fr; } }
+.metric-guide-item {
+  background:var(--bg); border:1px solid var(--border);
+  border-radius:8px; padding:10px 12px;
+}
+.mg-label { font-size:12px; font-weight:700; color:var(--text); margin-bottom:4px; }
+.mg-desc  { font-size:11px; color:var(--muted); line-height:1.55; }
+
+/* ── Friendly status banner ──────────────────────────────── */
+.friendly-banner {
+  display:flex; align-items:center; gap:10px;
+  background:rgba(37,99,235,.07); border:1px solid rgba(37,99,235,.2);
+  border-radius:8px; padding:10px 14px; margin-bottom:14px;
+}
+.friendly-banner .fb-ico { font-size:22px; flex-shrink:0; }
+.friendly-banner .fb-main { font-size:13px; font-weight:600; color:var(--text); }
+.friendly-banner .fb-sub  { font-size:11px; color:var(--muted); margin-top:2px; line-height:1.5; }
+
+/* ── Pipeline view ───────────────────────────────────────── */
+.pl-layout {
+  display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px;
+  align-items:start;
+}
+@media(max-width:900px){ .pl-layout { grid-template-columns:1fr; } }
+
+.pl-panel {
+  background:var(--bg); border:1px solid var(--border);
+  border-radius:10px; overflow:hidden; display:flex; flex-direction:column;
+}
+.pl-header {
+  padding:10px 14px; display:flex; align-items:center; gap:8px;
+  border-bottom:1px solid var(--border); background:var(--card);
+  position:sticky; top:0; z-index:2;
+}
+.pl-header .ph-ico { font-size:18px; }
+.pl-header .ph-title { font-weight:700; font-size:13px; flex:1; }
+.pl-header .ph-count { font-size:11px; color:var(--muted); }
+.pl-body {
+  overflow-y:auto; max-height:540px; flex:1;
+}
+.pl-toolbar {
+  display:flex; gap:6px; flex-wrap:wrap; align-items:center;
+  padding:7px 10px; border-bottom:1px solid var(--border); background:var(--card);
+}
+.pl-toolbar input[type=text] {
+  flex:1; min-width:80px; padding:4px 8px;
+  border:1px solid var(--border); border-radius:6px;
+  background:var(--bg); color:var(--text); font-size:11px;
+}
+.pl-toolbar select {
+  padding:4px 6px; border:1px solid var(--border); border-radius:6px;
+  background:var(--bg); color:var(--text); font-size:11px; width:auto;
+}
+.pl-row {
+  display:flex; flex-direction:column; gap:2px;
+  padding:8px 12px; border-bottom:1px solid var(--border);
+  cursor:pointer; font-size:11px; transition:background .1s;
+}
+.pl-row:hover { background:rgba(37,99,235,.06); }
+.pl-row.selected { background:rgba(37,99,235,.12); border-left:3px solid var(--blue); padding-left:9px; }
+.pl-row .pr-meta { display:flex; gap:6px; align-items:center; margin-bottom:2px; }
+.pl-row .pr-idx  { font-weight:700; color:var(--blue); min-width:40px; }
+.pl-row .pr-lbl  { padding:1px 7px; border-radius:999px; font-size:10px; font-weight:700; }
+.pr-lbl.anom  { background:rgba(220,38,38,.1);  color:var(--red); }
+.pr-lbl.norm  { background:rgba(22,163,74,.1);  color:var(--green); }
+.pr-lbl.unk   { background:var(--border); color:var(--muted); }
+.pl-row .pr-src   { font-size:10px; color:var(--muted); }
+.pl-row .pr-ts    { font-size:10px; color:var(--muted); }
+.pl-row .pr-comp  { font-size:10px; color:var(--purple); }
+.pl-row .pr-msg   { font-family:monospace; font-size:11px; color:var(--text); word-break:break-word; }
+.pl-row .pr-seq   { font-family:monospace; font-size:10px; color:var(--amber); word-break:break-word; line-height:1.4; }
+.pl-row .pr-events { font-size:10px; color:var(--muted); }
+
+.pl-pager {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:6px 10px; border-top:1px solid var(--border);
+  font-size:11px; color:var(--muted); background:var(--card);
+}
+.pl-pager .btn { padding:3px 10px; font-size:11px; }
+
+/* Execution panel result rows */
+.exec-row {
+  display:flex; align-items:center; gap:8px;
+  padding:7px 12px; border-bottom:1px solid var(--border);
+  font-size:11px; cursor:pointer; transition:background .1s;
+}
+.exec-row:hover { background:rgba(37,99,235,.05); }
+.exec-row.selected { background:rgba(37,99,235,.1); border-left:3px solid var(--blue); padding-left:9px; }
+.exec-row .er-idx  { font-weight:700; color:var(--blue); min-width:38px; }
+.exec-row .er-gt   { min-width:52px; }
+.exec-row .er-pred { min-width:52px; }
+.exec-row .er-cloud { font-size:10px; }
+.exec-row .er-bar  { flex:1; }
+.mini-bar { display:flex; align-items:center; gap:4px; }
+.mini-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+
+.pl-detail-box {
+  background:var(--card); border:1px solid var(--border);
+  border-radius:10px; padding:16px; margin-top:10px;
+}
+.pl-detail-title {
+  font-size:12px; font-weight:700; margin-bottom:10px; color:var(--text);
+  display:flex; align-items:center; gap:8px;
+}
+.pl-step-arrow {
+  display:flex; align-items:center; justify-content:center;
+  color:var(--blue); font-size:20px; margin:4px 0;
+}
+
+/* ── Database / Data-Explorer styles ──────────────────────── */
+.db-stat-grid {
+  display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:10px;
+}
+.db-stat { background:var(--bg); border:1px solid var(--border); border-radius:7px;
+  padding:6px 10px; font-size:11px; }
+.db-stat .dsv { font-size:18px; font-weight:700; color:var(--blue); line-height:1; }
+.db-stat .dsk { color:var(--muted); margin-top:1px; }
+
+.de-tabs { display:flex; gap:2px; margin-bottom:14px; }
+.de-tab {
+  padding:5px 14px; cursor:pointer; font-size:12px;
+  color:var(--muted); border-radius:6px 6px 0 0; border:1px solid transparent; border-bottom:none;
+}
+.de-tab:hover { color:var(--text); }
+.de-tab.active { color:var(--text); border-color:var(--border); background:var(--card); margin-bottom:-1px; }
+.de-pane { display:none; }
+.de-pane.active { display:block; }
+
+.pipe-stages {
+  display:flex; flex-wrap:wrap; gap:0; align-items:stretch; margin-bottom:16px;
+}
+.pipe-stage {
+  flex:1; min-width:80px; text-align:center; padding:12px 6px;
+  background:var(--bg); border:1px solid var(--border); border-radius:8px;
+  font-size:11px; position:relative;
+}
+.pipe-stage .ps-ico   { font-size:20px; display:block; margin-bottom:4px; }
+.pipe-stage .ps-title { font-weight:700; color:var(--text); margin-bottom:2px; }
+.pipe-stage .ps-count { font-size:15px; font-weight:700; color:var(--blue); }
+.pipe-stage .ps-sub   { color:var(--muted); font-size:10px; margin-top:1px; }
+.pipe-arr { display:flex; align-items:center; padding:0 3px; color:var(--border); font-size:14px; flex-shrink:0; }
+
+.de-toolbar {
+  display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px;
+}
+.de-toolbar input[type=text] {
+  flex:1; min-width:140px; padding:6px 10px; border:1px solid var(--border);
+  border-radius:7px; background:var(--card); color:var(--text); font-size:12px;
+}
+.de-toolbar select {
+  padding:6px 8px; border:1px solid var(--border); border-radius:7px;
+  background:var(--card); color:var(--text); font-size:12px; width:auto;
+}
+.de-toolbar .btn { padding:5px 12px; font-size:12px; }
+
+.de-table-wrap { overflow-x:auto; max-height:420px; overflow-y:auto; }
+.de-table { width:100%; border-collapse:collapse; font-size:12px; }
+.de-table th {
+  position:sticky; top:0; background:var(--card);
+  padding:7px 10px; text-align:left; font-size:10px; font-weight:600;
+  color:var(--muted); text-transform:uppercase; letter-spacing:.05em;
+  border-bottom:2px solid var(--border);
+}
+.de-table td { padding:6px 10px; border-bottom:1px solid var(--border); vertical-align:top; }
+.de-table tr:hover td { background:var(--bg); }
+.de-table td.mono { font-family:monospace; font-size:11px; max-width:360px; word-break:break-word; }
+.de-table .lbl-anom { color:var(--red);   font-weight:700; }
+.de-table .lbl-norm { color:var(--green); font-weight:600; }
+.de-table tr.clickable { cursor:pointer; }
+
+.de-pager {
+  display:flex; align-items:center; gap:10px; margin-top:10px;
+  font-size:12px; color:var(--muted); flex-wrap:wrap;
+}
+.de-pager .btn { padding:4px 10px; font-size:12px; }
+
+/* ── Window detail modal ─────────────────────────────────── */
+.modal-overlay {
+  position:fixed; inset:0; background:rgba(0,0,0,.45);
+  display:none; align-items:flex-start; justify-content:center;
+  z-index:100; padding:30px 16px; overflow-y:auto;
+}
+.modal-overlay.open { display:flex; }
+.modal-box {
+  background:var(--card); border:1px solid var(--border);
+  border-radius:14px; width:100%; max-width:860px;
+  box-shadow:0 8px 32px rgba(0,0,0,.18); padding:24px;
+  position:relative;
+}
+.modal-close {
+  position:absolute; top:14px; right:16px;
+  background:none; border:none; font-size:18px; cursor:pointer; color:var(--muted);
+}
+.modal-close:hover { color:var(--text); }
+.modal-title { font-size:15px; font-weight:700; margin-bottom:16px; }
+.modal-meta-grid {
+  display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr));
+  gap:8px; margin-bottom:16px;
+}
+.modal-meta {
+  background:var(--bg); border:1px solid var(--border);
+  border-radius:8px; padding:8px 12px;
+}
+.modal-meta .mm-key { font-size:10px; color:var(--muted); font-weight:600; text-transform:uppercase; letter-spacing:.05em; }
+.modal-meta .mm-val { font-size:14px; font-weight:700; margin-top:2px; }
+.modal-section { margin-bottom:16px; }
+.modal-section-title {
+  font-size:11px; font-weight:600; color:var(--muted);
+  text-transform:uppercase; letter-spacing:.06em; margin-bottom:8px;
+}
+.modal-content-box {
+  background:#1a1d27; color:#86efac; font-family:monospace;
+  font-size:11px; border-radius:8px; padding:10px 14px;
+  max-height:120px; overflow-y:auto; line-height:1.55; word-break:break-word;
+}
+.modal-pipeline-flow {
+  display:flex; align-items:center; gap:0; flex-wrap:nowrap;
+  overflow-x:auto; margin-bottom:16px; padding:4px 0;
+}
+.mpf-step {
+  flex-shrink:0; text-align:center; padding:8px 12px;
+  background:var(--bg); border:1px solid var(--border); border-radius:8px;
+  font-size:11px; min-width:90px;
+}
+.mpf-step.mpf-active { border-color:var(--blue); background:rgba(37,99,235,.08); }
+.mpf-step.mpf-done   { border-color:var(--green); background:rgba(22,163,74,.07); }
+.mpf-step .mpf-ico   { font-size:18px; display:block; margin-bottom:3px; }
+.mpf-step .mpf-lbl   { font-weight:600; color:var(--text); }
+.mpf-step .mpf-sub   { font-size:10px; color:var(--muted); margin-top:1px; }
+.mpf-arr { padding:0 4px; color:var(--border); font-size:13px; flex-shrink:0; }
+</style>
+</head>
+<body>
+
+<!-- ── Header ───────────────────────────────────────────────── -->
+<div class="hdr">
+  <h1>CECO-LAD</h1>
+  <span class="badge">Dashboard</span>
+  <span style="color:var(--muted);font-size:12px">Cloud-Edge Log Anomaly Detection</span>
+  <div class="hdr-right">
+    <div class="status-pill">
+      <div class="dot" id="statusDot"></div>
+      <span id="statusTxt">Idle</span>
+    </div>
+  </div>
+</div>
+
+<!-- ── Main layout ───────────────────────────────────────────── -->
+<div class="layout">
+
+  <!-- ─── Sidebar ─────────────────────────────────────────── -->
+  <div id="sidebar">
+
+    <!-- Dataset -->
+    <div class="card">
+      <div class="step-hdr"><span class="step-num">1</span><span class="step-title">Choose Dataset</span></div>
+      <div class="card-help">Select which system log dataset to analyze. Each dataset comes from a real computing environment.</div>
+      <div class="ds-grid">
+        <button class="ds-btn active" id="ds-bgl"  onclick="setDataset('bgl',this)">
+          <span class="ds-name">BGL</span>
+          <span class="ds-sub">Blue Gene/L<br>Supercomputer</span>
+        </button>
+        <button class="ds-btn" id="ds-hdfs" onclick="setDataset('hdfs',this)">
+          <span class="ds-name">HDFS</span>
+          <span class="ds-sub">Hadoop<br>File System</span>
+        </button>
+        <button class="ds-btn" id="ds-os" onclick="setDataset('os',this)">
+          <span class="ds-name">OpenStack</span>
+          <span class="ds-sub">Cloud<br>Platform</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Inference options -->
+    <div class="card">
+      <div class="step-hdr"><span class="step-num">2</span><span class="step-title">Set Sensitivity</span></div>
+      <div class="card-help">Higher sensitivity sends more results to the cloud for a second opinion — slower but more thorough.</div>
+      <div class="field">
+        <label class="lbl">Cloud Double-Check Rate — <span id="tolLabel" style="color:var(--amber)">10 %</span></label>
+        <div class="range-row">
+          <input type="range" id="tolSlider" min="1" max="50" value="10" step="1" oninput="onTolChange(this.value)">
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:3px">
+          <span>1% (faster)</span><span>50% (thorough)</span>
+        </div>
+      </div>
+      <div class="field">
+        <label class="lbl">Detection Method</label>
+        <select id="distSel">
+          <option value="ma">Mahalanobis (recommended)</option>
+          <option value="eu">Euclidean (simpler)</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Config summary -->
+    <div class="card" id="cfgCard">
+      <div class="card-title">Pipeline Config</div>
+      <div id="cfgBody"><div style="color:var(--muted);font-size:12px">Select a dataset to load config.</div></div>
+    </div>
+
+    <!-- DB status (compact, auto-managed) -->
+    <div class="card" id="dbSideCard" style="padding:12px 16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <span style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">Database</span>
+        <span id="dbStatusPill" style="font-size:10px;padding:2px 8px;border-radius:999px;background:var(--border);color:var(--muted)">—</span>
+      </div>
+      <div class="db-stat-grid" style="grid-template-columns:1fr 1fr 1fr;gap:5px">
+        <div class="db-stat"><div class="dsv" id="dbs-raw-os" style="font-size:14px">—</div><div class="dsk">OS raw</div></div>
+        <div class="db-stat"><div class="dsv" id="dbs-win-os-train" style="font-size:14px">—</div><div class="dsk">OS train</div></div>
+        <div class="db-stat"><div class="dsv" id="dbs-win-os-test" style="font-size:14px">—</div><div class="dsk">OS test</div></div>
+      </div>
+      <div id="dbImportStatus" style="font-size:10px;color:var(--muted);margin-top:6px;font-family:monospace;min-height:14px;line-height:1.4"></div>
+    </div>
+
+    <!-- Run / Stop -->
+    <div class="card">
+      <div class="step-hdr"><span class="step-num">3</span><span class="step-title">Run Analysis</span></div>
+      <button class="btn run-btn"  id="runBtn"  onclick="runPipeline()">▶  Start Analysis</button>
+      <div style="height:8px"></div>
+      <button class="btn stop-btn" id="stopBtn" onclick="stopPipeline()" disabled>■  Stop</button>
+      <div style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.6;text-align:center">
+        Runs Edge AI → Routing → Cloud AI.<br>Typical time: a few minutes.
+      </div>
+    </div>
+
+    <!-- Quick stats (populated after results load) -->
+    <div class="card" id="quickStatsCard" style="display:none">
+      <div class="card-title">Quick Results</div>
+      <div id="quickStats"></div>
+    </div>
+
+  </div><!-- /sidebar -->
+
+  <!-- ─── Main panel ───────────────────────────────────────── -->
+  <div>
+
+    <!-- How it works -->
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-title">How CECO-LAD Works</div>
+      <div class="flow-wrap" id="flowDiagram">
+        <div class="flow-step" id="flow-data">
+          <span class="f-ico">📋</span>
+          <div class="f-num">Input</div>
+          <div class="f-title">Log Data</div>
+          <div class="f-desc">Raw system logs split into time windows</div>
+        </div>
+        <div class="flow-arr">→</div>
+        <div class="flow-step" id="flow-edge">
+          <span class="f-ico">⚡</span>
+          <div class="f-num">Step 1</div>
+          <div class="f-title">Edge AI</div>
+          <div class="f-desc">Fast scan on your local machine (no internet needed)</div>
+        </div>
+        <div class="flow-arr">→</div>
+        <div class="flow-step" id="flow-route">
+          <span class="f-ico">🔀</span>
+          <div class="f-num">Step 2</div>
+          <div class="f-title">Smart Routing</div>
+          <div class="f-desc">Uncertain results flagged for cloud review</div>
+        </div>
+        <div class="flow-arr">→</div>
+        <div class="flow-step" id="flow-cloud">
+          <span class="f-ico">☁️</span>
+          <div class="f-num">Step 3</div>
+          <div class="f-title">Cloud AI</div>
+          <div class="f-desc">Deep re-analysis of uncertain windows (GPU)</div>
+        </div>
+        <div class="flow-arr">→</div>
+        <div class="flow-step" id="flow-result">
+          <span class="f-ico">✅</span>
+          <div class="f-num">Output</div>
+          <div class="f-title">Results</div>
+          <div class="f-desc">Combined prediction — fast and accurate</div>
+        </div>
+      </div>
+      <p style="font-size:11px;color:var(--muted);line-height:1.7;margin:0">
+        CECO-LAD is a <strong style="color:var(--text)">collaborative AI system</strong> that detects problems
+        in system logs. The edge AI handles most windows quickly and cheaply; only the uncertain ones are
+        escalated to a more powerful cloud model. This gives you the <em>speed of edge</em> with the
+        <em>accuracy of cloud</em> — without sending all your data over the network.
+      </p>
+    </div>
+
+    <!-- Console -->
+    <div class="card">
+      <div class="console-hdr">
+        <div class="card-title" style="margin:0">Console Output</div>
+        <button class="btn" style="padding:4px 10px;font-size:11px" onclick="clearConsole()">Clear</button>
+      </div>
+      <div class="console" id="console">
+        <span class="ll">Waiting for pipeline output…</span>
+      </div>
+    </div>
+
+    <!-- Live execution progress (shown during run) -->
+    <div class="card progress-card" id="liveCard" style="display:none;margin-top:12px">
+      <div class="card-title">Live Execution</div>
+      <!-- Friendly status banner -->
+      <div class="friendly-banner" id="friendlyBanner">
+        <div class="fb-ico" id="fbIco">⚡</div>
+        <div>
+          <div class="fb-main" id="fbMain">Preparing analysis…</div>
+          <div class="fb-sub"  id="fbSub">The pipeline is starting up.</div>
+        </div>
+      </div>
+
+      <!-- Stage progress track -->
+      <div class="stage-track">
+        <div class="stage-step" id="stg-edge"><span class="s-icon">⚡</span>Edge AI Scan</div>
+        <div class="stage-step" id="stg-routing"><span class="s-icon">🔀</span>Select for Cloud</div>
+        <div class="stage-step" id="stg-cloud"><span class="s-icon">☁️</span>Cloud Re-check</div>
+        <div class="stage-step" id="stg-done"><span class="s-icon">✅</span>Done!</div>
+      </div>
+      <div class="live-grid">
+        <div class="live-box">
+          <div class="live-box-title">What's Happening Now</div>
+          <div class="op-line" id="opLine">—</div>
+          <div style="height:10px"></div>
+          <div class="live-box-title">Windows Sent to Cloud</div>
+          <div class="routing-info" id="routingLive"><span style="color:var(--muted)">Calculated after edge scan…</span></div>
+        </div>
+        <div class="live-box">
+          <div class="live-box-title">Model Calibration Thresholds</div>
+          <div style="font-size:10px;color:var(--muted);margin-bottom:6px">Each model learns where "normal" ends and "anomaly" begins</div>
+          <div id="threshLive" style="max-height:130px;overflow-y:auto">
+            <span style="color:var(--muted);font-size:12px">Appear as each model finishes…</span>
+          </div>
+        </div>
+        <div class="live-box" style="grid-column:1/-1">
+          <div class="live-box-title">Detection Results (Live)</div>
+          <div style="font-size:10px;color:var(--muted);margin-bottom:8px">Scores closer to 100% = better detection · F1 is the most important overall score</div>
+          <div id="metricsLive">
+            <span style="color:var(--muted);font-size:12px">Results appear as each stage completes…</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Results tabs -->
+    <div class="card" style="margin-top:12px">
+      <div class="tabs-bar">
+        <div class="tab active" onclick="showTab('metrics',this)">Metrics</div>
+        <div class="tab" onclick="showTab('sequences',this)">Anomaly Sequences</div>
+        <div class="tab" onclick="showTab('energy',this)">Energy</div>
+        <div class="tab" onclick="showTab('routing',this)">Routing</div>
+        <div class="tab" onclick="showTab('logs',this)">Log Files</div>
+        <div class="tab" onclick="showTab('thresholds',this)">Thresholds</div>
+        <div class="tab" onclick="showTab('rawlogs',this)">Raw Logs</div>
+        <div class="tab" onclick="showTab('pipeline',this)">Pipeline View</div>
+      </div>
+
+      <!-- Metrics -->
+      <div class="tab-pane active" id="pane-metrics">
+        <div id="metricsInner">
+          <div class="empty"><div class="ico">📊</div><p>Click <strong>Start Analysis</strong> in the sidebar to run the pipeline.<br><span style="font-size:11px;color:var(--muted)">Results appear here automatically when it finishes.</span></p></div>
+        </div>
+      </div>
+
+      <!-- Sequences -->
+      <div class="tab-pane" id="pane-sequences">
+        <div id="seqInner">
+          <div class="empty"><div class="ico">🔍</div><p>Run inference to see the anomaly sequence timeline.</p></div>
+        </div>
+      </div>
+
+      <!-- Energy -->
+      <div class="tab-pane" id="pane-energy">
+        <div id="energyInner">
+          <div class="empty"><div class="ico">⚡</div><p>Run inference to see per-model energy scores.</p></div>
+        </div>
+      </div>
+
+      <!-- Routing -->
+      <div class="tab-pane" id="pane-routing">
+        <div id="routingInner">
+          <div class="empty"><div class="ico">🔀</div><p>Run inference to see routing statistics.</p></div>
+        </div>
+      </div>
+
+      <!-- Log files -->
+      <div class="tab-pane" id="pane-logs">
+        <div class="card-title" style="margin-bottom:8px">Available Logs</div>
+        <div class="log-list" id="logList"></div>
+        <div class="card-title" style="margin:12px 0 8px">Log Content</div>
+        <div class="console" id="logContent" style="height:380px">Select a log file above.</div>
+      </div>
+
+      <!-- Thresholds -->
+      <div class="tab-pane" id="pane-thresholds">
+        <div id="thresholdsInner">
+          <div class="empty"><div class="ico">⚙️</div><p>Run evaluate to see per-model EM-GMM thresholds.</p></div>
+        </div>
+      </div>
+
+      <!-- Data Explorer -->
+      <div class="tab-pane" id="pane-dataexplorer">
+        <div class="de-tabs" style="border-bottom:1px solid var(--border)">
+          <div class="de-tab active" onclick="deShowTab('pipeline',this)">Pipeline Flow</div>
+          <div class="de-tab" onclick="deShowTab('rawlogs',this)">Raw Logs</div>
+          <div class="de-tab" onclick="deShowTab('windows',this)">Processed Windows</div>
+        </div>
+
+        <!-- Pipeline sub-pane -->
+        <div class="de-pane active" id="de-pane-pipeline">
+          <div style="margin-bottom:14px">
+            <div class="card-title">End-to-End Data Pipeline</div>
+            <p style="font-size:11px;color:var(--muted);margin-bottom:14px;line-height:1.65">
+              Trace every log line from raw text through parsing, windowing, model scoring, routing, and final prediction.
+              Click any window in the <em>Processed Windows</em> tab to drill down to its source log lines.
+            </p>
+          </div>
+          <div class="pipe-stages" id="pipeStages">
+            <div class="pipe-stage">
+              <span class="ps-ico">📄</span>
+              <div class="ps-title">Raw Logs</div>
+              <div class="ps-count" id="ps-raw">—</div>
+              <div class="ps-sub">structured lines</div>
+            </div>
+            <div class="pipe-arr">→</div>
+            <div class="pipe-stage">
+              <span class="ps-ico">🔍</span>
+              <div class="ps-title">Parsing</div>
+              <div class="ps-count" style="color:var(--muted)">CSV</div>
+              <div class="ps-sub">field extraction</div>
+            </div>
+            <div class="pipe-arr">→</div>
+            <div class="pipe-stage">
+              <span class="ps-ico">🗂️</span>
+              <div class="ps-title">Windowing</div>
+              <div class="ps-count" id="ps-train">—</div>
+              <div class="ps-sub">train windows</div>
+            </div>
+            <div class="pipe-arr">→</div>
+            <div class="pipe-stage">
+              <span class="ps-ico">🧪</span>
+              <div class="ps-title">Test Set</div>
+              <div class="ps-count" id="ps-test">—</div>
+              <div class="ps-sub">test windows</div>
+            </div>
+            <div class="pipe-arr">→</div>
+            <div class="pipe-stage">
+              <span class="ps-ico">⚡</span>
+              <div class="ps-title">Edge Q-BAT</div>
+              <div class="ps-count" style="color:var(--muted)">3×</div>
+              <div class="ps-sub">quantized models</div>
+            </div>
+            <div class="pipe-arr">→</div>
+            <div class="pipe-stage">
+              <span class="ps-ico">🔀</span>
+              <div class="ps-title">Routing</div>
+              <div class="ps-count" id="ps-routed">—</div>
+              <div class="ps-sub">to cloud</div>
+            </div>
+            <div class="pipe-arr">→</div>
+            <div class="pipe-stage">
+              <span class="ps-ico">☁️</span>
+              <div class="ps-title">Cloud BAT</div>
+              <div class="ps-count" style="color:var(--muted)">27×</div>
+              <div class="ps-sub">full-precision</div>
+            </div>
+            <div class="pipe-arr">→</div>
+            <div class="pipe-stage">
+              <span class="ps-ico">✅</span>
+              <div class="ps-title">Predictions</div>
+              <div class="ps-count" id="ps-anom">—</div>
+              <div class="ps-sub">anomalies found</div>
+            </div>
+          </div>
+          <div id="pipeDetail" style="display:none">
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-top:4px">
+              <div class="kpi c-red">
+                <div class="kpi-label">Anomaly Windows (test)</div>
+                <div class="kpi-val" id="ps-kpi-anom">—</div>
+                <div class="kpi-sub">ground truth</div>
+              </div>
+              <div class="kpi c-blue">
+                <div class="kpi-label">Normal Windows (test)</div>
+                <div class="kpi-val" id="ps-kpi-norm">—</div>
+                <div class="kpi-sub">ground truth</div>
+              </div>
+              <div class="kpi c-amber">
+                <div class="kpi-label">Anomaly Raw Logs</div>
+                <div class="kpi-val" id="ps-kpi-raw-anom">—</div>
+                <div class="kpi-sub">labelled lines</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Raw logs sub-pane -->
+        <div class="de-pane" id="de-pane-rawlogs">
+          <div class="de-toolbar">
+            <input type="text" id="rlSearch" placeholder="Search log content…" oninput="deRlSearchDebounced()">
+            <select id="rlLabel" onchange="deLoadRawLogs(0)">
+              <option value="">All labels</option>
+              <option value="-">Normal (-)</option>
+              <option value="0">Normal (0)</option>
+              <option value="1">Anomaly (1)</option>
+            </select>
+            <button class="btn" onclick="deLoadRawLogs(0)">Search</button>
+          </div>
+          <div id="rlInfo" style="font-size:11px;color:var(--muted);margin-bottom:6px"></div>
+          <div class="de-table-wrap">
+            <table class="de-table">
+              <thead><tr>
+                <th style="width:60px">Line #</th>
+                <th style="width:60px">Label</th>
+                <th style="width:150px">Timestamp</th>
+                <th style="width:120px">Component</th>
+                <th style="width:60px">Level</th>
+                <th>Content</th>
+                <th style="width:100px">Block ID</th>
+              </tr></thead>
+              <tbody id="rlBody">
+                <tr><td colspan="7" style="text-align:center;color:var(--muted);padding:30px">
+                  Data is loading automatically — please wait a moment.
+                </td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="de-pager">
+            <button class="btn" id="rlPrev" onclick="deRlPage(-1)" disabled>← Prev</button>
+            <span id="rlPagerInfo">—</span>
+            <button class="btn" id="rlNext" onclick="deRlPage(1)" disabled>Next →</button>
+          </div>
+        </div>
+
+        <!-- Windows sub-pane -->
+        <div class="de-pane" id="de-pane-windows">
+          <div class="de-toolbar">
+            <select id="winSplit" onchange="deLoadWindows(0)">
+              <option value="test">Test split</option>
+              <option value="train">Train split</option>
+            </select>
+            <select id="winLabel" onchange="deLoadWindows(0)">
+              <option value="">All</option>
+              <option value="0">Normal</option>
+              <option value="1">Anomaly</option>
+            </select>
+            <button class="btn" onclick="deLoadWindows(0)">Refresh</button>
+            <span style="font-size:11px;color:var(--muted)">Click a row to trace raw logs</span>
+          </div>
+          <div id="winInfo" style="font-size:11px;color:var(--muted);margin-bottom:6px"></div>
+          <div class="de-table-wrap">
+            <table class="de-table">
+              <thead><tr>
+                <th style="width:70px">Window #</th>
+                <th style="width:70px">Label</th>
+                <th style="width:90px">Length</th>
+                <th style="width:120px">Block ID</th>
+                <th>Content Preview</th>
+              </tr></thead>
+              <tbody id="winBody">
+                <tr><td colspan="5" style="text-align:center;color:var(--muted);padding:30px">
+                  Data is loading automatically — please wait a moment.
+                </td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="de-pager">
+            <button class="btn" id="winPrev" onclick="deWinPage(-1)" disabled>← Prev</button>
+            <span id="winPagerInfo">—</span>
+            <button class="btn" id="winNext" onclick="deWinPage(1)" disabled>Next →</button>
+          </div>
+        </div>
+      </div><!-- /data explorer pane -->
+
+      <!-- Raw Logs -->
+      <div class="tab-pane" id="pane-rawlogs">
+
+        <!-- Toolbar -->
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+          <span style="font-size:12px;font-weight:700;color:var(--text)">Raw Log Messages</span>
+          <!-- Dataset selector for raw logs -->
+          <select id="rlDs" onchange="rlOnDatasetChange()" style="padding:5px 8px;border:1px solid var(--border);border-radius:7px;font-size:12px;background:var(--card);color:var(--text);width:auto">
+            <option value="os">OpenStack</option>
+            <option value="bgl">BGL</option>
+            <option value="hdfs">HDFS</option>
+          </select>
+          <!-- Source-file selector (OS only) -->
+          <select id="rlSrc" onchange="rlLoad(0)" style="padding:5px 8px;border:1px solid var(--border);border-radius:7px;font-size:12px;background:var(--card);color:var(--text);width:auto">
+            <option value="test_normal">normal2.log (test normal)</option>
+            <option value="test_abnormal">abnormal.log (test anomaly)</option>
+            <option value="train_normal">normal1.log (train normal)</option>
+          </select>
+          <!-- Label filter (non-OS) -->
+          <select id="rlLblFilter" onchange="rlLoad(0)" style="display:none;padding:5px 8px;border:1px solid var(--border);border-radius:7px;font-size:12px;background:var(--card);color:var(--text);width:auto">
+            <option value="">All labels</option>
+            <option value="-">Normal (—)</option>
+            <option value="FATAL">FATAL</option>
+            <option value="MACHINE_CHECK">MACHINE_CHECK</option>
+          </select>
+          <input type="text" id="rlSearchBox" placeholder="Search content…" oninput="rlSearchDeb()"
+            style="flex:1;min-width:160px;padding:5px 10px;border:1px solid var(--border);border-radius:7px;font-size:12px;background:var(--card);color:var(--text)">
+          <span id="rlTotalInfo" style="font-size:11px;color:var(--muted);white-space:nowrap"></span>
+        </div>
+
+        <!-- Log table -->
+        <div style="overflow-x:auto;overflow-y:auto;max-height:520px;border:1px solid var(--border);border-radius:8px">
+          <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <thead>
+              <tr style="background:var(--card);position:sticky;top:0;z-index:2">
+                <th style="padding:8px 10px;text-align:left;font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:2px solid var(--border);width:60px">Line</th>
+                <th style="padding:8px 10px;text-align:left;font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:2px solid var(--border);width:170px">Timestamp</th>
+                <th style="padding:8px 10px;text-align:left;font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:2px solid var(--border);width:55px">Level</th>
+                <th style="padding:8px 10px;text-align:left;font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:2px solid var(--border);width:160px">Component</th>
+                <th style="padding:8px 10px;text-align:left;font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:2px solid var(--border)">Message</th>
+              </tr>
+            </thead>
+            <tbody id="rlTableBody">
+              <tr><td colspan="5" style="text-align:center;padding:40px;color:var(--muted)">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Pagination -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px;flex-wrap:wrap;gap:8px">
+          <div style="display:flex;gap:6px;align-items:center">
+            <button class="btn" id="rlPrevBtn" onclick="rlLoad(RL2.page-1)" disabled style="padding:4px 12px;font-size:12px">← Prev</button>
+            <button class="btn" id="rlNextBtn" onclick="rlLoad(RL2.page+1)" disabled style="padding:4px 12px;font-size:12px">Next →</button>
+          </div>
+          <span id="rlPageInfo" style="font-size:11px;color:var(--muted)">—</span>
+          <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)">
+            Rows per page:
+            <select id="rlPerPage" onchange="rlLoad(0)" style="padding:3px 6px;border:1px solid var(--border);border-radius:5px;font-size:11px;background:var(--card);color:var(--text);width:auto">
+              <option value="50">50</option>
+              <option value="100" selected>100</option>
+              <option value="200">200</option>
+            </select>
+          </div>
+        </div>
+
+      </div><!-- /pane-rawlogs -->
+
+      <!-- Pipeline View -->
+      <div class="tab-pane" id="pane-pipeline">
+        <!-- Toolbar -->
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+          <span style="font-size:12px;font-weight:700;color:var(--text)">OpenStack Pipeline</span>
+          <select id="plSplit" onchange="plLoad()" style="padding:5px 8px;border:1px solid var(--border);border-radius:7px;font-size:12px;background:var(--card);color:var(--text);width:auto">
+            <option value="test">Test split (normal2 + abnormal)</option>
+            <option value="train">Train split (normal1)</option>
+          </select>
+          <select id="plLabel" onchange="plLoad()" style="padding:5px 8px;border:1px solid var(--border);border-radius:7px;font-size:12px;background:var(--card);color:var(--text);width:auto">
+            <option value="">All sessions</option>
+            <option value="0">Normal only</option>
+            <option value="1">Anomaly only</option>
+          </select>
+          <button class="btn" onclick="plLoad()" style="padding:4px 12px;font-size:12px">Refresh</button>
+          <span id="plInfo" style="font-size:11px;color:var(--muted)"></span>
+        </div>
+
+        <!-- 3-column layout -->
+        <div class="pl-layout">
+
+          <!-- Column 1: Raw Logs -->
+          <div class="pl-panel">
+            <div class="pl-header">
+              <span class="ph-ico">📄</span>
+              <span class="ph-title">Raw Log Lines</span>
+              <span class="ph-count" id="plRawCount">—</span>
+            </div>
+            <div class="pl-toolbar">
+              <select id="plRawSource" onchange="plLoadRaw(0)" style="padding:4px 6px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:11px;width:auto">
+                <option value="test_normal">test_normal (normal2.log)</option>
+                <option value="test_abnormal">test_abnormal (abnormal.log)</option>
+                <option value="train_normal">train_normal (normal1.log)</option>
+              </select>
+              <input type="text" id="plRawSearch" placeholder="Search…" oninput="plRawSearchDeb()">
+            </div>
+            <div class="pl-body" id="plRawBody">
+              <div style="text-align:center;padding:30px;color:var(--muted);font-size:12px">Data loading — please wait a moment.</div>
+            </div>
+            <div class="pl-pager">
+              <button class="btn" id="plRawPrev" onclick="plLoadRaw(PL.rawPage-1)" disabled>←</button>
+              <span id="plRawPagerInfo">—</span>
+              <button class="btn" id="plRawNext" onclick="plLoadRaw(PL.rawPage+1)" disabled>→</button>
+            </div>
+          </div>
+
+          <!-- Column 2: Processed Sessions -->
+          <div class="pl-panel">
+            <div class="pl-header">
+              <span class="ph-ico">🗂️</span>
+              <span class="ph-title">Processed Sessions</span>
+              <span class="ph-count" id="plSessCount">—</span>
+            </div>
+            <div class="pl-toolbar">
+              <span style="font-size:10px;color:var(--muted)">Click a session to inspect</span>
+            </div>
+            <div class="pl-body" id="plSessBody">
+              <div style="text-align:center;padding:30px;color:var(--muted);font-size:12px">Data loading — please wait a moment.</div>
+            </div>
+            <div class="pl-pager">
+              <button class="btn" id="plSessPrev" onclick="plLoadSessions(PL.sessPage-1)" disabled>←</button>
+              <span id="plSessPagerInfo">—</span>
+              <button class="btn" id="plSessNext" onclick="plLoadSessions(PL.sessPage+1)" disabled>→</button>
+            </div>
+          </div>
+
+          <!-- Column 3: Execution Results -->
+          <div class="pl-panel">
+            <div class="pl-header">
+              <span class="ph-ico">✅</span>
+              <span class="ph-title">Execution Results</span>
+              <span class="ph-count" id="plExecCount">—</span>
+            </div>
+            <div class="pl-toolbar">
+              <span style="font-size:10px;color:var(--muted)">Edge → Routing → Final prediction</span>
+            </div>
+            <div class="pl-body" id="plExecBody">
+              <div style="text-align:center;padding:30px;color:var(--muted);font-size:12px">Run inference to see predictions.</div>
+            </div>
+            <div class="pl-pager">
+              <button class="btn" id="plExecPrev" onclick="plExecPage(PL.execPage-1)" disabled>←</button>
+              <span id="plExecPagerInfo">—</span>
+              <button class="btn" id="plExecNext" onclick="plExecPage(PL.execPage+1)" disabled>→</button>
+            </div>
+          </div>
+
+        </div><!-- /pl-layout -->
+
+        <!-- Session Detail (appears below when a session is clicked) -->
+        <div class="pl-detail-box" id="plDetail" style="display:none">
+          <div class="pl-detail-title">
+            <span id="plDetailTitle">Session —</span>
+            <span id="plDetailLbl" style="padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700"></span>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px" id="plDetailMeta"></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div>
+              <div style="font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">
+                Event ID sequence (processed input)
+              </div>
+              <div id="plDetailSeq" style="background:#1a1d27;color:#f59e0b;font-family:monospace;font-size:10px;border-radius:7px;padding:8px 12px;max-height:80px;overflow-y:auto;word-break:break-all;line-height:1.5"></div>
+            </div>
+            <div>
+              <div style="font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">
+                Corresponding raw log lines (~<span id="plDetailRawCount">0</span>)
+              </div>
+              <div id="plDetailRawTable" style="max-height:120px;overflow-y:auto">
+                <table class="de-table" style="font-size:10px">
+                  <thead><tr><th>Line#</th><th>Timestamp</th><th>Level</th><th>Content</th></tr></thead>
+                  <tbody id="plDetailRawBody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /pane-pipeline -->
+
+    </div><!-- /results card -->
+
+<!-- ── Window detail modal ───────────────────────────────────── -->
+<div class="modal-overlay" id="winModal" onclick="closeWinModal(event)">
+  <div class="modal-box">
+    <button class="modal-close" onclick="closeWinModal()">✕</button>
+    <div class="modal-title" id="modalTitle">Window Detail</div>
+
+    <!-- Mini pipeline flow for this window -->
+    <div class="modal-pipeline-flow">
+      <div class="mpf-step mpf-done">
+        <span class="mpf-ico">📄</span>
+        <div class="mpf-lbl">Raw Logs</div>
+        <div class="mpf-sub" id="mpf-raw-count">— lines</div>
+      </div>
+      <div class="mpf-arr">→</div>
+      <div class="mpf-step mpf-done">
+        <span class="mpf-ico">🗂️</span>
+        <div class="mpf-lbl">Window</div>
+        <div class="mpf-sub" id="mpf-win-len">size —</div>
+      </div>
+      <div class="mpf-arr">→</div>
+      <div class="mpf-step mpf-active">
+        <span class="mpf-ico">⚡</span>
+        <div class="mpf-lbl">Edge Q-BAT</div>
+        <div class="mpf-sub">scored</div>
+      </div>
+      <div class="mpf-arr">→</div>
+      <div class="mpf-step" id="mpf-routed-step">
+        <span class="mpf-ico">🔀</span>
+        <div class="mpf-lbl">Routing</div>
+        <div class="mpf-sub" id="mpf-routed-sub">—</div>
+      </div>
+      <div class="mpf-arr">→</div>
+      <div class="mpf-step">
+        <span class="mpf-ico">✅</span>
+        <div class="mpf-lbl">Prediction</div>
+        <div class="mpf-sub" id="mpf-pred-sub">—</div>
+      </div>
+    </div>
+
+    <div class="modal-meta-grid" id="modalMeta"></div>
+
+    <div class="modal-section">
+      <div class="modal-section-title">Content (log templates)</div>
+      <div class="modal-content-box" id="modalContent"></div>
+    </div>
+
+    <div class="modal-section" id="modalLogsSection">
+      <div class="modal-section-title">
+        Source Raw Log Lines — <span id="modalLogsCount" style="color:var(--blue)">0</span> lines
+      </div>
+      <div class="de-table-wrap" style="max-height:280px">
+        <table class="de-table">
+          <thead><tr>
+            <th style="width:60px">Line #</th>
+            <th style="width:60px">Label</th>
+            <th style="width:150px">Timestamp</th>
+            <th style="width:100px">Component</th>
+            <th style="width:50px">Level</th>
+            <th>Content</th>
+          </tr></thead>
+          <tbody id="modalLogsBody"></tbody>
+        </table>
+      </div>
+      <div id="modalNoLogs" style="color:var(--muted);font-size:12px;padding:12px 0;display:none">
+        Raw logs are still loading into the database. Check the Database status in the sidebar and try again shortly.
+      </div>
+    </div>
+  </div>
+</div>
+  </div><!-- /main panel -->
+</div><!-- /layout -->
+
+<script>
+/* ════════════════════════════════════════════════
+   State
+   ════════════════════════════════════════════════ */
+const S = {
+  dataset: 'bgl',
+  running: false,
+  es:      null,
+  results: null,
+  charts:  {},
+};
+
+/* ════════════════════════════════════════════════
+   Init
+   ════════════════════════════════════════════════ */
+document.addEventListener('DOMContentLoaded', () => {
+  loadLogs();
+  pollStatus();
+  loadConfigSummary('bgl');
+  refreshDbStatus();
+});
+
+/* ════════════════════════════════════════════════
+   Dataset / Stage selectors
+   ════════════════════════════════════════════════ */
+function setDataset(ds, btn) {
+  S.dataset = ds;
+  document.querySelectorAll('#sidebar .card:first-child .ds-btn')
+    .forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  loadConfigSummary(ds);
+  // Refresh DE sub-tabs if visible
+  if (_deCurrentTab === 'rawlogs')  deLoadRawLogs(0);
+  if (_deCurrentTab === 'windows')  deLoadWindows(0);
+  if (_deCurrentTab === 'pipeline') loadPipelineStats();
+}
+
+function onTolChange(v) {
+  S.routing_tolerance = v / 100;
+  document.getElementById('tolLabel').textContent = v + ' %';
+}
+
+/* ════════════════════════════════════════════════
+   Run / Stop
+   ════════════════════════════════════════════════ */
+async function runPipeline() {
+  if (S.running) return;
+  clearConsole();
+  resetLiveProgress();
+  log(`[Dashboard] Starting inference on dataset ${S.dataset}…`, 'li');
+
+  const payload = {
+    command:           'infer',
+    dataset:           S.dataset,
+    routing_tolerance: parseFloat(document.getElementById('tolSlider').value) / 100,
+    routing_distance:  document.getElementById('distSel').value,
+  };
+
+  try {
+    const r = await fetch('/api/run', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) {
+      const e = await r.json();
+      log(`[Error] ${e.detail}`, 'le');
+      return;
+    }
+    setRunning(true);
+    connectStream();
+  } catch (e) {
+    log(`[Error] ${e.message}`, 'le');
+  }
+}
+
+async function stopPipeline() {
+  await fetch('/api/stop', {method: 'POST'});
+  log('[Dashboard] Stop requested.', 'lw');
+  setRunning(false);
+}
+
+/* ════════════════════════════════════════════════
+   SSE stream
+   ════════════════════════════════════════════════ */
+function connectStream() {
+  if (S.es) { S.es.close(); S.es = null; }
+  const es = new EventSource('/api/stream');
+  S.es = es;
+
+  es.onmessage = ev => {
+    const line = JSON.parse(ev.data);
+    const cls =
+      line.includes('ERROR')   ? 'le' :
+      line.includes('WARNING') ? 'lw' :
+      /===.*===$/.test(line.trim()) ? 'ls' :
+      line.includes('Accuracy') ? 'lm' : 'li';
+    log(line, cls);
+    parseLiveLine(line);
+  };
+
+  es.addEventListener('done', () => {
+    es.close(); S.es = null;
+    setRunning(false);
+    setStage(4);
+    setFlowStep('result');
+    setFriendlyStatus('✅', 'Analysis complete!',
+      'All stages finished. Results are loading below — check the Metrics tab for your detection scores.');
+    log('[Dashboard] Pipeline finished. Refreshing results…', 'ls');
+    setTimeout(() => loadResults(S.dataset), 1200);
+    setTimeout(loadLogs, 1500);
+    setTimeout(refreshDbStatus, 1600);
+  });
+
+  es.onerror = () => {
+    if (!S.running) { es.close(); S.es = null; }
+  };
+}
+
+/* ════════════════════════════════════════════════
+   Status polling
+   ════════════════════════════════════════════════ */
+async function pollStatus() {
+  try {
+    const r = await fetch('/api/status');
+    const d = await r.json();
+    if (d.running !== S.running) {
+      setRunning(d.running);
+      if (!d.running && S.es) { S.es.close(); S.es = null; }
+    }
+  } catch {}
+  setTimeout(pollStatus, 3000);
+}
+
+function setRunning(on) {
+  S.running = on;
+  document.getElementById('runBtn').disabled  = on;
+  document.getElementById('stopBtn').disabled = !on;
+  const dot = document.getElementById('statusDot');
+  dot.className = 'dot' + (on ? ' running' : '');
+  document.getElementById('statusTxt').textContent = on ? 'Running…' : 'Idle';
+}
+
+/* ════════════════════════════════════════════════
+   Console helpers
+   ════════════════════════════════════════════════ */
+function log(text, cls = 'll') {
+  const el = document.getElementById('console');
+  const d = document.createElement('div');
+  d.className = cls;
+  d.textContent = text;
+  el.appendChild(d);
+  el.scrollTop = el.scrollHeight;
+  while (el.children.length > 1500) el.removeChild(el.firstChild);
+}
+function clearConsole() {
+  document.getElementById('console').innerHTML = '';
+}
+
+/* ════════════════════════════════════════════════
+   Load results
+   ════════════════════════════════════════════════ */
+async function loadResults(ds) {
+  try {
+    const r = await fetch(`/api/outputs/${ds}`);
+    const data = await r.json();
+    S.results = data;
+    renderMetrics(data);
+    renderSequences(data);
+    renderEnergy(data);
+    renderRouting(data);
+    renderThresholds(data);
+    renderQuickStats(data);
+  } catch (e) {
+    console.error('loadResults:', e);
+  }
+}
+
+/* ════════════════════════════════════════════════
+   Tab switcher
+   ════════════════════════════════════════════════ */
+function showTab(name, el) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('pane-' + name).classList.add('active');
+
+  // Redraw canvas after becoming visible
+  if (name === 'sequences') {
+    setTimeout(() => redrawTimelines(), 60);
+  }
+  if (name === 'logs') loadLogs();
+}
+
+/* ════════════════════════════════════════════════
+   Metrics tab
+   ════════════════════════════════════════════════ */
+function renderMetrics(data) {
+  const el = document.getElementById('metricsInner');
+  const s = data?.stats;
+  const hasEdge   = s?.edge_fscore !== undefined;
+  const hasHybrid = s?.hybrid_fscore !== undefined;
+
+  if (!hasEdge && !hasHybrid) {
+    el.innerHTML = '<div class="empty"><div class="ico">📊</div><p>No result files found. Run evaluate or inference first.</p></div>';
+    return;
+  }
+
+  // Best available metric (prefer hybrid)
+  const best = hasHybrid
+    ? {label:'Hybrid', acc:s.hybrid_accuracy, prec:s.hybrid_precision, rec:s.hybrid_recall, f1:s.hybrid_fscore}
+    : {label:'Edge',   acc:s.edge_accuracy,   prec:s.edge_precision,   rec:s.edge_recall,   f1:s.edge_fscore};
+
+  const rows = [];
+  if (hasEdge)   rows.push(['Edge (Q-BAT)',        'tag-edge',   s.edge_accuracy,   s.edge_precision,   s.edge_recall,   s.edge_fscore]);
+  if (hasHybrid) rows.push(['Hybrid (Edge+Cloud)',  'tag-hybrid', s.hybrid_accuracy, s.hybrid_precision, s.hybrid_recall, s.hybrid_fscore]);
+
+  el.innerHTML = `
+    <div class="kpi-row">
+      <div class="kpi c-blue">
+        <div class="kpi-label">Accuracy</div>
+        <div class="kpi-val">${pct(best.acc)}</div>
+        <div class="kpi-sub">${best.label}</div>
+      </div>
+      <div class="kpi c-green">
+        <div class="kpi-label">Precision</div>
+        <div class="kpi-val">${pct(best.prec)}</div>
+        <div class="kpi-sub">${best.label}</div>
+      </div>
+      <div class="kpi c-amber">
+        <div class="kpi-label">Recall</div>
+        <div class="kpi-val">${pct(best.rec)}</div>
+        <div class="kpi-sub">${best.label}</div>
+      </div>
+      <div class="kpi c-red">
+        <div class="kpi-label">F-score</div>
+        <div class="kpi-val">${pct(best.f1)}</div>
+        <div class="kpi-sub">${best.label}</div>
+      </div>
+    </div>
+
+    <table class="tbl" style="margin-bottom:20px">
+      <thead><tr>
+        <th>Stage</th><th>Accuracy</th><th>Precision</th><th>Recall</th><th>F-score</th>
+      </tr></thead>
+      <tbody>
+        ${rows.map(r=>`<tr>
+          <td><span class="tag ${r[1]}">${r[0]}</span></td>
+          <td>${f4(r[2])}</td><td>${f4(r[3])}</td><td>${f4(r[4])}</td>
+          <td><strong>${f4(r[5])}</strong></td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+
+    <div class="card-title">Incremental Ensemble F-score (from latest evaluate log)</div>
+    <div class="chart-box"><canvas id="ensChart"></canvas></div>
+
+    <div class="metric-guide">
+      <div class="metric-guide-item">
+        <div class="mg-label">🎯 Precision — "Is the alarm real?"</div>
+        <div class="mg-desc">When the system flags a window as an anomaly, how often is it actually an anomaly? High precision = fewer false alarms.</div>
+      </div>
+      <div class="metric-guide-item">
+        <div class="mg-label">🔍 Recall — "Did it catch everything?"</div>
+        <div class="mg-desc">Of all the real anomalies in the data, how many did the system find? High recall = fewer missed problems.</div>
+      </div>
+      <div class="metric-guide-item">
+        <div class="mg-label">⚖️ F-score — "Overall quality"</div>
+        <div class="mg-desc">Balances precision and recall into one score. <strong>This is the most important number.</strong> Closer to 1.0 (100%) is better.</div>
+      </div>
+      <div class="metric-guide-item">
+        <div class="mg-label">✓ Accuracy — "How often is it right?"</div>
+        <div class="mg-desc">Percentage of all windows (normal and anomalous) correctly classified. Can be misleading when anomalies are rare — F-score is more reliable.</div>
+      </div>
+    </div>
+    <div style="margin-top:14px;font-size:11px;color:var(--muted);line-height:1.7;padding:10px 12px;background:var(--bg);border-radius:8px;border:1px solid var(--border)">
+      <strong style="color:var(--text)">Edge vs. Hybrid:</strong> The Edge score uses only the fast local AI.
+      The Hybrid score combines edge + cloud re-analysis — it should be equal or better,
+      especially for ambiguous log patterns.
+    </div>
+  `;
+
+  buildEnsembleChart();
+}
+
+async function buildEnsembleChart() {
+  try {
+    const lr = await fetch('/api/logs'); const {logs} = await lr.json();
+    const evalLog = logs.find(l => l.name.startsWith('evaluate_bat'));
+    if (!evalLog) return;
+    const dr = await fetch(`/api/logs/${evalLog.name}`);
+    const {metrics} = await dr.json();
+
+    const maj = metrics.majority   || [];
+    const con = metrics.consensus  || [];
+    const alo = metrics.at_least_one || [];
+    if (!maj.length && !con.length) return;
+
+    const canvas = document.getElementById('ensChart');
+    if (!canvas) return;
+    if (S.charts.ens) S.charts.ens.destroy();
+
+    const mk = (arr, label, color) => arr.length ? [{
+      label, data: arr.map(m=>m.f1),
+      borderColor: color, backgroundColor: color + '18',
+      borderWidth: 1.5, pointRadius: 0, tension: 0,
+    }] : [];
+
+    S.charts.ens = new Chart(canvas, {
+      type: 'line',
+      data: {
+        labels: maj.length ? maj.map((_,i)=>i+1) : con.map((_,i)=>i+1),
+        datasets: [
+          ...mk(maj, 'Majority',     '#3b82f6'),
+          ...mk(con, 'Consensus',    '#22c55e'),
+          ...mk(alo, 'At Least One', '#f59e0b'),
+        ],
+      },
+      options: chartOpts('Models Added', 'F-score', 0, 1),
+    });
+  } catch (e) { console.error('ensChart:', e); }
+}
+
+/* ════════════════════════════════════════════════
+   Anomaly Sequences tab
+   ════════════════════════════════════════════════ */
+function renderSequences(data) {
+  const el = document.getElementById('seqInner');
+  if (!data?.ground_truth?.length) {
+    el.innerHTML = '<div class="empty"><div class="ico">🔍</div><p>Run inference to see anomaly sequence visualization.</p></div>';
+    return;
+  }
+
+  const N    = data.ground_truth_full_len || data.ground_truth.length;
+  const step = data.ground_truth_step     || 1;
+
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:14px">
+      <span style="color:var(--muted)">${N.toLocaleString()} windows${step>1?` · 1 px = ${step} windows`:''}</span>
+      <div class="legend">
+        <span><span class="ldot" style="background:#22c55e"></span>Normal</span>
+        <span><span class="ldot" style="background:#ef4444"></span>Anomaly</span>
+        ${data.routed_indices?.length ? '<span><span class="ldot" style="background:#f59e0b"></span>Routed to Cloud</span>' : ''}
+      </div>
+    </div>
+    <div class="tl-row">
+      <div class="tl-label">GROUND TRUTH</div>
+      <canvas class="tl-canvas" id="cvGT" height="36"></canvas>
+    </div>
+    ${data.edge_preds?.length ? `
+    <div class="tl-row">
+      <div class="tl-label">EDGE PREDICTIONS (Q-BAT)</div>
+      <canvas class="tl-canvas" id="cvEdge" height="36"></canvas>
+    </div>` : ''}
+    ${data.hybrid_preds?.length ? `
+    <div class="tl-row">
+      <div class="tl-label">HYBRID PREDICTIONS (Final)</div>
+      <canvas class="tl-canvas" id="cvHybrid" height="36"></canvas>
+    </div>` : ''}
+    <div style="font-size:11px;color:var(--muted);margin-top:8px">
+      Red = anomaly, green = normal${data.routed_indices?.length ? ', orange ticks = windows routed to cloud' : ''}.
+    </div>
+  `;
+
+  setTimeout(() => redrawTimelines(), 60);
+}
+
+function redrawTimelines() {
+  const data = S.results;
+  if (!data?.ground_truth) return;
+  const ri = data.routed_indices?.length
+    ? data.routed_indices.map(i => Math.floor(i / (data.routed_indices_step || 1)))
+    : null;
+  drawTimeline('cvGT',     data.ground_truth,  null);
+  if (data.edge_preds)   drawTimeline('cvEdge',   data.edge_preds,   null);
+  if (data.hybrid_preds) drawTimeline('cvHybrid', data.hybrid_preds, ri);
+}
+
+function drawTimeline(id, preds, routedIdxs) {
+  const cv = document.getElementById(id);
+  if (!cv) return;
+  const w = cv.clientWidth || cv.offsetWidth || 800;
+  cv.width  = w;
+  cv.height = 36;
+  const ctx = cv.getContext('2d');
+  const n = preds.length;
+
+  for (let x = 0; x < w; x++) {
+    const s0 = Math.floor(x * n / w);
+    const s1 = Math.max(s0 + 1, Math.floor((x + 1) * n / w));
+    let anom = 0;
+    for (let i = s0; i < s1; i++) if (preds[i] === 1) anom++;
+    const frac = anom / (s1 - s0);
+    // lerp green (#22c55e = 34,197,94) → red (#ef4444 = 239,68,68)
+    const r = Math.round(34  + frac * (239 - 34));
+    const g = Math.round(197 + frac * (68  - 197));
+    const b = Math.round(94  + frac * (68  - 94));
+    ctx.fillStyle = `rgb(${r},${g},${b})`;
+    ctx.fillRect(x, 0, 1, 36);
+  }
+
+  // Orange ticks for routed windows (top 8 px)
+  if (routedIdxs?.length) {
+    ctx.fillStyle = 'rgba(245,158,11,0.85)';
+    for (const idx of routedIdxs) {
+      const x = Math.floor(idx * w / n);
+      if (x >= 0 && x < w) ctx.fillRect(x, 0, 1, 8);
+    }
+  }
+}
+
+/* ════════════════════════════════════════════════
+   Energy tab
+   ════════════════════════════════════════════════ */
+function renderEnergy(data) {
+  const el = document.getElementById('energyInner');
+  if (!data?.energy_matrix?.length) {
+    el.innerHTML = '<div class="empty"><div class="ico">⚡</div><p>Run inference to see per-model energy scores.</p></div>';
+    return;
+  }
+
+  const mat     = data.energy_matrix;
+  const N       = data.energy_matrix_full_len || mat.length;
+  const step    = data.energy_matrix_step || 1;
+  const nModels = mat[0]?.length || 0;
+  const colors  = ['#3b82f6', '#22c55e', '#f59e0b'];
+
+  el.innerHTML = `
+    <div style="color:var(--muted);font-size:12px;margin-bottom:12px">
+      ${N.toLocaleString()} windows × ${nModels} Q-BAT models${step>1 ? ` · showing every ${step}th window` : ''}
+    </div>
+    <div class="chart-box"><canvas id="energyChart"></canvas></div>
+  `;
+
+  if (S.charts.energy) S.charts.energy.destroy();
+  const canvas = document.getElementById('energyChart');
+
+  S.charts.energy = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels: mat.map((_,i) => i * step),
+      datasets: Array.from({length: nModels}, (_,mi) => ({
+        label: `Q-BAT Model ${mi+1}`,
+        data:  mat.map(row => row[mi]),
+        borderColor: colors[mi] || '#94a3b8',
+        backgroundColor: 'transparent',
+        borderWidth: 1,
+        pointRadius: 0,
+        tension: 0,
+      })),
+    },
+    options: chartOpts('Window Index', 'Anomaly Energy'),
+  });
+}
+
+/* ════════════════════════════════════════════════
+   Routing tab
+   ════════════════════════════════════════════════ */
+function renderRouting(data) {
+  const el = document.getElementById('routingInner');
+  const rs = data?.routing_stats;
+  if (!rs) {
+    el.innerHTML = '<div class="empty"><div class="ico">🔀</div><p>Run inference to see Mahalanobis routing statistics.</p></div>';
+    return;
+  }
+
+  const edgeOnly = rs.total_windows - rs.routed_windows;
+  const edgePct  = (100 - rs.routing_pct).toFixed(1);
+
+  el.innerHTML = `
+    <div class="rt-grid">
+      <div class="rt-stat">
+        <div class="num" style="color:var(--text)">${rs.total_windows.toLocaleString()}</div>
+        <div class="desc">Total Windows</div>
+      </div>
+      <div class="rt-stat">
+        <div class="num" style="color:var(--green)">${edgeOnly.toLocaleString()}</div>
+        <div class="desc">Edge Only</div>
+      </div>
+      <div class="rt-stat">
+        <div class="num" style="color:var(--amber)">${rs.routed_windows.toLocaleString()}</div>
+        <div class="desc">Routed to Cloud</div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:240px 1fr;gap:24px;align-items:center">
+      <div style="position:relative;height:240px"><canvas id="donutChart"></canvas></div>
+      <div>
+        <div style="margin-bottom:14px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:5px;font-size:13px">
+            <span>Edge Only</span><span style="color:var(--green);font-weight:600">${edgePct}%</span>
+          </div>
+          <div class="bar-track"><div class="bar-fill" style="width:${edgePct}%;background:var(--green)"></div></div>
+        </div>
+        <div style="margin-bottom:14px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:5px;font-size:13px">
+            <span>Routed to Cloud</span><span style="color:var(--amber);font-weight:600">${rs.routing_pct}%</span>
+          </div>
+          <div class="bar-track"><div class="bar-fill" style="width:${rs.routing_pct}%;background:var(--amber)"></div></div>
+        </div>
+        <p style="font-size:12px;color:var(--muted);line-height:1.7;margin-top:18px">
+          Only <strong style="color:var(--amber)">${rs.routing_pct}%</strong> of windows required cloud
+          re-evaluation — the edge handles the remaining
+          <strong style="color:var(--green)">${edgePct}%</strong> locally, minimising data
+          sent from edge to cloud.
+        </p>
+      </div>
+    </div>
+  `;
+
+  if (S.charts.donut) S.charts.donut.destroy();
+  S.charts.donut = new Chart(document.getElementById('donutChart'), {
+    type: 'doughnut',
+    data: {
+      labels: ['Edge Only', 'Routed to Cloud'],
+      datasets: [{
+        data: [edgeOnly, rs.routed_windows],
+        backgroundColor: ['#16a34a', '#d97706'],
+        borderColor: '#ffffff', borderWidth: 3,
+      }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, cutout: '68%',
+      plugins: {
+        legend: { labels: { color: '#475569', padding: 16 }, position: 'bottom' },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const v = ctx.raw;
+              const pct = (v/rs.total_windows*100).toFixed(1);
+              return ` ${v.toLocaleString()} (${pct}%)`;
+            },
+          },
+        },
+      },
+    },
+  });
+}
+
+/* ════════════════════════════════════════════════
+   Thresholds tab
+   ════════════════════════════════════════════════ */
+function renderThresholds(data) {
+  const el = document.getElementById('thresholdsInner');
+  const cloud = data?.thresholds_cloud;
+  const edge  = data?.thresholds_edge;
+
+  if (!cloud && !edge) {
+    el.innerHTML = '<div class="empty"><div class="ico">⚙️</div><p>Run evaluate or inference to see EM-GMM thresholds.</p></div>';
+    return;
+  }
+
+  let html = '';
+
+  if (edge?.models) {
+    html += `<div class="card-title">Edge Thresholds (Q-BAT · ${edge.models.length} models)</div>
+    <div class="th-grid" style="margin-bottom:18px">
+      ${edge.models.map(m=>`<div class="th-item"><span class="th-name">${m.name}</span><span class="th-val">${m.threshold.toFixed(6)}</span></div>`).join('')}
+    </div>`;
+  }
+
+  if (cloud?.models) {
+    html += `<div class="card-title">Cloud Thresholds (BAT · ${cloud.models.length} models)</div>
+    <div class="th-grid">
+      ${cloud.models.map(m=>`<div class="th-item"><span class="th-name">${m.name}</span><span class="th-val">${m.threshold.toFixed(6)}</span></div>`).join('')}
+    </div>`;
+  }
+
+  el.innerHTML = html;
+}
+
+/* ════════════════════════════════════════════════
+   Quick stats sidebar
+   ════════════════════════════════════════════════ */
+function renderQuickStats(data) {
+  const s  = data?.stats;
+  const rs = data?.routing_stats;
+  if (!s && !rs) {
+    document.getElementById('quickStatsCard').style.display = 'none';
+    return;
+  }
+
+  const rows = [];
+  if (s?.hybrid_fscore !== undefined)
+    rows.push(['Hybrid F-score',  f4(s.hybrid_fscore), 'var(--green)']);
+  if (s?.hybrid_precision !== undefined)
+    rows.push(['Hybrid Precision', f4(s.hybrid_precision), 'var(--blue)']);
+  if (s?.hybrid_recall !== undefined)
+    rows.push(['Hybrid Recall',   f4(s.hybrid_recall), 'var(--blue)']);
+  if (s?.edge_fscore !== undefined)
+    rows.push(['Edge F-score',    f4(s.edge_fscore), 'var(--muted)']);
+  if (rs)
+    rows.push(['Cloud Routing',   rs.routing_pct + '%', 'var(--amber)']);
+
+  document.getElementById('quickStatsCard').style.display = 'block';
+  document.getElementById('quickStats').innerHTML = rows.map(([lbl,val,col])=>`
+    <div class="qs-row">
+      <span class="qs-label">${lbl}</span>
+      <span style="font-weight:600;color:${col}">${val}</span>
+    </div>`).join('');
+}
+
+/* ════════════════════════════════════════════════
+   Log files tab
+   ════════════════════════════════════════════════ */
+async function loadLogs() {
+  try {
+    const r = await fetch('/api/logs');
+    const {logs} = await r.json();
+    const el = document.getElementById('logList');
+    if (!logs.length) {
+      el.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:6px">No log files found.</div>';
+      return;
+    }
+    el.innerHTML = logs.map(l=>`
+      <div class="log-entry" onclick="loadLog('${l.name}',this)">
+        <span>${l.name}</span>
+        <span style="color:var(--muted)">${fmtBytes(l.size)}</span>
+      </div>`).join('');
+  } catch {}
+}
+
+async function loadLog(name, btn) {
+  document.querySelectorAll('.log-entry').forEach(e=>e.classList.remove('sel'));
+  btn.classList.add('sel');
+  try {
+    const r = await fetch(`/api/logs/${name}`);
+    const {lines} = await r.json();
+    const el = document.getElementById('logContent');
+    el.innerHTML = lines.map(line=>{
+      const cls =
+        line.includes('ERROR')   ? 'le' :
+        line.includes('WARNING') ? 'lw' :
+        line.includes('Accuracy') ? 'lm' :
+        /===.*===/.test(line)    ? 'ls' : 'll';
+      return `<div class="${cls}">${esc(line)}</div>`;
+    }).join('');
+    el.scrollTop = el.scrollHeight;
+  } catch {}
+}
+
+/* ════════════════════════════════════════════════
+   Chart defaults
+   ════════════════════════════════════════════════ */
+function chartOpts(xLabel, yLabel, yMin, yMax) {
+  return {
+    responsive: true, maintainAspectRatio: false, animation: false,
+    plugins: { legend: { labels: { color: '#475569', font:{size:12} } } },
+    scales: {
+      x: {
+        ticks: { color:'#64748b', maxTicksLimit:10 },
+        grid:  { color:'#e2e8f0' },
+        title: { display:true, text:xLabel, color:'#64748b' },
+      },
+      y: {
+        ticks: { color:'#64748b' },
+        grid:  { color:'#e2e8f0' },
+        title: { display:true, text:yLabel, color:'#64748b' },
+        ...(yMin !== undefined ? {min:yMin} : {}),
+        ...(yMax !== undefined ? {max:yMax} : {}),
+      },
+    },
+  };
+}
+
+/* ════════════════════════════════════════════════
+   Config summary
+   ════════════════════════════════════════════════ */
+async function loadConfigSummary(ds) {
+  try {
+    const r = await fetch(`/api/config/${ds}`);
+    if (!r.ok) { renderCfg(null); return; }
+    renderCfg(await r.json());
+  } catch { renderCfg(null); }
+}
+
+function renderCfg(cfg) {
+  const el = document.getElementById('cfgBody');
+  if (!cfg) {
+    el.innerHTML = '<div style="color:var(--muted);font-size:12px">Config not found.</div>';
+    return;
+  }
+  const thPill = cfg.thresholds_ready
+    ? '<span class="pill-ok">Ready</span>'
+    : '<span class="pill-warn">Not found</span>';
+  const cloudLabel = cfg.has_cloud
+    ? `${cfg.n_cloud_models} BAT checkpoints`
+    : null;
+  const cloudPill = cfg.has_cloud
+    ? `<span class="pill-ok">${cloudLabel}</span>`
+    : '<span class="pill-no">Edge only</span>';
+  const dist = cfg.routing_distance === 'ma' ? 'Mahalanobis' : cfg.routing_distance === 'eu' ? 'Euclidean' : (cfg.routing_distance || '—');
+  el.innerHTML = `
+    <div class="cfg-row"><span class="cfg-key">Dataset</span><span class="cfg-val">${cfg.dataset || '—'}</span></div>
+    <div class="cfg-row"><span class="cfg-key">Window size</span><span class="cfg-val">${cfg.win_size != null ? cfg.win_size : '—'}</span></div>
+    <div class="cfg-row"><span class="cfg-key">Routing tol.</span><span class="cfg-val">${cfg.routing_tolerance != null ? (cfg.routing_tolerance*100).toFixed(0)+'%' : '—'}</span></div>
+    <div class="cfg-row"><span class="cfg-key">Distance</span><span class="cfg-val">${dist}</span></div>
+    <div class="cfg-row"><span class="cfg-key">Thresholds</span><span class="cfg-val">${thPill}</span></div>
+    <div class="cfg-row"><span class="cfg-key">Cloud model</span><span class="cfg-val">${cloudPill}</span></div>
+    <div class="cfg-model-list">
+      <div style="font-size:11px;color:var(--muted);font-weight:600;margin:8px 0 4px">EDGE MODELS</div>
+      ${(cfg.edge_models || []).map(m => `<div class="cfg-model">${m}</div>`).join('') || '<div style="color:var(--muted);font-size:11px">None configured</div>'}
+    </div>`;
+}
+
+/* ════════════════════════════════════════════════
+   Live execution progress
+   ════════════════════════════════════════════════ */
+const LP = {
+  thresholds:  {},    // model_name -> float
+  metrics:     [],    // [{prefix, acc, prec, rec, f1}]
+  routing:     null,  // {routed, total}
+  phase:       0,     // 0=idle, 1=edge, 2=routing, 3=cloud, 4=done
+  _lastPrefix: null,
+};
+
+function resetLiveProgress() {
+  LP.thresholds  = {};
+  LP.metrics     = [];
+  LP.routing     = null;
+  LP.phase       = 0;
+  LP._lastPrefix = null;
+  document.getElementById('liveCard').style.display = 'block';
+  document.getElementById('opLine').textContent = 'Starting up…';
+  document.getElementById('routingLive').innerHTML = '<span style="color:var(--muted)">Calculated after edge scan…</span>';
+  document.getElementById('threshLive').innerHTML  = '<span style="color:var(--muted);font-size:12px">Appear as each model finishes…</span>';
+  document.getElementById('metricsLive').innerHTML = '<span style="color:var(--muted);font-size:12px">Results appear as each stage completes…</span>';
+  setFriendlyStatus('⚡', 'Starting up the analysis pipeline…', 'Initialising models and loading your log data.');
+  setStage(0);
+  setFlowStep(null);
+}
+
+function setStage(n) {
+  const ids = ['stg-edge', 'stg-routing', 'stg-cloud', 'stg-done'];
+  ids.forEach((id, i) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.className = 'stage-step';
+    if (i + 1 < n)  el.classList.add('done');
+    if (i + 1 === n) el.classList.add('active');
+  });
+}
+
+function setFriendlyStatus(ico, main, sub) {
+  const el = document.getElementById('friendlyBanner');
+  if (!el) return;
+  document.getElementById('fbIco').textContent  = ico;
+  document.getElementById('fbMain').textContent = main;
+  document.getElementById('fbSub').textContent  = sub;
+}
+
+function setFlowStep(active) {
+  // active: 'edge' | 'route' | 'cloud' | 'result' | null
+  const steps = ['data', 'edge', 'route', 'cloud', 'result'];
+  steps.forEach(s => {
+    const el = document.getElementById('flow-' + s);
+    if (!el) return;
+    el.classList.remove('f-active', 'f-done');
+  });
+  if (!active) return;
+  const idx = steps.indexOf(active);
+  steps.forEach((s, i) => {
+    const el = document.getElementById('flow-' + s);
+    if (!el) return;
+    if (i < idx)  el.classList.add('f-done');
+    if (i === idx) el.classList.add('f-active');
+  });
+}
+
+function parseLiveLine(line) {
+  const l = line;
+
+  // Phase banners generated by _build_infer_cmd bash script
+  if (/Phase 1.+Edge inference/i.test(l)) {
+    if (LP.phase < 1) { LP.phase = 1; setStage(1); setFlowStep('edge'); }
+    document.getElementById('opLine').textContent = 'Scanning log windows on edge device…';
+    setFriendlyStatus('⚡', 'Edge AI is scanning your logs…',
+      'The fast local model is reading every log window. No internet required for this step.');
+    return;
+  }
+  if (/Phase 2.+Cloud inference/i.test(l)) {
+    if (LP.phase < 3) { LP.phase = 3; setStage(3); setFlowStep('cloud'); }
+    document.getElementById('opLine').textContent = 'Cloud AI is re-checking uncertain windows…';
+    setFriendlyStatus('☁️', 'Cloud AI is doing a deep re-check…',
+      'The more powerful cloud model is carefully re-analysing the uncertain windows flagged by the edge AI.');
+    return;
+  }
+  // Edge-only banner
+  if (/Edge inference.*env: ceco-lad/i.test(l)) {
+    if (LP.phase < 1) { LP.phase = 1; setStage(1); setFlowStep('edge'); }
+    document.getElementById('opLine').textContent = 'Scanning log windows on edge device…';
+    setFriendlyStatus('⚡', 'Edge AI is scanning your logs…',
+      'The fast local model is reading every log window. No internet required for this step.');
+    return;
+  }
+
+  // Stage / section headers from inference pipeline
+  if (/loading.*data|Stage 1|preprocessing/i.test(l) && LP.phase === 0) {
+    LP.phase = 1; setStage(1); setFlowStep('edge');
+    document.getElementById('opLine').textContent = 'Loading log data and starting edge scan…';
+    setFriendlyStatus('📋', 'Loading your log data…',
+      'Reading the dataset and preparing it for the edge AI model.');
+    return;
+  }
+  if (/routing|mahalanobis/i.test(l) && LP.phase <= 1) {
+    LP.phase = 2; setStage(2); setFlowStep('route');
+    document.getElementById('opLine').textContent = 'Deciding which windows need a cloud second opinion…';
+    setFriendlyStatus('🔀', 'Smart routing in progress…',
+      'Identifying windows where the edge AI was uncertain — these will be sent to the cloud for a second opinion.');
+    return;
+  }
+
+  // Threshold line — e.g. "threshold: 0.012345" with model context, or "Model X threshold: Y"
+  const thFull = l.match(/[Mm]odel\s+(\S+?)\s+threshold[:\s=]+([0-9.eE+\-]+)/);
+  if (thFull) {
+    LP.thresholds[thFull[1]] = parseFloat(thFull[2]);
+    renderLiveThresholds();
+    document.getElementById('opLine').textContent = `Calibrated: ${thFull[1]}`;
+    setFriendlyStatus('🔧', 'Calibrating detection threshold…',
+      `Model "${thFull[1]}" has learned what "normal" looks like in your logs.`);
+    return;
+  }
+  // Shorter: "threshold: 0.01234" when model name is on a nearby line
+  const thShort = l.match(/threshold[:\s=]+([0-9.eE+\-]+)/i);
+  if (thShort && LP._lastModelName) {
+    LP.thresholds[LP._lastModelName] = parseFloat(thShort[1]);
+    renderLiveThresholds();
+    return;
+  }
+  // Model name hint line: "Processing model Openstack_e10_k5_l3_b64"
+  const modHint = l.match(/[Mm]odel\s+(\S+\.pte|\S+_b\d+)/);
+  if (modHint) LP._lastModelName = modHint[1];
+
+  // Routing counts: "Routed 1234/5678" or "routing 1234 windows"
+  const rtSlash = l.match(/[Rr]outed[:\s]+(\d[\d,]*)\s*[\/of]+\s*(\d[\d,]*)/);
+  if (rtSlash) {
+    LP.routing = {
+      routed: parseInt(rtSlash[1].replace(/,/g,'')),
+      total:  parseInt(rtSlash[2].replace(/,/g,'')),
+    };
+    renderLiveRouting();
+    if (LP.phase <= 2) { LP.phase = 2; setStage(2); setFlowStep('route'); }
+    const pct = LP.routing.total > 0
+      ? (LP.routing.routed / LP.routing.total * 100).toFixed(1) : '0';
+    setFriendlyStatus('🔀', `${LP.routing.routed.toLocaleString()} windows sent to cloud for review`,
+      `${pct}% of log windows were uncertain — the cloud AI will double-check these.`);
+    return;
+  }
+  const rtCount = l.match(/routing\s+(\d[\d,]*)\s+windows/i);
+  if (rtCount) {
+    const routed = parseInt(rtCount[1].replace(/,/g,''));
+    document.getElementById('routingLive').innerHTML =
+      `<span class="big" style="color:var(--amber)">${routed.toLocaleString()}</span> <span style="color:var(--muted);font-size:12px">windows → cloud</span>`;
+    if (LP.phase <= 2) { LP.phase = 2; setStage(2); setFlowStep('route'); }
+    setFriendlyStatus('🔀', `Routing ${routed.toLocaleString()} uncertain windows to cloud…`,
+      'These will get a second opinion from the more powerful cloud model.');
+    return;
+  }
+
+  // Metrics line: keep track of prefix from context
+  if (/^(Edge|Hybrid)\b/i.test(l.trim())) LP._lastPrefix = /^Edge/i.test(l.trim()) ? 'Edge' : 'Hybrid';
+  const metM = l.match(/Accuracy:\s*([\d.]+)\s+Precision:\s*([\d.]+)\s+Recall:\s*([\d.]+)\s+F-score:\s*([\d.]+)/);
+  if (metM) {
+    const prefix = /Edge/i.test(l) ? 'Edge' : /Hybrid/i.test(l) ? 'Hybrid' : (LP._lastPrefix || 'Result');
+    const isHybrid = prefix === 'Hybrid';
+    LP.metrics.push({prefix, acc: +metM[1], prec: +metM[2], rec: +metM[3], f1: +metM[4]});
+    renderLiveMetrics();
+    const f1pct = (+metM[4] * 100).toFixed(1);
+    document.getElementById('opLine').textContent = `${prefix} AI: ${f1pct}% F-score`;
+    if (isHybrid) {
+      setFlowStep('result');
+      setFriendlyStatus('✅', `Final result: ${f1pct}% F-score`,
+        `The combined Edge + Cloud system achieved ${f1pct}% on anomaly detection. Scroll down to see full results.`);
+    } else {
+      setFriendlyStatus('📊', `Edge AI result: ${f1pct}% F-score`,
+        'Edge scan complete. Results being computed — cloud re-check may follow.');
+    }
+    return;
+  }
+}
+
+function renderLiveThresholds() {
+  const entries = Object.entries(LP.thresholds);
+  if (!entries.length) return;
+  document.getElementById('threshLive').innerHTML = entries.map(([name, val]) =>
+    `<div class="thresh-row">
+       <span class="thresh-name">${name}</span>
+       <span class="thresh-val">${val.toFixed(6)}</span>
+     </div>`).join('');
+}
+
+function renderLiveRouting() {
+  if (!LP.routing) return;
+  const {routed, total} = LP.routing;
+  const pctVal = total > 0 ? (routed / total * 100).toFixed(1) : '0.0';
+  document.getElementById('routingLive').innerHTML = `
+    <div>
+      <span class="big" style="color:var(--amber)">${routed.toLocaleString()}</span>
+      <span style="color:var(--muted);font-size:12px"> / ${total.toLocaleString()} windows</span>
+    </div>
+    <div class="prog-bar-wrap"><div class="prog-bar-fill" style="width:${pctVal}%"></div></div>
+    <div style="font-size:11px;color:var(--muted);margin-top:3px">${pctVal}% routed to cloud</div>`;
+}
+
+function renderLiveMetrics() {
+  if (!LP.metrics.length) return;
+  document.getElementById('metricsLive').innerHTML = LP.metrics.map(m =>
+    `<div class="live-metric-row">
+       <span style="color:var(--muted);min-width:54px">${m.prefix}</span>
+       <span>Acc <strong style="color:var(--blue)">${pct(m.acc)}</strong></span>
+       <span>Prec <strong style="color:var(--green)">${pct(m.prec)}</strong></span>
+       <span>Rec <strong style="color:var(--amber)">${pct(m.rec)}</strong></span>
+       <span>F1 <strong style="color:var(--red)">${pct(m.f1)}</strong></span>
+     </div>`).join('');
+}
+
+/* ════════════════════════════════════════════════
+   Tiny helpers
+   ════════════════════════════════════════════════ */
+function pct(v)  { return v !== undefined ? (v*100).toFixed(1)+'%' : '—'; }
+function f4(v)   { return v !== undefined ? v.toFixed(4) : '—'; }
+function esc(s)  { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function fmtBytes(n) {
+  if (n < 1024) return n+' B';
+  if (n < 1048576) return (n/1024).toFixed(1)+' KB';
+  return (n/1048576).toFixed(1)+' MB';
+}
+function fmtNum(n) {
+  if (n === undefined || n === null) return '—';
+  if (n >= 1_000_000) return (n/1_000_000).toFixed(1)+'M';
+  if (n >= 1_000)     return (n/1_000).toFixed(1)+'K';
+  return String(n);
+}
+
+/* ════════════════════════════════════════════════
+   OS Pipeline View
+   ════════════════════════════════════════════════ */
+const PL = {
+  rawPage: 0, rawTotal: 0, rawPerPage: 100,
+  sessPage: 0, sessTotal: 0, sessPerPage: 40,
+  execPage: 0, execPerPage: 40,
+  results: null,       // full session_summary from /api/pipeline/os/results
+  selectedIdx: null,
+};
+
+let _plRawSearchTimer = null;
+function plRawSearchDeb() {
+  clearTimeout(_plRawSearchTimer);
+  _plRawSearchTimer = setTimeout(() => plLoadRaw(0), 350);
+}
+
+/* Called when Pipeline tab is shown or controls change */
+async function plLoad() {
+  await Promise.all([
+    plLoadRaw(0),
+    plLoadSessions(0),
+    plLoadResults(),
+  ]);
+}
+
+/* ─── Raw Logs panel ─────────────────────────────────────── */
+async function plLoadRaw(page) {
+  PL.rawPage = Math.max(0, page);
+  const src    = document.getElementById('plRawSource').value;
+  const search = encodeURIComponent((document.getElementById('plRawSearch')?.value || '').trim());
+  const url    = `/api/pipeline/os/raw?source=${src}&page=${PL.rawPage}&per_page=${PL.rawPerPage}&search=${search}`;
+
+  const body = document.getElementById('plRawBody');
+  body.innerHTML = '<div style="text-align:center;padding:20px;color:var(--muted);font-size:12px">Loading…</div>';
+
+  try {
+    const d = await fetch(url).then(r => r.json());
+    PL.rawTotal = d.total || 0;
+    document.getElementById('plRawCount').textContent = PL.rawTotal.toLocaleString() + ' lines';
+
+    if (!d.rows?.length) {
+      body.innerHTML = '<div style="text-align:center;padding:30px;color:var(--muted);font-size:12px">No results. Data may still be loading — try again shortly.</div>';
+    } else {
+      body.innerHTML = d.rows.map(r => {
+        const lbl = r.label === '1' || r.label === 1 ? 'anom' : 'norm';
+        return `<div class="pl-row">
+          <div class="pr-meta">
+            <span class="pr-lbl ${lbl}">${lbl === 'anom' ? 'ANOM' : 'NORM'}</span>
+            <span class="pr-ts">${esc(r.timestamp ?? '—')}</span>
+            <span class="pr-comp">${esc(r.component ?? '')}</span>
+            <span style="font-size:10px;color:var(--muted)">L${r.line_number}</span>
+          </div>
+          <div class="pr-msg">${esc(r.content ?? '')}</div>
+        </div>`;
+      }).join('');
+    }
+
+    const maxPage = Math.ceil(PL.rawTotal / PL.rawPerPage) - 1;
+    document.getElementById('plRawPrev').disabled = PL.rawPage === 0;
+    document.getElementById('plRawNext').disabled = PL.rawPage >= maxPage;
+    document.getElementById('plRawPagerInfo').textContent =
+      `${(PL.rawPage * PL.rawPerPage + 1).toLocaleString()}–${Math.min(PL.rawTotal, (PL.rawPage+1)*PL.rawPerPage).toLocaleString()} / ${PL.rawTotal.toLocaleString()}`;
+  } catch (e) {
+    body.innerHTML = `<div style="color:var(--red);padding:12px;font-size:11px">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+/* ─── Sessions panel ─────────────────────────────────────── */
+async function plLoadSessions(page) {
+  PL.sessPage = Math.max(0, page);
+  const split = document.getElementById('plSplit').value;
+  const label = encodeURIComponent(document.getElementById('plLabel').value);
+  const url   = `/api/pipeline/os/sessions?split=${split}&page=${PL.sessPage}&per_page=${PL.sessPerPage}&label=${label}`;
+
+  const body = document.getElementById('plSessBody');
+  body.innerHTML = '<div style="text-align:center;padding:20px;color:var(--muted);font-size:12px">Loading…</div>';
+
+  try {
+    const d = await fetch(url).then(r => r.json());
+    PL.sessTotal = d.total || 0;
+    document.getElementById('plSessCount').textContent = PL.sessTotal.toLocaleString() + ' sessions';
+
+    // sync execution panel to same page
+    plRenderExec(PL.sessPage);
+
+    if (!d.rows?.length) {
+      body.innerHTML = '<div style="text-align:center;padding:30px;color:var(--muted);font-size:12px">No sessions. Data may still be loading — try again shortly.</div>';
+    } else {
+      const split_ = split;
+      body.innerHTML = d.rows.map(row => {
+        const lbl = row.label === 1 ? 'anom' : 'norm';
+        const nEvents = row.session_length || 0;
+        const sel = PL.selectedIdx === row.window_index ? ' selected' : '';
+        const srcLabel = {train_normal:'train·normal', test_normal:'test·normal', test_abnormal:'test·ANOM'}[row.block_id] || row.block_id;
+        return `<div class="pl-row${sel}" onclick="plSelectSession(${row.window_index},'${split_}')">
+          <div class="pr-meta">
+            <span class="pr-idx">#${row.window_index}</span>
+            <span class="pr-lbl ${lbl}">${lbl === 'anom' ? 'ANOMALY' : 'NORMAL'}</span>
+            <span class="pr-src">${srcLabel}</span>
+            <span class="pr-events">${nEvents} events</span>
+          </div>
+          <div class="pr-seq">${esc(row.content_preview ?? '')}</div>
+        </div>`;
+      }).join('');
+    }
+
+    const maxPage = Math.ceil(PL.sessTotal / PL.sessPerPage) - 1;
+    document.getElementById('plSessPrev').disabled = PL.sessPage === 0;
+    document.getElementById('plSessNext').disabled = PL.sessPage >= maxPage;
+    document.getElementById('plSessPagerInfo').textContent =
+      `${(PL.sessPage * PL.sessPerPage + 1).toLocaleString()}–${Math.min(PL.sessTotal, (PL.sessPage+1)*PL.sessPerPage).toLocaleString()} / ${PL.sessTotal.toLocaleString()}`;
+    document.getElementById('plInfo').textContent =
+      `${PL.sessTotal.toLocaleString()} sessions`;
+  } catch (e) {
+    body.innerHTML = `<div style="color:var(--red);padding:12px;font-size:11px">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+/* ─── Results panel ──────────────────────────────────────── */
+async function plLoadResults() {
+  try {
+    const d = await fetch('/api/pipeline/os/results').then(r => r.json());
+    if (!d.available) {
+      document.getElementById('plExecBody').innerHTML =
+        '<div style="text-align:center;padding:30px;color:var(--muted);font-size:12px">Run inference on OpenStack to see results here.</div>';
+      return;
+    }
+    PL.results = d.session_summary || [];
+    document.getElementById('plExecCount').textContent =
+      PL.results.length.toLocaleString() + ' sessions';
+    plRenderExec(PL.sessPage);
+  } catch {}
+}
+
+function plExecPage(page) {
+  PL.execPage = page;
+  plRenderExec(page);
+  plLoadSessions(page);  // keep in sync with sessions panel
+}
+
+function plRenderExec(page) {
+  PL.execPage = Math.max(0, page);
+  const body = document.getElementById('plExecBody');
+  if (!PL.results?.length) return;
+
+  const start = PL.execPage * PL.sessPerPage;
+  const slice = PL.results.slice(start, start + PL.sessPerPage);
+  const split = document.getElementById('plSplit').value;
+  // Only test split has predictions (train not in outputs)
+  if (split === 'train') {
+    body.innerHTML = '<div style="text-align:center;padding:30px;color:var(--muted);font-size:12px">Predictions are only available for the test split.</div>';
+    return;
+  }
+
+  if (!slice.length) {
+    body.innerHTML = '<div style="text-align:center;padding:30px;color:var(--muted);font-size:12px">No results for this page.</div>';
+    return;
+  }
+
+  body.innerHTML = slice.map(s => {
+    const gtCls  = s.gt  === 1 ? 'anom' : 'norm';
+    const predCls = s.hybrid_pred === 1 ? 'anom' : s.hybrid_pred === 0 ? 'norm' : 'unk';
+    const correct = s.hybrid_pred !== null && s.hybrid_pred === s.gt;
+    const check   = s.hybrid_pred === null ? '' : correct ? ' ✓' : ' ✗';
+    const checkCol = correct ? 'var(--green)' : 'var(--red)';
+    const sel = PL.selectedIdx === s.idx ? ' selected' : '';
+    return `<div class="exec-row${sel}" onclick="plSelectSession(${s.idx},'test')">
+      <span class="er-idx">#${s.idx}</span>
+      <span class="er-gt"><span class="pr-lbl ${gtCls}">${s.gt===1?'ANOM':'NORM'}</span></span>
+      <span class="er-pred">
+        ${s.hybrid_pred !== null
+          ? `<span class="pr-lbl ${predCls}">${s.hybrid_pred===1?'ANOM':'NORM'}</span>`
+          : '<span style="color:var(--muted);font-size:10px">—</span>'}
+        <span style="color:${checkCol};font-size:10px;font-weight:700">${check}</span>
+      </span>
+      ${s.routed
+        ? '<span class="er-cloud" style="color:var(--amber)">☁ cloud</span>'
+        : '<span class="er-cloud" style="color:var(--muted)">edge</span>'}
+    </div>`;
+  }).join('');
+
+  const total    = PL.results.length;
+  const maxPage  = Math.ceil(total / PL.sessPerPage) - 1;
+  document.getElementById('plExecPrev').disabled = PL.execPage === 0;
+  document.getElementById('plExecNext').disabled = PL.execPage >= maxPage;
+  document.getElementById('plExecPagerInfo').textContent =
+    `${(start+1).toLocaleString()}–${Math.min(total, start+PL.sessPerPage).toLocaleString()} / ${total.toLocaleString()}`;
+}
+
+/* ─── Session detail (bottom panel) ─────────────────────── */
+async function plSelectSession(idx, split) {
+  PL.selectedIdx = idx;
+
+  // Highlight in all three panels
+  document.querySelectorAll('#plSessBody .pl-row, #plExecBody .exec-row').forEach(r => r.classList.remove('selected'));
+  document.querySelectorAll(`#plSessBody .pl-row[onclick*="${idx}"], #plExecBody .exec-row[onclick*="${idx}"]`).forEach(r => r.classList.add('selected'));
+
+  // Load detail
+  try {
+    const d = await fetch(`/api/pipeline/os/session/${idx}?split=${split}`).then(r => r.json());
+    const box = document.getElementById('plDetail');
+    box.style.display = 'block';
+
+    // Title + label
+    document.getElementById('plDetailTitle').textContent = `Session #${idx}`;
+    const lbl = d.label === 1 ? 'anom' : 'norm';
+    const lEl = document.getElementById('plDetailLbl');
+    lEl.textContent   = d.label === 1 ? 'ANOMALY' : 'NORMAL';
+    lEl.style.background = d.label === 1 ? 'rgba(220,38,38,.1)' : 'rgba(22,163,74,.1)';
+    lEl.style.color      = d.label === 1 ? 'var(--red)' : 'var(--green)';
+
+    // Meta cards
+    const pred = PL.results?.[idx];
+    const srcLabel = {train_normal:'normal1.log (train)', test_normal:'normal2.log (test)', test_abnormal:'abnormal.log (test)'}[d.block_id] || d.block_id;
+    document.getElementById('plDetailMeta').innerHTML = [
+      ['Source file',      srcLabel],
+      ['Event count',      d.session_length ?? '—'],
+      ['Ground truth',     d.label === 1 ? 'Anomaly' : 'Normal'],
+      ['Edge prediction',  pred ? (pred.edge_pred === 1 ? 'Anomaly' : 'Normal') : '—'],
+      ['Final prediction', pred ? (pred.hybrid_pred === 1 ? 'Anomaly' : 'Normal') : '—'],
+      ['Sent to cloud',    pred ? (pred.routed ? 'Yes ☁' : 'No') : '—'],
+    ].map(([k, v]) => `
+      <div style="background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:7px 10px">
+        <div style="font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em">${k}</div>
+        <div style="font-size:13px;font-weight:700;margin-top:2px">${v}</div>
+      </div>`).join('');
+
+    // Event sequence
+    document.getElementById('plDetailSeq').textContent = d.content ?? '—';
+
+    // Raw logs
+    const logs = d.raw_logs ?? [];
+    document.getElementById('plDetailRawCount').textContent = logs.length;
+    document.getElementById('plDetailRawBody').innerHTML = logs.length
+      ? logs.map(r => `<tr>
+          <td>${r.line_number}</td>
+          <td class="mono">${esc(r.timestamp ?? '—')}</td>
+          <td><span class="tag ${levelTag(r.level)}">${esc(r.level ?? '')}</span></td>
+          <td class="mono">${esc(r.content ?? '')}</td>
+        </tr>`).join('')
+      : '<tr><td colspan="4" style="color:var(--muted);padding:8px">Raw logs not imported yet.</td></tr>';
+
+    // Scroll detail into view
+    box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  } catch (e) {
+    console.error('plSelectSession:', e);
+  }
+}
+
+/* ════════════════════════════════════════════════
+   Raw Logs tab
+   ════════════════════════════════════════════════ */
+const RL2 = { page: 0, total: 0 };
+let _rlSearchTimer2 = null;
+
+function rlSearchDeb() {
+  clearTimeout(_rlSearchTimer2);
+  _rlSearchTimer2 = setTimeout(() => rlLoad(0), 350);
+}
+
+function rlOnDatasetChange() {
+  const ds = document.getElementById('rlDs').value;
+  document.getElementById('rlSrc').style.display       = ds === 'os' ? '' : 'none';
+  document.getElementById('rlLblFilter').style.display = ds !== 'os' ? '' : 'none';
+  rlLoad(0);
+}
+
+async function rlLoad(page) {
+  RL2.page = Math.max(0, page);
+  const ds      = document.getElementById('rlDs').value;
+  const perPage = parseInt(document.getElementById('rlPerPage').value) || 100;
+  const search  = encodeURIComponent((document.getElementById('rlSearchBox').value || '').trim());
+
+  let url;
+  if (ds === 'os') {
+    const src = document.getElementById('rlSrc').value;
+    url = `/api/pipeline/os/raw?source=${src}&page=${RL2.page}&per_page=${perPage}&search=${search}`;
+  } else {
+    const lbl = encodeURIComponent(document.getElementById('rlLblFilter').value || '');
+    url = `/api/db/raw-logs?dataset=${ds}&page=${RL2.page}&per_page=${perPage}&search=${search}&label=${lbl}`;
+  }
+
+  const tbody = document.getElementById('rlTableBody');
+  tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:30px;color:var(--muted)">Loading…</td></tr>';
+
+  try {
+    const d = await fetch(url).then(r => r.json());
+    RL2.total = d.total || 0;
+
+    document.getElementById('rlTotalInfo').textContent =
+      RL2.total.toLocaleString() + ' lines';
+
+    if (!d.rows?.length) {
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:40px;color:var(--muted)">No results. The database may still be loading — please wait a moment.</td></tr>';
+    } else {
+      tbody.innerHTML = d.rows.map(r => {
+        const isAnom = (r.label === '1' || r.label === 1 ||
+                        (r.label && r.label !== '-' && r.label !== '0' && r.label !== 'normal'));
+        const rowBg  = isAnom ? 'background:rgba(220,38,38,.04)' : '';
+        const lblTag = isAnom
+          ? '<span style="background:rgba(220,38,38,.1);color:var(--red);padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700">ANOM</span>'
+          : '';
+        const lvlColor = {
+          'ERROR':'var(--red)', 'FATAL':'var(--red)', 'WARN':'var(--amber)',
+          'WARNING':'var(--amber)', 'INFO':'var(--blue)',
+        }[String(r.level).toUpperCase()] || 'var(--muted)';
+
+        return `<tr style="${rowBg}">
+          <td style="padding:5px 10px;border-bottom:1px solid var(--border);color:var(--muted);font-size:11px">${r.line_number ?? ''}</td>
+          <td style="padding:5px 10px;border-bottom:1px solid var(--border);font-family:monospace;font-size:11px;white-space:nowrap">${esc(r.timestamp ?? '—')}</td>
+          <td style="padding:5px 10px;border-bottom:1px solid var(--border);white-space:nowrap">
+            ${r.level ? `<span style="color:${lvlColor};font-size:10px;font-weight:600">${esc(r.level)}</span>` : ''}
+            ${lblTag}
+          </td>
+          <td style="padding:5px 10px;border-bottom:1px solid var(--border);font-family:monospace;font-size:11px;color:var(--purple);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.component ?? '—')}</td>
+          <td style="padding:5px 10px;border-bottom:1px solid var(--border);font-family:monospace;font-size:11px;word-break:break-word;max-width:500px">${esc(r.content ?? '')}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    const maxPage = Math.ceil(RL2.total / perPage) - 1;
+    document.getElementById('rlPrevBtn').disabled = RL2.page === 0;
+    document.getElementById('rlNextBtn').disabled = RL2.page >= maxPage;
+    const from = RL2.page * perPage + 1;
+    const to   = Math.min(RL2.total, (RL2.page + 1) * perPage);
+    document.getElementById('rlPageInfo').textContent =
+      RL2.total ? `${from.toLocaleString()}–${to.toLocaleString()} of ${RL2.total.toLocaleString()}` : '0 results';
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="5" style="color:var(--red);padding:16px">Error: ${esc(e.message)}</td></tr>`;
+  }
+}
+
+/* ════════════════════════════════════════════════
+   Database sidebar — status + import
+   ════════════════════════════════════════════════ */
+let _dbPollTimer = null;
+
+async function refreshDbStatus() {
+  try {
+    const r = await fetch('/api/db/status');
+    const d = await r.json();
+
+    // Compact sidebar stats (OS-focused)
+    document.getElementById('dbs-raw-os').textContent       = fmtNum(d.raw_os  || 0);
+    document.getElementById('dbs-win-os-train').textContent = fmtNum(d['win_os_train'] || 0);
+    document.getElementById('dbs-win-os-test').textContent  = fmtNum(d['win_os_test']  || 0);
+
+    const pill = document.getElementById('dbStatusPill');
+    const log  = d.import_log || [];
+    if (d.importing) {
+      pill.textContent = 'Importing…';
+      pill.style.background = 'rgba(124,58,237,.15)';
+      pill.style.color = 'var(--purple)';
+      document.getElementById('dbImportStatus').textContent =
+        log.length ? log[log.length - 1] : 'Running…';
+      _dbPollTimer = setTimeout(refreshDbStatus, 1500);
+    } else {
+      const total = (d.raw_logs_total || 0);
+      pill.textContent = total > 0 ? 'Ready' : 'Empty';
+      pill.style.background = total > 0 ? 'rgba(22,163,74,.12)' : 'var(--border)';
+      pill.style.color = total > 0 ? 'var(--green)' : 'var(--muted)';
+      document.getElementById('dbImportStatus').textContent =
+        d.overall ? `Last import: ${d.overall}` : '';
+      if (_dbPollTimer) { clearTimeout(_dbPollTimer); _dbPollTimer = null; }
+    }
+
+    _updatePipelineStages(d);
+  } catch {}
+}
+
+function _updatePipelineStages(d) {
+  const ds = S.dataset;
+  const rawKey  = `raw_${ds}`;
+  const trainKey = `win_${ds}_train`;
+  const testKey  = `win_${ds}_test`;
+
+  const rawN   = d[rawKey]   || 0;
+  const trainN = d[trainKey] || 0;
+  const testN  = d[testKey]  || 0;
+
+  document.getElementById('ps-raw').textContent   = fmtNum(rawN);
+  document.getElementById('ps-train').textContent = fmtNum(trainN);
+  document.getElementById('ps-test').textContent  = fmtNum(testN);
+
+  // Routing / anomaly from inference results
+  const res = S.results;
+  const ri = res?.routing_stats;
+  document.getElementById('ps-routed').textContent = ri ? fmtNum(ri.routed_windows) : '—';
+  const gt = res?.ground_truth;
+  if (gt) {
+    const anom = gt.filter(v => v === 1).length;
+    document.getElementById('ps-anom').textContent = fmtNum(anom);
+  }
+}
+
+/* ════════════════════════════════════════════════
+   Data Explorer — tab switching
+   ════════════════════════════════════════════════ */
+let _deCurrentTab = 'pipeline';
+
+function deShowTab(name, el) {
+  document.querySelectorAll('.de-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.de-pane').forEach(p => p.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('de-pane-' + name).classList.add('active');
+  _deCurrentTab = name;
+
+  if (name === 'pipeline')  plLoad();
+  if (name === 'rawlogs')   rlLoad(0);
+  // Data Explorer sub-tab refreshes
+  if (name === 'dataexplorer') {
+    if (_deCurrentTab === 'pipeline') loadPipelineStats();
+    if (_deCurrentTab === 'windows')  deLoadWindows(0);
+  }
+}
+
+/* ─── Pipeline stats sub-pane ───────────────────────────── */
+async function loadPipelineStats() {
+  const ds = S.dataset;
+  try {
+    const [dbSt, pipeSt] = await Promise.all([
+      fetch('/api/db/status').then(r => r.json()),
+      fetch(`/api/db/pipeline/${ds}`).then(r => r.json()),
+    ]);
+    _updatePipelineStages(dbSt);
+
+    // Detailed KPIs
+    if (pipeSt.test_total > 0) {
+      document.getElementById('pipeDetail').style.display = 'block';
+      document.getElementById('ps-kpi-anom').textContent = fmtNum(pipeSt.test_anomaly);
+      document.getElementById('ps-kpi-norm').textContent = fmtNum(pipeSt.test_total - pipeSt.test_anomaly);
+      document.getElementById('ps-kpi-raw-anom').textContent = fmtNum(pipeSt.raw_anomaly);
+    }
+
+    // Routing from current results
+    const res = S.results;
+    if (res?.routing_stats) {
+      document.getElementById('ps-routed').textContent = fmtNum(res.routing_stats.routed_windows);
+    }
+    if (res?.ground_truth) {
+      const gt = res.ground_truth;
+      document.getElementById('ps-anom').textContent = fmtNum(gt.filter(v=>v===1).length);
+    }
+  } catch {}
+}
+
+/* ─── Raw logs sub-pane ─────────────────────────────────── */
+const RL = { page: 0, total: 0, per_page: 100 };
+let _rlSearchTimer = null;
+
+function deRlSearchDebounced() {
+  clearTimeout(_rlSearchTimer);
+  _rlSearchTimer = setTimeout(() => deLoadRawLogs(0), 400);
+}
+
+function deRlPage(dir) {
+  const maxPage = Math.ceil(RL.total / RL.per_page) - 1;
+  const np = Math.max(0, Math.min(maxPage, RL.page + dir));
+  if (np !== RL.page) deLoadRawLogs(np);
+}
+
+async function deLoadRawLogs(page) {
+  RL.page = page;
+  const ds     = S.dataset;
+  const search = encodeURIComponent(document.getElementById('rlSearch').value.trim());
+  const label  = encodeURIComponent(document.getElementById('rlLabel').value);
+  const url    = `/api/db/raw-logs?dataset=${ds}&page=${page}&per_page=${RL.per_page}&search=${search}&label=${label}`;
+
+  const body = document.getElementById('rlBody');
+  body.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--muted)">Loading…</td></tr>';
+
+  try {
+    const d = await fetch(url).then(r => r.json());
+    RL.total = d.total || 0;
+
+    document.getElementById('rlInfo').textContent =
+      `${RL.total.toLocaleString()} rows · page ${page + 1} / ${Math.max(1, Math.ceil(RL.total / RL.per_page))}`;
+
+    if (!d.rows?.length) {
+      body.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:30px;color:var(--muted)">No results found.</td></tr>';
+    } else {
+      body.innerHTML = d.rows.map(row => {
+        const lblCls = row.label && row.label !== '-' && row.label !== '0' ? 'lbl-anom' : 'lbl-norm';
+        return `<tr>
+          <td>${row.line_number ?? ''}</td>
+          <td class="${lblCls}">${esc(row.label ?? '—')}</td>
+          <td class="mono">${esc(row.timestamp ?? '—')}</td>
+          <td class="mono">${esc(row.component ?? '—')}</td>
+          <td><span class="tag ${levelTag(row.level)}">${esc(row.level ?? '—')}</span></td>
+          <td class="mono">${esc(row.content ?? '')}</td>
+          <td class="mono" style="font-size:10px">${row.block_id ? esc(row.block_id) : ''}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    document.getElementById('rlPrev').disabled = page === 0;
+    document.getElementById('rlNext').disabled = (page + 1) * RL.per_page >= RL.total;
+    document.getElementById('rlPagerInfo').textContent =
+      `${(page * RL.per_page + 1).toLocaleString()}–${Math.min(RL.total, (page+1)*RL.per_page).toLocaleString()} of ${RL.total.toLocaleString()}`;
+  } catch (e) {
+    body.innerHTML = `<tr><td colspan="7" style="color:var(--red);padding:16px">Error: ${esc(e.message)}</td></tr>`;
+  }
+}
+
+function levelTag(lvl) {
+  if (!lvl) return '';
+  const l = lvl.toUpperCase();
+  if (l === 'ERROR' || l === 'FATAL' || l === 'SEVERE') return 'tag-edge';
+  if (l === 'WARN'  || l === 'WARNING') return 'tag-cloud';
+  return '';
+}
+
+/* ─── Windows sub-pane ──────────────────────────────────── */
+const WIN = { page: 0, total: 0, per_page: 50 };
+
+function deWinPage(dir) {
+  const maxPage = Math.ceil(WIN.total / WIN.per_page) - 1;
+  const np = Math.max(0, Math.min(maxPage, WIN.page + dir));
+  if (np !== WIN.page) deLoadWindows(np);
+}
+
+async function deLoadWindows(page) {
+  WIN.page = page;
+  const ds    = S.dataset;
+  const split = document.getElementById('winSplit').value;
+  const label = encodeURIComponent(document.getElementById('winLabel').value);
+  const url   = `/api/db/windows?dataset=${ds}&split=${split}&page=${page}&per_page=${WIN.per_page}&label=${label}`;
+
+  const body = document.getElementById('winBody');
+  body.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--muted)">Loading…</td></tr>';
+
+  try {
+    const d = await fetch(url).then(r => r.json());
+    WIN.total = d.total || 0;
+
+    document.getElementById('winInfo').textContent =
+      `${WIN.total.toLocaleString()} windows · page ${page + 1} / ${Math.max(1, Math.ceil(WIN.total / WIN.per_page))}`;
+
+    if (!d.rows?.length) {
+      body.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:30px;color:var(--muted)">No windows found. Data may still be loading.</td></tr>';
+    } else {
+      const split_ = split;
+      body.innerHTML = d.rows.map(row => {
+        const lblCls = row.label === 1 ? 'lbl-anom' : 'lbl-norm';
+        const lblTxt = row.label === 1 ? 'Anomaly' : 'Normal';
+        return `<tr class="clickable" onclick="openWinModal('${ds}','${split_}',${row.window_index})">
+          <td>${row.window_index}</td>
+          <td class="${lblCls}">${lblTxt}</td>
+          <td>${row.session_length ?? '—'}</td>
+          <td class="mono" style="font-size:10px">${row.block_id ? esc(row.block_id) : '—'}</td>
+          <td class="mono">${esc(row.content_preview ?? '')}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    document.getElementById('winPrev').disabled = page === 0;
+    document.getElementById('winNext').disabled = (page + 1) * WIN.per_page >= WIN.total;
+    document.getElementById('winPagerInfo').textContent =
+      `${(page * WIN.per_page + 1).toLocaleString()}–${Math.min(WIN.total, (page+1)*WIN.per_page).toLocaleString()} of ${WIN.total.toLocaleString()}`;
+  } catch (e) {
+    body.innerHTML = `<tr><td colspan="5" style="color:var(--red);padding:16px">Error: ${esc(e.message)}</td></tr>`;
+  }
+}
+
+/* ════════════════════════════════════════════════
+   Window detail modal
+   ════════════════════════════════════════════════ */
+async function openWinModal(dataset, split, windowIndex) {
+  document.getElementById('winModal').classList.add('open');
+  document.getElementById('modalTitle').textContent = `Window ${windowIndex} (${dataset.toUpperCase()} · ${split})`;
+  document.getElementById('modalContent').textContent = 'Loading…';
+  document.getElementById('modalMeta').innerHTML = '';
+  document.getElementById('modalLogsBody').innerHTML = '';
+  document.getElementById('modalLogsCount').textContent = '0';
+
+  try {
+    const d = await fetch(`/api/db/window/${dataset}/${split}/${windowIndex}`).then(r => r.json());
+
+    // Meta grid
+    const lblCls = d.label === 1 ? 'var(--red)' : 'var(--green)';
+    const lblTxt = d.label === 1 ? 'Anomaly' : 'Normal';
+    document.getElementById('modalMeta').innerHTML = [
+      ['Window Index', d.window_index],
+      ['Label',        `<span style="color:${lblCls};font-weight:700">${lblTxt}</span>`],
+      ['Split',        split],
+      ['Session Length', d.session_length ?? '—'],
+      ['Block ID',     d.block_id ?? '—'],
+    ].map(([k,v]) => `
+      <div class="modal-meta">
+        <div class="mm-key">${k}</div>
+        <div class="mm-val">${v}</div>
+      </div>`).join('');
+
+    // Content
+    document.getElementById('modalContent').textContent = d.content ?? '(no content)';
+
+    // Mini pipeline flow annotation
+    document.getElementById('mpf-win-len').textContent = `size ${d.session_length ?? '—'}`;
+    document.getElementById('mpf-raw-count').textContent = `${(d.raw_logs ?? []).length} lines`;
+
+    // Check if this window is in the routed set (from current results)
+    const ri = S.results?.routed_indices;
+    const step = S.results?.routed_indices_step || 1;
+    const isRouted = ri ? ri.some(idx => Math.round(idx * step) === windowIndex) : false;
+    const routedEl = document.getElementById('mpf-routed-step');
+    routedEl.className = 'mpf-step ' + (isRouted ? 'mpf-active' : '');
+    document.getElementById('mpf-routed-sub').textContent = isRouted ? 'sent to cloud' : 'edge only';
+
+    const predSub = document.getElementById('mpf-pred-sub');
+    if (S.results?.hybrid_preds) {
+      const hp = S.results.hybrid_preds[Math.floor(windowIndex / (S.results.hybrid_preds_step || 1))];
+      predSub.textContent = hp === 1 ? 'Anomaly' : hp === 0 ? 'Normal' : '—';
+      predSub.style.color = hp === 1 ? 'var(--red)' : 'var(--green)';
+    } else {
+      predSub.textContent = '—';
+      predSub.style.color = '';
+    }
+
+    // Raw logs table
+    const logs = d.raw_logs ?? [];
+    document.getElementById('modalLogsCount').textContent = logs.length;
+    const noLogsEl = document.getElementById('modalNoLogs');
+    const logsSection = document.getElementById('modalLogsSection');
+
+    if (logs.length === 0) {
+      document.getElementById('modalLogsBody').innerHTML = '';
+      noLogsEl.style.display = 'block';
+    } else {
+      noLogsEl.style.display = 'none';
+      document.getElementById('modalLogsBody').innerHTML = logs.map(r => {
+        const lCls = r.label && r.label !== '-' && r.label !== '0' ? 'lbl-anom' : 'lbl-norm';
+        return `<tr>
+          <td>${r.line_number ?? ''}</td>
+          <td class="${lCls}">${esc(r.label ?? '—')}</td>
+          <td class="mono">${esc(r.timestamp ?? '—')}</td>
+          <td class="mono">${esc(r.component ?? '—')}</td>
+          <td><span class="tag ${levelTag(r.level)}">${esc(r.level ?? '—')}</span></td>
+          <td class="mono">${esc(r.content ?? '')}</td>
+        </tr>`;
+      }).join('');
+    }
+  } catch (e) {
+    document.getElementById('modalContent').textContent = 'Error: ' + e.message;
+  }
+}
+
+function closeWinModal(event) {
+  if (event && event.target !== document.getElementById('winModal')) return;
+  document.getElementById('winModal').classList.remove('open');
+}
+
+</script>
+</body>
+</html>

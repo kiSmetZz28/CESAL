@@ -1,0 +1,7 @@
+models:
+- name: qbat_e10_k3_l8_b32
+  threshold: 0.4258032739162445
+- name: qbat_e3_k4_l8_b32
+  threshold: 0.17101825773715973
+- name: qbat_e3_k5_l6_b96
+  threshold: 0.1705458164215088

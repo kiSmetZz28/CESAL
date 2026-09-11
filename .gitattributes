@@ -1,0 +1,22 @@
+# Normalize line endings on commit; check out with platform-native endings
+* text=auto
+# Always LF for scripts and source files
+*.py    text eol=lf
+*.sh    text eol=lf
+*.yaml  text eol=lf
+*.yml   text eol=lf
+*.txt   text eol=lf
+*.md    text eol=lf
+*.toml  text eol=lf
+*.cfg   text eol=lf
+*.ini   text eol=lf
+# Always CRLF for Windows-native files
+*.bat   text eol=crlf
+*.ps1   text eol=crlf
+# Binary — no line-ending conversion
+*.pth   binary
+*.pte   binary
+*.zip   binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary

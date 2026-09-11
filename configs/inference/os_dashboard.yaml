@@ -1,0 +1,31 @@
+batch_size: 64
+cloud:
+  batch_size:
+  - 32
+  - 64
+  - 96
+  e_layer_num:
+  - 3
+  k:
+  - 1
+  model_save_path: checkpoints/bat/os
+  num_epochs:
+  - 3
+  thresholds_yaml: outputs/os/thresholds_cloud.yaml
+  voting: majority
+data_path: data/OpenStack
+data_seq_len: 10
+dataset: Openstack
+edge_models:
+- checkpoint: checkpoints/qbat/os/Openstack_e10_k5_l3_b64.pte
+  name: qbat_e10_k5_l3_b64
+- checkpoint: checkpoints/qbat/os/Openstack_e10_k5_l3_b96.pte
+  name: qbat_e10_k5_l3_b96
+- checkpoint: checkpoints/qbat/os/Openstack_e6_k1_l3_b96.pte
+  name: qbat_e6_k1_l3_b96
+input_c: 10
+output_dir: outputs/os
+routing_distance: ma
+routing_tolerance: 0.1
+threshold_output: outputs/os/thresholds_edge.yaml
+win_size: 100
