@@ -8,10 +8,10 @@ import torch.nn as nn
 import yaml
 from sklearn.mixture import GaussianMixture
 
-from ceco_core.data.loaders import get_loader_segment
-from ceco_core.models.EMAT import EMAT
-from ceco_core.utils.energy import my_kl_loss
-from ceco_core.utils.metrics import evaluate as _evaluate
+from cesal_core.data.loaders import get_loader_segment
+from cesal_core.models.EMAT import EMAT
+from cesal_core.utils.energy import my_kl_loss
+from cesal_core.utils.metrics import evaluate as _evaluate
 
 
 def _fit_gmm(energy: np.ndarray, n_components: int, covariance_type: str,
@@ -93,7 +93,6 @@ class EarlyStopping:
 # Maps dataset name → (threshold output path, model name prefix)
 _THRESHOLD_OUTPUT = {
     'Openstack': ('outputs/os/thresholds_cloud.yaml',   'Openstack_'),
-    'BGL':       ('outputs/bgl/thresholds_cloud.yaml',  'BGL_'),
     'HDFS':      ('outputs/hdfs/thresholds_cloud.yaml', 'HDFS_'),
 }
 

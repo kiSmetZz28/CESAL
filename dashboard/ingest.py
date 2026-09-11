@@ -1,12 +1,10 @@
 """
-Ingest log datasets into the CECO-LAD SQLite database.
+Ingest log datasets into the CESAL SQLite database.
 
 Imports (in order):
-  1. BGL processed windows   (train.csv + test.csv)
-  2. HDFS processed windows  (train.csv + test.csv)
-  3. BGL raw structured logs (BGL.log_structured.csv — all rows)
-  4. HDFS raw structured logs (HDFS.log_structured.csv — test-window rows only)
-  5. OpenStack raw logs       (openstack_*.log)
+  1. HDFS processed windows  (train.csv + test.csv)
+  2. HDFS raw structured logs (HDFS.log_structured.csv — test-window rows only)
+  3. OpenStack raw logs       (openstack_*.log)
 
 Run standalone:  python dashboard/ingest.py
 """
@@ -21,8 +19,8 @@ from typing import Callable, Optional
 
 import os
 
-DB_PATH  = Path(__file__).parent / "ceco_lad.db"
-LOG_ROOT = Path(os.environ.get("CECO_LOG_ROOT", Path.home() / "Desktop" / "Log Data"))
+DB_PATH  = Path(__file__).parent / "cesal.db"
+LOG_ROOT = Path(os.environ.get("CESAL_LOG_ROOT", Path.home() / "Desktop" / "Log Data"))
 
 BLK_RE = re.compile(r"blk_-?\d+")
 BATCH  = 25_000   # rows per executemany call
@@ -126,78 +124,6 @@ def _already_done(status_key: str, count_query: str) -> bool:
     return False
 
 
-def ingest_bgl_windows(cb: Optional[Callable] = None) -> None:
-    """Import BGL windows from the processed txt files.
-
-    Each line in the txt file is one machine-session (space-separated event
-    template IDs), exactly mirroring how OpenStack windows are stored.
-    This aligns window_index with the BGLSegLoader machine ordering so that
-    single-log prediction ground-truth and _fresh_predict content match.
-
-    A versioned key ("bgl_windows_txt") forces a clean re-ingest when
-    upgrading from the legacy CSV-based import.
-    """
-    data_dir = Path(__file__).parent.parent / "data" / "BGL"
-    txt_ok = (
-        (data_dir / "bgl_train.txt").exists()
-        and (data_dir / "bgl_test_normal.txt").exists()
-        and (data_dir / "bgl_test_abnormal.txt").exists()
-    )
-    if not txt_ok:
-        # Fallback: old CSV path
-        if _already_done("bgl_windows", "SELECT COUNT(*) FROM windows WHERE dataset='bgl'"):
-            cb and cb("BGL windows already in DB (CSV) — skipping."); return
-        cb and cb("BGL txt files missing — importing windows from CSV…")
-        _set_status("bgl_windows", "running")
-        _ingest_windows("bgl", LOG_ROOT / "BGL", "Label", None)
-        _set_status("bgl_windows", "done:")
-        cb and cb("BGL windows done (from CSV).")
-        return
-
-    if _already_done("bgl_windows_txt", "SELECT COUNT(*) FROM windows WHERE dataset='bgl'"):
-        cb and cb("BGL windows already in DB (txt) — skipping."); return
-
-    cb and cb("Importing BGL windows from txt files (event IDs)…")
-    _set_status("bgl_windows_txt", "running")
-    with _conn(fast=True) as c:
-        c.execute("DELETE FROM windows WHERE dataset='bgl'")
-
-    rows: list = []
-
-    with open(data_dir / "bgl_train.txt", encoding="utf-8", errors="replace") as f:
-        for i, line in enumerate(f):
-            seq = line.strip()
-            if seq:
-                rows.append(("bgl", "train", i, "bgl_train", 0, len(seq.split()), seq))
-                if len(rows) >= BATCH:
-                    _insert_windows(rows); rows = []
-
-    test_offset = 0
-    for fname, lbl, blk in [
-        ("bgl_test_normal.txt",   0, "bgl_test_normal"),
-        ("bgl_test_abnormal.txt", 1, "bgl_test_abnormal"),
-    ]:
-        p = data_dir / fname
-        if not p.exists():
-            continue
-        count = 0
-        with open(p, encoding="utf-8", errors="replace") as f:
-            for j, line in enumerate(f):
-                seq = line.strip()
-                if seq:
-                    rows.append(("bgl", "test", test_offset + j, blk, lbl,
-                                 len(seq.split()), seq))
-                    if len(rows) >= BATCH:
-                        _insert_windows(rows); rows = []
-                count = j + 1
-        test_offset += count
-
-    if rows:
-        _insert_windows(rows)
-    _set_status("bgl_windows_txt", f"done:{test_offset}")
-    cb and cb(f"BGL windows done ({test_offset} test sessions from txt files).")
-
-
 def ingest_hdfs_windows(cb: Optional[Callable] = None) -> None:
     if _already_done("hdfs_windows", "SELECT COUNT(*) FROM windows WHERE dataset='hdfs'"):
         cb and cb("HDFS windows already in DB — skipping."); return
@@ -209,77 +135,6 @@ def ingest_hdfs_windows(cb: Optional[Callable] = None) -> None:
 
 
 # ── Raw-log imports ───────────────────────────────────────────────────────────
-
-def ingest_bgl_raw(cb: Optional[Callable] = None) -> None:
-    """Ingest BGL raw logs from the pre-split files in LOG_ROOT/BGL/split/.
-
-    Three files mirror the OpenStack layout:
-      bgl_train.log          → block_id='bgl_train',         label=None
-      bgl_test_normal.log    → block_id='bgl_test_normal',   label=None
-      bgl_test_abnormal.log  → block_id='bgl_test_abnormal', label='1'
-
-    Global line_number is assigned continuously: train first, then test_normal,
-    then test_abnormal.  The db.py constants BGL_N_TRAIN_LINES and
-    BGL_N_TEST_NORMAL_LINES record the per-file line counts so the rest of the
-    dashboard can reconstruct range queries without a block_id DB lookup.
-    """
-    if _already_done("bgl_raw_v2", "SELECT COUNT(*) FROM raw_logs WHERE dataset='bgl'"):
-        cb and cb("BGL raw logs already in DB — skipping."); return
-
-    split_dir = LOG_ROOT / "BGL" / "split"
-    file_meta = [
-        (split_dir / "bgl_train.log",        "bgl_train",        False),
-        (split_dir / "bgl_test_normal.log",   "bgl_test_normal",  False),
-        (split_dir / "bgl_test_abnormal.log", "bgl_test_abnormal", True),
-    ]
-    if not all(p.exists() for p, _, _ in file_meta):
-        _set_status("bgl_raw_v2", "skipped:missing_split_files")
-        cb and cb("BGL split files not found in LOG_ROOT/BGL/split/ — skipping raw import.")
-        return
-
-    # BGL format: label unix_ts date node datetime node_alias type component level content...
-    # label="-" means normal; any other value means anomaly.
-    cb and cb("Importing BGL raw logs from split files…")
-    _set_status("bgl_raw_v2", "running:0")
-    with _conn(fast=True) as c:
-        c.execute("DELETE FROM raw_logs WHERE dataset='bgl'")
-
-    rows: list = []
-    n = 0   # global line_number counter (continuous across all files)
-    for log_path, block_id, all_anomaly in file_meta:
-        file_n = 0
-        with open(log_path, encoding="utf-8", errors="replace") as f:
-            for line in f:
-                parts = line.split(None, 9)
-                if len(parts) < 9:
-                    continue
-                lbl       = parts[0]
-                timestamp = parts[4]
-                component = parts[7]
-                level     = parts[8]
-                content   = line.rstrip()
-                rows.append((
-                    "bgl", n,
-                    "1" if all_anomaly else (None if lbl == "-" else "1"),
-                    timestamp,
-                    component,
-                    level,
-                    content,
-                    block_id,
-                ))
-                n += 1
-                file_n += 1
-                if len(rows) >= BATCH:
-                    _insert_raw(rows); rows = []
-                    if n % 500_000 == 0:
-                        _set_status("bgl_raw_v2", f"running:{n}")
-                        cb and cb(f"  BGL raw: {n:,} rows…")
-        cb and cb(f"  {log_path.name}: {file_n:,} lines ingested.")
-    if rows:
-        _insert_raw(rows)
-    _set_status("bgl_raw_v2", f"done:{n}")
-    cb and cb(f"BGL raw logs done ({n:,} rows).")
-
 
 def ingest_hdfs_raw(cb: Optional[Callable] = None) -> None:
     """Ingest HDFS raw logs from the pre-split files in LOG_ROOT.
@@ -673,10 +528,8 @@ def run_full_ingest(cb: Optional[Callable] = None) -> None:
     t0 = time.time()
 
     steps = [
-        ingest_bgl_windows,
         ingest_hdfs_windows,
         ingest_os_windows,
-        ingest_bgl_raw,
         ingest_hdfs_raw,
         ingest_os_raw,
     ]

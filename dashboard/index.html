@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CECO-LAD — Log Anomaly Detection</title>
+<title>CESAL — Log Anomaly Detection</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
 /* ── Design tokens ──────────────────────────────────────── */
@@ -54,7 +54,7 @@ body{background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,
 .step-title{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;}
 
 /* ── Dataset buttons ───────────────────────────────────── */
-.ds-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;}
+.ds-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;}
 .ds-btn{padding:9px 4px;border:1px solid var(--border);border-radius:8px;background:transparent;color:var(--muted);cursor:pointer;text-align:center;transition:all .12s;line-height:1.3;}
 .ds-btn:hover{background:var(--bg);color:var(--text);}
 .ds-btn.active{background:var(--blue);border-color:var(--blue);color:#fff;}
@@ -498,9 +498,9 @@ select:focus{outline:none;border-color:var(--blue);}
 
 <!-- ══ HEADER ══════════════════════════════════════════════ -->
 <div class="hdr">
-  <h1>CECO-LAD</h1>
+  <h1>CESAL</h1>
   <span class="badge">v2</span>
-  <span class="hdr-sub">Cloud-Edge Collaborative Log Anomaly Detection</span>
+  <span class="hdr-sub">Cloud-Edge Security Analytics for Log-Based Incident Detection</span>
   <div class="hdr-right">
     <button class="btn-help" onclick="showWelcome()">? Help</button>
     <div class="status-pill">
@@ -522,7 +522,7 @@ select:focus{outline:none;border-color:var(--blue);}
   runs both the edge-side LAD and the cloud-side LAD, together with the
   inference routing policy, within the same execution environment. This
   design is intended only to provide reviewers and readers with a convenient
-  way to verify the complete CECO-LAD workflow online. In the actual
+  way to verify the complete CESAL workflow online. In the actual
   deployment setting and in our experiments, however, the edge-side phase is
   deployed independently on resource-constrained edge devices, such as
   Raspberry Pi devices.
@@ -536,8 +536,8 @@ select:focus{outline:none;border-color:var(--blue);}
     <div class="welcome-header">
       <div class="welcome-header-icon">🔍</div>
       <div class="welcome-header-text">
-        <h2>Welcome to CECO-LAD</h2>
-        <p>Cloud-Edge Collaborative Log Anomaly Detection &mdash; a research prototype for detecting anomalies in system logs.</p>
+        <h2>Welcome to CESAL</h2>
+        <p>Cloud-Edge Security Analytics for Log-Based Incident Detection &mdash; a research prototype for detecting anomalies in system logs.</p>
       </div>
     </div>
     <div class="welcome-body">
@@ -597,15 +597,11 @@ select:focus{outline:none;border-color:var(--blue);}
       <div class="step-hdr"><span class="step-title">Choose Dataset</span></div>
       <div class="card-help">Pick the system whose logs you want to analyse. Each dataset is from a real computing environment.</div>
       <div class="ds-grid">
-        <button class="ds-btn active" id="ds-bgl" onclick="setDataset('bgl',this)">
-          <span class="ds-name">BGL</span>
-          <span class="ds-sub">Blue Gene/L<br>Supercomputer</span>
-        </button>
         <button class="ds-btn" id="ds-hdfs" onclick="setDataset('hdfs',this)">
           <span class="ds-name">HDFS</span>
           <span class="ds-sub">Hadoop<br>Distributed FS</span>
         </button>
-        <button class="ds-btn" id="ds-os" onclick="setDataset('os',this)">
+        <button class="ds-btn active" id="ds-os" onclick="setDataset('os',this)">
           <span class="ds-name">OpenStack</span>
           <span class="ds-sub">Cloud<br>Platform</span>
         </button>
@@ -621,7 +617,7 @@ select:focus{outline:none;border-color:var(--blue);}
         </div>
         <div style="font-size:13px;color:var(--muted);line-height:1.7;max-width:480px;margin:0 auto 20px;">
           <strong>HDFS</strong> raw log files are too large to include in this demo.
-          Select <strong>OpenStack</strong> or <strong>BGL</strong> to run the full
+          Select <strong>OpenStack</strong> to run the full
           four-stage live pipeline (Edge → Routing → Cloud → Hybrid result).
         </div>
         <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
@@ -629,11 +625,6 @@ select:focus{outline:none;border-color:var(--blue);}
                   onclick="setDataset('os', document.getElementById('ds-os'))"
                   style="font-size:13px;padding:8px 22px;">
             Switch to OpenStack →
-          </button>
-          <button class="btn btn-run"
-                  onclick="setDataset('bgl', document.getElementById('ds-bgl'))"
-                  style="font-size:13px;padding:8px 22px;background:var(--purple);border-color:var(--purple);">
-            Switch to BGL →
           </button>
         </div>
       </div>
@@ -643,7 +634,7 @@ select:focus{outline:none;border-color:var(--blue);}
     <div class="card">
       <div class="step-hdr"><span class="step-title">Demo Video</span></div>
       <div class="card-help">
-        See single sliding context window prediction demo across all three datasets — Edge-side LAD and Cloud-side LAD work collaboratively via the Mahalanobis distance-based routing policy.
+        See single sliding context window prediction demo — Edge-side LAD and Cloud-side LAD work collaboratively via the Mahalanobis distance-based routing policy.
       </div>
       <button class="btn" style="width:100%;font-size:13px" onclick="openDemoVideo()">▶ Watch Demo</button>
     </div>
@@ -1038,7 +1029,7 @@ const _PREDICT_MAX = 9;
 
 /* ── Global state ───────────────────────────────────── */
 const S = {
-  dataset: 'bgl',
+  dataset: 'os',
   running: false,
   stopRequested: false,
   es: null,
@@ -1065,7 +1056,7 @@ async function initDemoMode() {
     S.demoMode = true;
     const notice = document.getElementById('demoNotice');
     if (notice) notice.style.display = 'block';
-    // Default dataset (BGL) and active button state are already set in the
+    // Default dataset (OpenStack) and active button state are already set in the
     // initial state / HTML — no override needed for demo mode.
     updatePipelineBanner();
   } catch {}
@@ -1494,7 +1485,7 @@ function parseLiveLine(line) {
     setFriendlyStatus('☁️','Cloud is doing a deep re-check…','The more powerful cloud model re-analyses the uncertain windows the edge flagged.');
     return;
   }
-  if (/Edge inference.*env: ceco-lad/i.test(line)) {
+  if (/Edge inference.*env: cesal/i.test(line)) {
     if(LP.phase<1){LP.phase=1;setStage(1);setFlowStep('edge');}
     setFriendlyStatus('⚡','Edge is preparing…','Loading log data and initialising all Q-BAT models.');
     return;
@@ -2136,13 +2127,13 @@ function closeWinModal(event) {
   document.getElementById('winModal').classList.remove('open');
 }
 
-/* ── Raw Logs standalone tab (kept for BGL/HDFS) ───── */
-// (Accessible via pipeline tab; BGL/HDFS available via api/db/raw-logs)
+/* ── Raw Logs standalone tab (kept for HDFS) ───── */
+// (Accessible via pipeline tab; HDFS available via api/db/raw-logs)
 
 /* ── Guided Tour ────────────────────────────────────────── */
 const TOUR_STEPS = [
   { title: '① Choose a Dataset',
-    desc: 'Pick the system logs to analyse. <strong>BGL</strong>, <strong>HDFS</strong>, and <strong>OpenStack</strong> are all live in this demo.',
+    desc: 'Pick the system logs to analyse. <strong>HDFS</strong> and <strong>OpenStack</strong> are both live in this demo.',
     target: '.ds-grid', pad: 10, pos: 'right' },
   { title: '② Start the Analysis',
     desc: 'Click <strong style="color:#16a34a">▶ Start Full Test Set Analysis</strong> to run the test set through the pipeline — Edge, Routing, and Cloud — and see aggregate metrics (accuracy, precision, recall, F1).',
@@ -2161,7 +2152,7 @@ const TOUR_STEPS = [
 let _tourStep = -1; // -1 = intro card
 
 function initWelcome() {
-  if (!localStorage.getItem('ceco_welcomed')) showWelcome();
+  if (!localStorage.getItem('cesal_welcomed')) showWelcome();
 }
 function showWelcome() {
   _tourStep = -1;
@@ -2175,7 +2166,7 @@ function _renderTourStep() {
     intro.classList.remove('hidden');
     hl.classList.add('hidden');
     tt.classList.add('hidden');
-    document.getElementById('welcomeDontShow').checked = !!localStorage.getItem('ceco_welcomed');
+    document.getElementById('welcomeDontShow').checked = !!localStorage.getItem('cesal_welcomed');
     return;
   }
   intro.classList.add('hidden');
@@ -2247,7 +2238,7 @@ function tourPrev() {
 }
 function closeTour() {
   if ((document.getElementById('welcomeDontShow')||{}).checked)
-    localStorage.setItem('ceco_welcomed','1');
+    localStorage.setItem('cesal_welcomed','1');
   document.getElementById('tourIntroOverlay').classList.add('hidden');
   document.getElementById('tourHighlight').classList.add('hidden');
   document.getElementById('tourTooltip').classList.add('hidden');

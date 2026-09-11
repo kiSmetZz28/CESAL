@@ -5,10 +5,10 @@ from itertools import product
 import numpy as np
 from torch.backends import cudnn
 
-from ceco_core.utils.config import load_config, setup_logging
-from ceco_core.utils.io import mkdir
-from ceco_core.utils.metrics import evaluate
-from ceco_core.utils.voting import ensemble_method
+from cesal_core.utils.config import load_config, setup_logging
+from cesal_core.utils.io import mkdir
+from cesal_core.utils.metrics import evaluate
+from cesal_core.utils.voting import ensemble_method
 from training_pipeline.solver import Solver
 
 
@@ -107,7 +107,7 @@ if __name__ == '__main__':
     parser.add_argument(
         '--config',
         type=str,
-        default='configs/training/bgl.yaml',
+        default='configs/training/os.yaml',
         help='Path to the training YAML config.',
     )
     parser.add_argument(

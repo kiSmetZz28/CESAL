@@ -131,7 +131,6 @@ class Solver(object):
 
         The target file depends on the dataset:
         - Openstack -> model_config/threshold_config/ensemble_config_os.yaml
-        - BGL       -> model_config/threshold_config/ensemble_config_bgl.yaml
         - HDFS      -> model_config/threshold_config/ensemble_config_hdfs.yaml
 
         If the file does not exist, it will be created with a single model entry.
@@ -143,9 +142,6 @@ class Solver(object):
         if dataset_name == 'Openstack':
             cfg_path = 'model_config/threshold_config/ensemble_config_os.yaml'
             model_prefix = 'Openstack_'
-        elif dataset_name == 'BGL':
-            cfg_path = 'model_config/threshold_config/ensemble_config_bgl.yaml'
-            model_prefix = 'BGL_'
         elif dataset_name == 'HDFS':
             cfg_path = 'model_config/threshold_config/ensemble_config_hdfs.yaml'
             model_prefix = ''

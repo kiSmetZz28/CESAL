@@ -9,9 +9,9 @@ import numpy as np
 import torch
 import yaml
 
-from ceco_core.models.EMAT import EMAT
-from ceco_core.utils.energy import compute_energy_batch
-from ceco_core.utils.voting import ensemble_method
+from cesal_core.models.EMAT import EMAT
+from cesal_core.utils.energy import compute_energy_batch
+from cesal_core.utils.voting import ensemble_method
 
 
 def _load_thresholds(yaml_path: str) -> dict:

@@ -12,7 +12,7 @@ import torch
 import yaml
 from sklearn.mixture import GaussianMixture
 
-from ceco_core.data.loaders import get_loader_segment
+from cesal_core.data.loaders import get_loader_segment
 
 try:
     from executorch.runtime import Verification, Runtime
@@ -122,7 +122,7 @@ def _write_windows_csv(windows: np.ndarray, path: str) -> None:
             f.write(f'{v:.6f}\n')
 
 
-# CWD for the executor_runner — must be ceco_lad_inference_pipeline/executorch/
+# CWD for the executor_runner — must be cesal_inference_pipeline/executorch/
 _EXECUTORCH_DIR = Path(_RUNNER_BIN).parent.parent
 
 

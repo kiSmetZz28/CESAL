@@ -5,8 +5,8 @@ from itertools import product
 
 from torch.backends import cudnn
 
-from ceco_core.utils.config import load_config, setup_logging
-from ceco_core.utils.io import mkdir
+from cesal_core.utils.config import load_config, setup_logging
+from cesal_core.utils.io import mkdir
 from training_pipeline.solver import Solver
 
 

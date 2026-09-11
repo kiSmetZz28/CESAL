@@ -1,0 +1,36 @@
+# LLM-based open-set incident classification on HDFS abnormal sequences (paper Sec. 3.7, Table 7)
+test_csv: "data/HDFS/open_set/open_set_test.csv"
+kb_csv: "data/HDFS/open_set/top100_split_template_sequences.csv"
+text_col: "template_seq"
+label_col: "label"
+output_dir: "outputs/hdfs/llm"
+random_seed: 42
+
+top_k_retrieve: 5
+open_set_threshold: 0.60          # best retrieval score below this → Other
+high_confidence_threshold: 0.85   # best retrieval score at/above this → trust retrieval, skip the LLM
+max_new_tokens: 24
+threshold_first: true
+length_penalty: false             # scale retrieval base score by sequence-length similarity
+
+debug_first_n: 10
+print_every: 20
+
+models:
+  - "meta-llama/Meta-Llama-3.1-8B-Instruct"
+  - "google/gemma-2-9b-it"
+  - "Qwen/Qwen2.5-7B-Instruct"
+  - "Qwen/Qwen2.5-14B-Instruct"
+
+# Connection to CESAL collaborative LAD: detection outputs → anomaly queues → classification → response
+detection_config: "configs/inference/hdfs.yaml"   # data_path and output_dir of the HDFS detection run
+queue_dir: "outputs/hdfs/llm/queues"
+respond_model: "Qwen/Qwen2.5-14B-Instruct"         # CESAL's default LLM backbone
+
+# Per-model overrides of the defaults above
+model_overrides:
+  "Qwen/Qwen2.5-14B-Instruct":
+    open_set_threshold: 0.55
+    high_confidence_threshold: 0.78
+    max_new_tokens: 32
+    length_penalty: true

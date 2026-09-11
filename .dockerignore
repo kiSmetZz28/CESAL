@@ -6,7 +6,8 @@ checkpoints/bat/
 
 # ── ExecuTorch source (3 GB C++ build tree) ───────────────────────────────────
 # Only the compiled binary is included (explicit COPY in Dockerfile).
-inference_pipeline/executorch/
+cesal_inference_pipeline/executorch/
+cesal_inference_pipeline/executorch.zip
 
 # ── Training and conversion pipelines ────────────────────────────────────────
 training_pipeline/
@@ -35,7 +36,7 @@ __pycache__/
 .mypy_cache/
 
 # ── Local database — too large; app creates a fresh one on startup ─────────────
-dashboard/ceco_lad.db
+dashboard/cesal.db
 
 # ── Git and IDE ───────────────────────────────────────────────────────────────
 .git/

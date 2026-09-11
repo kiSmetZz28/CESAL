@@ -5,11 +5,11 @@ ExecuTorch CPU backend. The exported model takes a single window tensor of
 shape [1, win_size, input_c] and returns a 1-D energy tensor of length win_size.
 
 Usage — convert one specific model:
-    python quantization/qbat_export.py --config configs/training/bgl.yaml \\
+    python quantization/qbat_export.py --config configs/training/os.yaml \\
         --num_epochs 3 --k 3 --e_layer_num 3 --batch_size 32
 
 Usage — convert every combination in the sweep (all Q-BAT models):
-    python quantization/qbat_export.py --config configs/training/bgl.yaml --all
+    python quantization/qbat_export.py --config configs/training/os.yaml --all
 """
 import argparse
 import os
@@ -22,10 +22,10 @@ from torch.export import export, ExportedProgram
 from executorch.exir import EdgeProgramManager, ExecutorchBackendConfig, to_edge
 from torchao.quantization.quant_api import Int8DynActInt4WeightQuantizer
 
-from ceco_core.models.EMAT import EMAT
-from ceco_core.utils.energy import my_kl_loss
-from ceco_core.utils.config import load_config
-from ceco_core.utils.io import mkdir
+from cesal_core.models.EMAT import EMAT
+from cesal_core.utils.energy import my_kl_loss
+from cesal_core.utils.config import load_config
+from cesal_core.utils.io import mkdir
 
 
 class _ExportableEMAT(nn.Module):

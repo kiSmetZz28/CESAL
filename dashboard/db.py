@@ -1,37 +1,9 @@
-"""SQLite database layer for the CECO-LAD dashboard."""
+"""SQLite database layer for the CESAL dashboard."""
 import asyncio
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent / "ceco_lad.db"
-
-# BGL raw-log line counts from the pre-split files (LOG_ROOT/BGL/split/).
-# Used to convert a global line_number back to a per-split local index.
-BGL_N_TRAIN_LINES       = 3_439_321   # lines in bgl_train.log
-BGL_N_TEST_NORMAL_LINES = 925_712     # lines in bgl_test_normal.log
-# Derived: test-abnormal lines start at BGL_N_TRAIN_LINES + BGL_N_TEST_NORMAL_LINES
-
-# Legacy alias kept for any callers that reference it directly.
-BGL_N_TRAIN = BGL_N_TRAIN_LINES // 100   # ≈ 34393 windows
-
-# Approximate raw-log lines per session for each BGL split — same role as
-# OS_RAW_PER_SESSION for OpenStack.  Computed as log_lines / txt_sessions.
-BGL_LINES_PER_SESSION = {
-    "bgl_train":        41,   # 3_439_321 / 83_359
-    "bgl_test_normal":  44,   # 925_712   / 20_840
-    "bgl_test_abnormal": 27,  # 348_460   / 13_042
-}
-# Number of normal test sessions (= lines in bgl_test_normal.txt).
-# test_abnormal sessions start at this index in the combined test window space.
-BGL_N_TEST_NORMAL_SESSIONS = 20_840
-
-# Pipeline event-space boundaries for BGL (from outputs/bgl/ground_truth.npy).
-# Each raw-log LINE maps proportionally to one npy entry — no session grouping.
-#   test_normal  line k  →  npy[ k * N_NORMAL_EVENTS  / N_TEST_NORMAL_LINES  ]
-#   test_abnormal line k →  npy[ N_NORMAL_EVENTS + k * N_ABNORMAL_EVENTS / N_TEST_ABNORMAL_LINES ]
-BGL_N_TEST_ABNORMAL_LINES = 348_460   # lines in bgl_test_abnormal.log
-BGL_N_NORMAL_EVENTS       = 854_957   # events from bgl_test_normal  (= first npy entries)
-BGL_N_ABNORMAL_EVENTS     = 419_143   # events from bgl_test_abnormal (= last  npy entries)
+DB_PATH = Path(__file__).parent / "cesal.db"
 
 # HDFS raw-log line counts from the pre-split files at LOG_ROOT.
 # Line numbers are continuous across all three files (train first, then test).
@@ -131,7 +103,7 @@ def _sync_get_status() -> dict:
             for tbl in ("raw_logs", "windows"):
                 row = c.execute(f"SELECT COUNT(*) n FROM {tbl}").fetchone()
                 kv[f"{tbl}_total"] = row["n"] if row else 0
-            for ds in ("bgl", "hdfs", "os"):
+            for ds in ("hdfs", "os"):
                 row = c.execute(
                     "SELECT COUNT(*) n FROM raw_logs WHERE dataset=?", (ds,)
                 ).fetchone()
@@ -183,7 +155,7 @@ def _sync_query_raw_logs(
 
 
 async def query_raw_logs(
-    dataset: str = "bgl", page: int = 0, per_page: int = 100,
+    dataset: str = "os", page: int = 0, per_page: int = 100,
     search: str = "", label: str = "",
 ) -> dict:
     return await asyncio.to_thread(
@@ -220,7 +192,7 @@ def _sync_query_windows(
 
 
 async def query_windows(
-    dataset: str = "bgl", split: str = "test", page: int = 0,
+    dataset: str = "os", split: str = "test", page: int = 0,
     per_page: int = 50, label: str = "",
 ) -> dict:
     return await asyncio.to_thread(
@@ -390,30 +362,7 @@ def _sync_get_window_detail(dataset: str, split: str, window_index: int) -> dict
         d = dict(win)
 
         # Resolve matching raw-log rows
-        if dataset == "bgl":
-            # Mirror OpenStack's OFFSET-based approach: use block_id + OFFSET
-            # within that block so we don't need exact line_number boundaries.
-            if split == "train":
-                blk = "bgl_train"
-                lines_per = BGL_LINES_PER_SESSION.get(blk, 41)
-                local_idx = window_index
-            elif window_index >= BGL_N_TEST_NORMAL_SESSIONS:
-                blk = "bgl_test_abnormal"
-                lines_per = BGL_LINES_PER_SESSION.get(blk, 27)
-                local_idx = window_index - BGL_N_TEST_NORMAL_SESSIONS
-            else:
-                blk = "bgl_test_normal"
-                lines_per = BGL_LINES_PER_SESSION.get(blk, 44)
-                local_idx = window_index
-            offset = max(0, local_idx * lines_per)
-            logs = c.execute(
-                "SELECT line_number, label, timestamp, component, level, content "
-                "FROM raw_logs "
-                "WHERE dataset='bgl' AND block_id=? "
-                "ORDER BY line_number LIMIT ? OFFSET ?",
-                (blk, lines_per + 10, offset),
-            ).fetchall()
-        elif d.get("block_id"):
+        if d.get("block_id"):
             logs = c.execute(
                 "SELECT line_number, label, timestamp, component, level, content, block_id "
                 "FROM raw_logs "
@@ -443,15 +392,7 @@ def _sync_query_pipeline_raw(
     """Return raw log lines for any dataset/split pair."""
     with _conn() as c:
         # Build WHERE clause depending on dataset split semantics
-        if dataset == "bgl":
-            # Use block_id (set by the split-file ingest) — same pattern as OS.
-            if split == "train":
-                where = ["dataset='bgl'", "block_id='bgl_train'"]
-            else:
-                where = ["dataset='bgl'",
-                         "block_id IN ('bgl_test_normal','bgl_test_abnormal')"]
-            params: list = []
-        elif dataset == "hdfs":
+        if dataset == "hdfs":
             # line_numbers: 0..TRAIN-1 = train, TRAIN..TRAIN+TEST_NORM-1 = test_normal,
             # TRAIN+TEST_NORM.. = test_abnormal
             if split == "train":
@@ -460,7 +401,7 @@ def _sync_query_pipeline_raw(
             else:
                 where  = ["dataset='hdfs'",
                           f"line_number >= {HDFS_N_TRAIN_LINES}"]
-            params = []
+            params: list = []
         elif dataset == "os":
             if split == "train":
                 where = ["dataset='os'", "block_id='train_normal'"]
@@ -511,13 +452,7 @@ def _sync_query_pipeline_raw(
         # these entries are pushed to the back of every tier while all other
         # interesting-case ordering is preserved.
         _CTX = 10
-        if dataset == "bgl":
-            _tn0 = BGL_N_TRAIN_LINES                             # 3_439_321
-            _ta0 = BGL_N_TRAIN_LINES + BGL_N_TEST_NORMAL_LINES  # 4_365_033
-            _pad = (f"CASE WHEN line_number BETWEEN {_tn0} AND {_tn0+_CTX-1} THEN 1 "
-                    f"     WHEN line_number BETWEEN {_ta0} AND {_ta0+_CTX-1} THEN 1 "
-                    f"     ELSE 0 END")
-        elif dataset == "hdfs":
+        if dataset == "hdfs":
             _tn0 = HDFS_N_TRAIN_LINES                                # 95_125
             _ta0 = HDFS_N_TRAIN_LINES + HDFS_N_TEST_NORMAL_LINES    # 10_887_338
             _pad = (f"CASE WHEN line_number BETWEEN {_tn0} AND {_tn0+_CTX-1} THEN 1 "
@@ -627,11 +562,7 @@ def _sync_query_pipeline_raw(
         else:
             priority = None
 
-        if dataset == "bgl" and split == "test":
-            bgl_fix = "CASE WHEN line_number IN (3439321,3439322) THEN 1 ELSE 0 END ASC"
-            order = f"{priority+', ' if priority else ''}{bgl_fix}, line_number ASC"
-        else:
-            order = f"{priority+', ' if priority else ''}line_number ASC"
+        order = f"{priority+', ' if priority else ''}line_number ASC"
 
         rows = c.execute(
             f"{_SEL} WHERE {w} ORDER BY {order} LIMIT ? OFFSET ?",
@@ -655,10 +586,7 @@ async def query_pipeline_raw(
 def get_test_line_numbers(dataset: str) -> list:
     """Return all test line_numbers for a dataset in their default query order."""
     with _conn() as c:
-        if dataset == "bgl":
-            where  = "dataset='bgl' AND block_id IN ('bgl_test_normal','bgl_test_abnormal')"
-            order  = "CASE WHEN line_number IN (3439321,3439322) THEN 1 ELSE 0 END ASC, line_number ASC"
-        elif dataset == "hdfs":
+        if dataset == "hdfs":
             where  = f"dataset='hdfs' AND line_number >= {HDFS_N_TRAIN_LINES}"
             order  = "line_number ASC"
         elif dataset == "os":

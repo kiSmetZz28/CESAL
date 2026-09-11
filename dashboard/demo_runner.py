@@ -14,7 +14,7 @@ Log messages deliberately mirror lad_qbat_edge.py / lad_bat_cloud.py format so
 the dashboard's live-progress parser (parseLiveLine in index.html) works
 without any changes to the frontend.
 
-Called by dashboard/app.py when ceco_lad_inference_pipeline/run.py is absent:
+Called by dashboard/app.py when cesal_inference_pipeline/run.py is absent:
     python dashboard/demo_runner.py --config configs/inference/<ds>.yaml
 """
 import argparse
@@ -31,14 +31,14 @@ import yaml
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
-from ceco_core.data.loaders import get_loader_segment
-from ceco_core.models.EMAT import EMAT
-from ceco_core.utils.config import load_config, setup_logging
-from ceco_core.utils.energy import compute_energy_batch
-from ceco_core.utils.io import mkdir
-from ceco_core.utils.metrics import evaluate
-from ceco_lad_inference_pipeline.lad_bat_cloud import _load_thresholds, run as cloud_run
-from ceco_lad_inference_pipeline.routing import compute_inv_cov, select_indices_by_distance
+from cesal_core.data.loaders import get_loader_segment
+from cesal_core.models.EMAT import EMAT
+from cesal_core.utils.config import load_config, setup_logging
+from cesal_core.utils.energy import compute_energy_batch
+from cesal_core.utils.io import mkdir
+from cesal_core.utils.metrics import evaluate
+from cesal_inference_pipeline.lad_bat_cloud import _load_thresholds, run as cloud_run
+from cesal_inference_pipeline.routing import compute_inv_cov, select_indices_by_distance
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -115,7 +115,7 @@ def _run_edge_bat(
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="CECO-LAD container demo inference.")
+    parser = argparse.ArgumentParser(description="CESAL container demo inference.")
     parser.add_argument("--config", required=True, help="Inference YAML config path.")
     parser.add_argument("--skip-edge", action="store_true",
                         help="Skip Stage 1 (edge scan) and reuse existing energy_matrix.npy / edge_preds.npy.")

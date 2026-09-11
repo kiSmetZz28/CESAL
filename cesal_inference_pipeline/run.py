@@ -2,16 +2,16 @@
 
 Stages
 ------
-1. edge   : Q-BAT models compute per-model energy scores  [ceco-lad-edge env]
-2. route  : Mahalanobis routing selects uncertain windows  [ceco-lad-edge env]
-3. cloud  : BAT ensemble re-predicts routed windows        [ceco-lad-cloud env — subprocess]
-4. hybrid : Merge edge and cloud predictions, log metrics  [ceco-lad-cloud env — subprocess]
+1. edge   : Q-BAT models compute per-model energy scores  [cesal-edge env]
+2. route  : Mahalanobis routing selects uncertain windows  [cesal-edge env]
+3. cloud  : BAT ensemble re-predicts routed windows        [cesal-cloud env — subprocess]
+4. hybrid : Merge edge and cloud predictions, log metrics  [cesal-cloud env — subprocess]
 
-Stage 3+4 always run inside the ceco-lad-cloud conda environment by calling
+Stage 3+4 always run inside the cesal-cloud conda environment by calling
 cloud_runner.py as a subprocess.  The Python interpreter is located via
 _detect_cloud_python() which checks (in order):
-  1. CECO_CLOUD_PYTHON environment variable
-  2. ~/miniconda3/envs/ceco-lad-cloud/bin/python
+  1. CESAL_CLOUD_PYTHON environment variable
+  2. ~/miniconda3/envs/cesal-cloud/bin/python
   3. sys.executable  (same-env fallback)
 """
 import argparse
@@ -26,26 +26,26 @@ sys.path.insert(0, str(ROOT))
 
 import numpy as np
 
-from ceco_core.utils.config import load_config, setup_logging
-from ceco_core.utils.io import mkdir
-from ceco_core.utils.metrics import evaluate
-from ceco_lad_inference_pipeline import lad_qbat_edge
-from ceco_lad_inference_pipeline.routing import compute_inv_cov, select_indices_by_distance
+from cesal_core.utils.config import load_config, setup_logging
+from cesal_core.utils.io import mkdir
+from cesal_core.utils.metrics import evaluate
+from cesal_inference_pipeline import lad_qbat_edge
+from cesal_inference_pipeline.routing import compute_inv_cov, select_indices_by_distance
 
-# lad_bat_cloud is NOT imported here — BAT models always run in the ceco-lad-cloud env.
+# lad_bat_cloud is NOT imported here — BAT models always run in the cesal-cloud env.
 
 
 def _detect_cloud_python() -> str:
-    """Return the path to the ceco-lad-cloud env Python interpreter.
+    """Return the path to the cesal-cloud env Python interpreter.
 
-    Override by setting the CECO_CLOUD_PYTHON environment variable.
-    Falls back to sys.executable when the ceco-lad-cloud env is not found
+    Override by setting the CESAL_CLOUD_PYTHON environment variable.
+    Falls back to sys.executable when the cesal-cloud env is not found
     (single-environment setups where both edge and cloud share one env).
     """
-    env_var = os.environ.get("CECO_CLOUD_PYTHON")
+    env_var = os.environ.get("CESAL_CLOUD_PYTHON")
     if env_var:
         return env_var
-    cloud_py = Path.home() / "miniconda3" / "envs" / "ceco-lad-cloud" / "bin" / "python"
+    cloud_py = Path.home() / "miniconda3" / "envs" / "cesal-cloud" / "bin" / "python"
     if cloud_py.exists():
         return str(cloud_py)
     return sys.executable
@@ -147,8 +147,8 @@ def run_inference(inference_config_path: str) -> None:
         np.save(os.path.join(out_base, 'routed_lines.npy'), routed_lines)
 
     # ── Stages 3+4: Cloud BAT inference + hybrid merge ────────────────────
-    # Always run in the ceco-lad-cloud conda env via cloud_runner.py subprocess so that
-    # BAT checkpoints are never loaded inside the ceco-lad environment.
+    # Always run in the cesal-cloud conda env via cloud_runner.py subprocess so that
+    # BAT checkpoints are never loaded inside the cesal-edge environment.
 
     cloud_cfg = cfg.get('cloud')
     if not cloud_cfg:
@@ -183,11 +183,11 @@ def run_inference(inference_config_path: str) -> None:
 if __name__ == '__main__':
     setup_logging('inference')
 
-    parser = argparse.ArgumentParser(description="CECO-LAD inference pipeline.")
+    parser = argparse.ArgumentParser(description="CESAL inference pipeline.")
     parser.add_argument(
         '--config',
         type=str,
-        default='configs/inference/bgl.yaml',
+        default='configs/inference/os.yaml',
         help='Path to inference YAML config.',
     )
     args, _ = parser.parse_known_args()

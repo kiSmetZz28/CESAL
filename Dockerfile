@@ -26,18 +26,18 @@ RUN pip install --no-cache-dir \
     "huggingface_hub>=0.20"
 
 # ── Core model code ───────────────────────────────────────────────────────────
-COPY ceco_core/ /app/ceco_core/
+COPY cesal_core/ /app/cesal_core/
 
 # ── Inference pipeline ────────────────────────────────────────────────────────
-COPY ceco_lad_inference_pipeline/__init__.py       /app/ceco_lad_inference_pipeline/__init__.py
-COPY ceco_lad_inference_pipeline/lad_bat_cloud.py  /app/ceco_lad_inference_pipeline/lad_bat_cloud.py
-COPY ceco_lad_inference_pipeline/routing.py        /app/ceco_lad_inference_pipeline/routing.py
-COPY ceco_lad_inference_pipeline/lad_qbat_edge.py  /app/ceco_lad_inference_pipeline/lad_qbat_edge.py
-COPY ceco_lad_inference_pipeline/run.py            /app/ceco_lad_inference_pipeline/run.py
-COPY ceco_lad_inference_pipeline/evaluate.py       /app/ceco_lad_inference_pipeline/evaluate.py
+COPY cesal_inference_pipeline/__init__.py       /app/cesal_inference_pipeline/__init__.py
+COPY cesal_inference_pipeline/lad_bat_cloud.py  /app/cesal_inference_pipeline/lad_bat_cloud.py
+COPY cesal_inference_pipeline/routing.py        /app/cesal_inference_pipeline/routing.py
+COPY cesal_inference_pipeline/lad_qbat_edge.py  /app/cesal_inference_pipeline/lad_qbat_edge.py
+COPY cesal_inference_pipeline/run.py            /app/cesal_inference_pipeline/run.py
+COPY cesal_inference_pipeline/evaluate.py       /app/cesal_inference_pipeline/evaluate.py
 
 # Create the directory for executor_runner (downloaded at first launch by tools/deploy/spaces_startup.py)
-RUN mkdir -p /app/ceco_lad_inference_pipeline/executorch/cmake-out
+RUN mkdir -p /app/cesal_inference_pipeline/executorch/cmake-out
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 COPY dashboard/app.py          /app/dashboard/app.py

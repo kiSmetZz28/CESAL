@@ -7,11 +7,8 @@ no quota issues unlike Google Drive).  Subsequent starts skip downloads.
 Assets repo: kiSmetZz/ceco-lad-assets  (dataset, public)
   executor_runner      — ExecuTorch C++ binary     (~43 MB)
   bat/os.zip           — BAT OS checkpoints        (~3.5 GB)
-  bat/bgl.zip          — BAT BGL checkpoints       (~3.5 GB)
   bat/hdfs.zip         — BAT HDFS checkpoints      (~3.5 GB)
   os_logs.zip          — OpenStack raw logs        (~59 MB)
-  bgl_logs.zip         — BGL processed data files  (~200 MB)
-  bgl_raw.zip          — BGL raw log (BGL.log)     (~709 MB)
   hdfs_raw.zip         — HDFS raw log (HDFS.log)   (~1.5 GB)
   demo.mp4             — Dashboard demo video      (~117 MB)
   (HDFS processed data files are bundled in the repo)
@@ -33,7 +30,6 @@ HF_ASSETS_REPO = "kiSmetZz/ceco-lad-assets"
 
 # ── BAT checkpoints ───────────────────────────────────────────────────────────
 OS_CKPT_DIR   = ROOT / "checkpoints" / "bat" / "os"
-BGL_CKPT_DIR  = ROOT / "checkpoints" / "bat" / "bgl"
 HDFS_CKPT_DIR = ROOT / "checkpoints" / "bat" / "hdfs"
 MIN_CKPTS     = 81
 
@@ -42,7 +38,7 @@ QBAT_DIR      = ROOT / "checkpoints" / "qbat"
 MIN_QBAT      = 3   # 3 .pte files per dataset
 
 # ── executor_runner binary ────────────────────────────────────────────────────
-RUNNER_PATH = ROOT / "ceco_lad_inference_pipeline" / "executorch" / "cmake-out" / "executor_runner"
+RUNNER_PATH = ROOT / "cesal_inference_pipeline" / "executorch" / "cmake-out" / "executor_runner"
 
 # ── Dashboard demo video ──────────────────────────────────────────────────────
 DEMO_VIDEO_PATH = ROOT / "dashboard" / "static" / "demo.mp4"
@@ -52,15 +48,8 @@ DEMO_VIDEO_MIN_BYTES = 1_000_000   # full file ~117 MB; LFS pointer is ~134 B
 OS_RAW_DIR   = ROOT / "data" / "OpenStack" / "raw"
 OS_RAW_FILES = ["openstack_normal1.log", "openstack_normal2.log", "openstack_abnormal.log"]
 
-# ── BGL data files ────────────────────────────────────────────────────────────
-BGL_DATA_DIR   = ROOT / "data" / "BGL"
-BGL_DATA_FILES = ["bgl_train.txt", "bgl_test_normal.txt", "bgl_test_abnormal.txt"]
-
 # ── Raw structured log CSVs (for raw log display in the dashboard) ─────────────
 LOG_DATA_ROOT    = Path.home() / "Desktop" / "Log Data"
-BGL_LOG_DIR      = LOG_DATA_ROOT / "BGL"
-BGL_SPLIT_DIR    = BGL_LOG_DIR / "split"
-BGL_SPLIT_FILES  = ["bgl_train.log", "bgl_test_normal.log", "bgl_test_abnormal.log"]
 HDFS_SPLIT_DIR   = LOG_DATA_ROOT          # train/test_normal/test_abnormal.log live here
 HDFS_SPLIT_FILES = ["train.log", "test_normal.log", "test_abnormal.log"]
 
@@ -157,46 +146,6 @@ def _download_os_logs() -> bool:
         return False
     except Exception as exc:
         print(f"[startup] OpenStack log extraction error: {exc}", flush=True)
-        return False
-
-
-# ── BGL split logs ────────────────────────────────────────────────────────────
-
-def _bgl_split_present() -> bool:
-    if not BGL_SPLIT_DIR.exists():
-        return False
-    min_bytes = {
-        "bgl_train.log":        400_000_000,  # full ~489 MB
-        "bgl_test_normal.log":  100_000_000,  # full ~172 MB
-        "bgl_test_abnormal.log": 40_000_000,  # full ~55 MB
-    }
-    return all(
-        (BGL_SPLIT_DIR / f).is_file() and (BGL_SPLIT_DIR / f).stat().st_size >= min_bytes.get(f, 0)
-        for f in BGL_SPLIT_FILES
-    )
-
-
-def _download_bgl_raw() -> bool:
-    print("[startup] BGL split log files not found. Downloading from HF (~200–400 MB)…",
-          flush=True)
-    zip_path = BGL_LOG_DIR / "bgl_raw.zip"
-    BGL_LOG_DIR.mkdir(parents=True, exist_ok=True)
-    if not _hf_download("bgl_raw.zip", zip_path):
-        print("[startup] BGL raw log download failed — raw log panel will be empty.",
-              flush=True)
-        return False
-    try:
-        BGL_SPLIT_DIR.mkdir(parents=True, exist_ok=True)
-        with zipfile.ZipFile(zip_path, "r") as zf:
-            zf.extractall(str(BGL_SPLIT_DIR))
-        zip_path.unlink(missing_ok=True)
-        if _bgl_split_present():
-            print("[startup] BGL split log files ready.", flush=True)
-            return True
-        print("[startup] BGL extraction finished but split files missing.", flush=True)
-        return False
-    except Exception as exc:
-        print(f"[startup] BGL raw log extraction error: {exc}", flush=True)
         return False
 
 
@@ -308,35 +257,6 @@ def _download_qbat(dataset: str) -> bool:
         return False
 
 
-# ── BGL data files ────────────────────────────────────────────────────────────
-
-def _bgl_data_present() -> bool:
-    return BGL_DATA_DIR.exists() and all(
-        (BGL_DATA_DIR / f).is_file() for f in BGL_DATA_FILES
-    )
-
-
-def _download_bgl_data() -> bool:
-    print("[startup] BGL data files not found. Downloading from HF (~200 MB)…", flush=True)
-    zip_path = BGL_DATA_DIR / "bgl_logs.zip"
-    if not _hf_download("bgl_logs.zip", zip_path):
-        print("[startup] BGL data download failed — BGL dataset unavailable.", flush=True)
-        return False
-    try:
-        BGL_DATA_DIR.mkdir(parents=True, exist_ok=True)
-        with zipfile.ZipFile(zip_path, "r") as zf:
-            zf.extractall(str(BGL_DATA_DIR))
-        zip_path.unlink(missing_ok=True)
-        if _bgl_data_present():
-            print("[startup] BGL data files ready.", flush=True)
-            return True
-        print("[startup] BGL extraction finished but files missing.", flush=True)
-        return False
-    except Exception as exc:
-        print(f"[startup] BGL data extraction error: {exc}", flush=True)
-        return False
-
-
 # ── Pre-computed npy outputs ──────────────────────────────────────────────────
 
 OUTPUT_NP_FILES = [
@@ -390,7 +310,7 @@ def _clear_precomputed_results() -> None:
 
 def _launch_app() -> None:
     port = int(os.getenv("PORT", "7860"))
-    print(f"[startup] Starting CECO-LAD dashboard on port {port} …", flush=True)
+    print(f"[startup] Starting CESAL dashboard on port {port} …", flush=True)
     os.environ["PORT"] = str(port)
     os.execv(sys.executable, [sys.executable, str(ROOT / "dashboard" / "app.py")])
 
@@ -398,7 +318,7 @@ def _launch_app() -> None:
 if __name__ == "__main__":
     _clear_precomputed_results()
 
-    for _ds in ("bgl", "hdfs", "os"):
+    for _ds in ("hdfs", "os"):
         if _outputs_present(_ds):
             print(f"[startup] {_ds.upper()} inference outputs present — skipping download.",
                   flush=True)
@@ -409,16 +329,6 @@ if __name__ == "__main__":
         print("[startup] OpenStack raw logs present — skipping download.", flush=True)
     else:
         _download_os_logs()
-
-    if _bgl_data_present():
-        print("[startup] BGL data files present — skipping download.", flush=True)
-    else:
-        _download_bgl_data()
-
-    if _bgl_split_present():
-        print("[startup] BGL split log files present — skipping download.", flush=True)
-    else:
-        _download_bgl_raw()
 
     if _hdfs_split_present():
         print("[startup] HDFS split log files present — skipping download.", flush=True)
@@ -435,7 +345,7 @@ if __name__ == "__main__":
     else:
         _download_demo_video()
 
-    for _ds in ("bgl", "hdfs", "os"):
+    for _ds in ("hdfs", "os"):
         if _qbat_present(_ds):
             n = len(list((QBAT_DIR / _ds).glob("*.pte")))
             print(f"[startup] {n} Q-BAT {_ds.upper()} models present — skipping download.", flush=True)
@@ -446,11 +356,6 @@ if __name__ == "__main__":
         print(f"[startup] {len(list(OS_CKPT_DIR.glob('*.pth')))} BAT OS checkpoints present — skipping download.", flush=True)
     else:
         _download_checkpoints("os", OS_CKPT_DIR)
-
-    if _ckpts_present(BGL_CKPT_DIR):
-        print(f"[startup] {len(list(BGL_CKPT_DIR.glob('*.pth')))} BAT BGL checkpoints present — skipping download.", flush=True)
-    else:
-        _download_checkpoints("bgl", BGL_CKPT_DIR)
 
     if _ckpts_present(HDFS_CKPT_DIR):
         print(f"[startup] {len(list(HDFS_CKPT_DIR.glob('*.pth')))} BAT HDFS checkpoints present — skipping download.", flush=True)

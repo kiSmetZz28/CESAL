@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "ceco-lad"
+name = "cesal"
 version = "0.1.0"
 requires-python = ">=3.10"
 dependencies = [
@@ -27,8 +27,8 @@ dev = [
 ]
 
 [project.scripts]
-ceco-download = "tools.download_checkpoints:main"
+cesal-download = "tools.download_checkpoints:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["ceco_core*", "training_pipeline*", "ceco_lad_inference_pipeline*", "quantization*", "tools*", "dashboard*"]
+include = ["cesal_core*", "training_pipeline*", "cesal_inference_pipeline*", "incident_response*", "quantization*", "tools*", "dashboard*"]

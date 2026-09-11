@@ -1,12 +1,11 @@
-"""Download assets needed to run CECO-LAD locally after cloning from GitHub.
+"""Download assets needed to run CESAL locally after cloning from GitHub.
 
 Downloads:
-  executorch.zip  → ceco_lad_inference_pipeline/executorch/   (~1.4 GB, Google Drive)
-  bgl_raw.zip     → $CECO_LOG_ROOT/BGL/split/        (~700 MB, HF assets)
-  hdfs_split.zip  → $CECO_LOG_ROOT/                  (~1.6 GB, HF assets)
+  executorch.zip  → cesal_inference_pipeline/executorch/   (~1.4 GB, Google Drive)
+  hdfs_split.zip  → $CESAL_LOG_ROOT/                  (~1.6 GB, HF assets)
 
 OpenStack raw logs are already bundled in data/OpenStack/raw/ (tracked in git).
-Log root defaults to ~/Desktop/Log Data; override with CECO_LOG_ROOT env var.
+Log root defaults to ~/Desktop/Log Data; override with CESAL_LOG_ROOT env var.
 
 Usage
 -----
@@ -24,18 +23,16 @@ from pathlib import Path
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 _PROJECT_ROOT  = Path(__file__).resolve().parent.parent
-EXECUTORCH_DIR = _PROJECT_ROOT / "ceco_lad_inference_pipeline" / "executorch"
+EXECUTORCH_DIR = _PROJECT_ROOT / "cesal_inference_pipeline" / "executorch"
 
-LOG_ROOT       = Path(os.environ.get("CECO_LOG_ROOT", Path.home() / "Desktop" / "Log Data"))
-BGL_SPLIT_DIR  = LOG_ROOT / "BGL" / "split"
+LOG_ROOT       = Path(os.environ.get("CESAL_LOG_ROOT", Path.home() / "Desktop" / "Log Data"))
 HDFS_SPLIT_DIR = LOG_ROOT
 
 # ── Sources ───────────────────────────────────────────────────────────────────
 HF_ASSETS_REPO    = "kiSmetZz/ceco-lad-assets"
-EXECUTORCH_GDRIVE = "1IjZWI2mFijAs8VDapURfUVwxnYAevNtZ"
+EXECUTORCH_GDRIVE = "1YyFOhLxOYOJJCxN6yxTEyMKSHhgaLWuh"
 
 # ── Expected files ────────────────────────────────────────────────────────────
-BGL_FILES  = ["bgl_train.log", "bgl_test_normal.log", "bgl_test_abnormal.log"]
 HDFS_FILES = ["train.log", "test_normal.log", "test_abnormal.log"]
 EXECUTORCH_MARKER = EXECUTORCH_DIR / "cmake-out" / "executor_runner"
 
@@ -117,31 +114,14 @@ def download_executorch() -> bool:
         return True
     print("Downloading ExecuTorch (~1.4 GB) from Google Drive …")
     _check_gdown()
-    zip_path = _PROJECT_ROOT / "ceco_lad_inference_pipeline" / "executorch.zip"
+    zip_path = _PROJECT_ROOT / "cesal_inference_pipeline" / "executorch.zip"
     if not _gdrive_download(EXECUTORCH_GDRIVE, zip_path):
         return False
-    _extract_zip(zip_path, _PROJECT_ROOT / "ceco_lad_inference_pipeline")
+    _extract_zip(zip_path, _PROJECT_ROOT / "cesal_inference_pipeline")
     if EXECUTORCH_MARKER.exists():
         print("ExecuTorch ready.")
         return True
     print("WARNING: extraction finished but executor_runner not found.", file=sys.stderr)
-    return False
-
-
-def download_bgl() -> bool:
-    if BGL_SPLIT_DIR.exists() and all((BGL_SPLIT_DIR / f).is_file() for f in BGL_FILES):
-        print("BGL split logs already present — skipping.")
-        return True
-    print(f"Downloading BGL split logs (~700 MB) → {BGL_SPLIT_DIR} …")
-    _check_huggingface_hub()
-    zip_path = LOG_ROOT / "BGL" / "bgl_raw.zip"
-    if not _hf_download("bgl_raw.zip", zip_path):
-        return False
-    _extract_zip(zip_path, BGL_SPLIT_DIR)
-    if all((BGL_SPLIT_DIR / f).is_file() for f in BGL_FILES):
-        print(f"BGL split logs ready.")
-        return True
-    print("WARNING: some BGL files are missing after extraction.", file=sys.stderr)
     return False
 
 
@@ -176,9 +156,6 @@ def list_status() -> None:
 
     print(f"ExecuTorch  ({EXECUTORCH_DIR}): {_status(EXECUTORCH_DIR)}")
     print(f"  executor_runner: {'OK' if EXECUTORCH_MARKER.exists() else 'MISSING'}")
-    print(f"\nBGL split logs  ({BGL_SPLIT_DIR}):")
-    for f in BGL_FILES:
-        print(f"  {f}: {_status(BGL_SPLIT_DIR / f)}")
     print(f"\nHDFS split logs  ({HDFS_SPLIT_DIR}):")
     for f in HDFS_FILES:
         print(f"  {f}: {_status(HDFS_SPLIT_DIR / f)}")
@@ -188,7 +165,7 @@ def list_status() -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Download assets needed to run CECO-LAD locally.",
+        description="Download assets needed to run CESAL locally.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
@@ -210,12 +187,11 @@ def main() -> None:
     if args.skip != "executorch":
         ok &= download_executorch()
     if args.skip != "logs":
-        ok &= download_bgl()
         ok &= download_hdfs()
 
     print()
     if ok:
-        print("All assets ready. You can now run CECO-LAD.")
+        print("All assets ready. You can now run CESAL.")
     else:
         print("Some downloads failed — check errors above.", file=sys.stderr)
         sys.exit(1)

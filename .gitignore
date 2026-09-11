@@ -40,6 +40,10 @@ outputs/*
 outputs/*/*
 !outputs/*/thresholds_cloud.yaml
 !outputs/*/thresholds_edge.yaml
+# Exception: paper Table 7 reference metrics for the LLM incident classifier
+!outputs/*/llm/
+outputs/*/llm/*
+!outputs/*/llm/table7_reference_metrics.csv
 
 # SQLite database (rebuilt at runtime, too large for GitHub)
 *.db
@@ -49,5 +53,5 @@ outputs/*/*
 *.mov
 
 # ExecuTorch source + build tree (~1.4 GB, downloaded via tools/download_data.py)
-ceco_lad_inference_pipeline/executorch/
-ceco_lad_inference_pipeline/executorch.zip
+cesal_inference_pipeline/executorch/
+cesal_inference_pipeline/executorch.zip

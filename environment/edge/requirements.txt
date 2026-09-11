@@ -1,4 +1,4 @@
-# Edge environment (ceco-lad-edge) — pinned package list, captured from a
+# Edge environment (cesal-edge) — pinned package list, captured from a
 # working `pip list --format=freeze`.
 #
 # Install with the CPU PyTorch index URL:

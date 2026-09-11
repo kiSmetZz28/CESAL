@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cloud inference phase — runs in the cloud conda env (ceco-lad-cloud).
+"""Cloud inference phase — runs in the cloud conda env (cesal-cloud).
 
 Reads intermediate files saved by the edge phase and runs the BAT ensemble.
 Called automatically by the dashboard when using split environments.
@@ -46,15 +46,15 @@ def _point_adjust(gt: np.ndarray, pred: np.ndarray) -> np.ndarray:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="CECO-LAD cloud inference phase.")
+    parser = argparse.ArgumentParser(description="CESAL cloud inference phase.")
     parser.add_argument("--config", required=True, help="Inference YAML config path.")
     args = parser.parse_args()
 
     os.chdir(str(ROOT))
 
-    from ceco_core.utils.config import load_config, setup_logging
-    from ceco_core.utils.metrics import evaluate
-    from ceco_lad_inference_pipeline import lad_bat_cloud
+    from cesal_core.utils.config import load_config, setup_logging
+    from cesal_core.utils.metrics import evaluate
+    from cesal_inference_pipeline import lad_bat_cloud
 
     setup_logging("cloud")
     cfg      = load_config(args.config)

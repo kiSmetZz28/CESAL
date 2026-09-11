@@ -3,7 +3,7 @@ import logging
 
 import numpy as np
 
-from ceco_core.utils.metrics import evaluate
+from cesal_core.utils.metrics import evaluate
 
 
 def _load_arr(path: str, dtype=int) -> np.ndarray:

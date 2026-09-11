@@ -10,7 +10,7 @@ Called by dashboard/app.py via CLOUD_PYTHON (the hybrid conda env):
 
 Input:  .npy file containing a float32 array of shape [n_events, input_c]
         (the StandardScaler-normalised context window matrix produced by
-        the dashboard's in-memory scaler in the ceco-lad env).
+        the dashboard's in-memory scaler in the cesal-edge env).
 
 Output: single JSON object printed to stdout.
         Errors are also returned as {"error": "..."} on stdout so the
@@ -93,7 +93,7 @@ def main() -> None:
         return
 
     try:
-        from ceco_lad_inference_pipeline.lad_bat_cloud import _load_thresholds
+        from cesal_inference_pipeline.lad_bat_cloud import _load_thresholds
         thresholds_dict = _load_thresholds(str(thresh_path))
     except Exception as exc:
         _out({"error": f"Could not load thresholds: {exc}"})
@@ -103,8 +103,8 @@ def main() -> None:
     # 4 workers balances parallelism vs disk I/O contention on container storage.
     # 8 workers causes I/O saturation; sequential takes ~25s; 4 workers ~6-8s.
     import concurrent.futures
-    from ceco_core.models.EMAT import EMAT
-    from ceco_core.utils.energy import compute_energy_batch
+    from cesal_core.models.EMAT import EMAT
+    from cesal_core.utils.energy import compute_energy_batch
 
     search_keys  = ["num_epochs", "k", "e_layer_num", "batch_size"]
     combinations = list(product(*[cloud_cfg[k] for k in search_keys]))

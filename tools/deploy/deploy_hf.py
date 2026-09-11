@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Deploy CECO-LAD to Hugging Face Spaces.
+"""Deploy CESAL to Hugging Face Spaces.
 
 Uses HfApi.upload_folder() — no git, no git-lfs, no password needed.
 Authentication is done with an access token (Write permission).
 
 Run from the project root:
     python tools/deploy/deploy_hf.py kiSmetZz
-    python tools/deploy/deploy_hf.py kiSmetZz ceco-lad   # custom space name
+    python tools/deploy/deploy_hf.py kiSmetZz cesal   # custom space name
 """
 import sys
 from pathlib import Path
@@ -26,12 +26,13 @@ if len(sys.argv) < 2:
     sys.exit(1)
 
 hf_user    = sys.argv[1]
+# Default stays "ceco-lad": that is the existing Space serving the live demo.
 space_name = sys.argv[2] if len(sys.argv) > 2 else "ceco-lad"
 repo_id    = f"{hf_user}/{space_name}"
 # This file lives in tools/deploy/, so the project root is two levels up.
 root       = Path(__file__).resolve().parent.parent.parent
 
-print(f"\nDeploying CECO-LAD  →  {repo_id}")
+print(f"\nDeploying CESAL  →  {repo_id}")
 print(f"Public URL after build:  https://{hf_user}-{space_name}.hf.space\n")
 
 # ── Step 1: Login ─────────────────────────────────────────────────────────────
@@ -67,7 +68,7 @@ print("  No git-lfs needed — large files are chunked automatically.\n")
 # before a separately uploaded binary can arrive.
 HF_README = f"""\
 ---
-title: CECO-LAD
+title: CESAL
 emoji: 🔍
 colorFrom: blue
 colorTo: indigo
@@ -92,17 +93,25 @@ api.upload_folder(
     # Delete any prior manual uploads of the demo video — the real blob lives
     # in the assets dataset repo and is fetched at container startup. Leaving a
     # copy here just bakes a stale LFS pointer (or stale file) into the build.
-    # Also delete the old `inference_pipeline/` tree left over from before the
-    # rename to `ceco_lad_inference_pipeline/`.
+    # Also delete package trees left over from earlier folder names.
     delete_patterns=[
         "dashboard/static/demo.mp4",
-        # Clean up the old inference_pipeline/ tree left over from before the
-        # rename to ceco_lad_inference_pipeline/.
+        # Clean up old package trees left over from before the renames
+        # inference_pipeline/ → ceco_lad_inference_pipeline/ → cesal_inference_pipeline/
+        # and ceco_core/ → cesal_core/.
         "inference_pipeline/**",
+        "ceco_lad_inference_pipeline/**",
+        "ceco_core/**",
         # Clean up any executorch download artefacts that may have been pushed
-        # in prior deploys (under either the old or new folder name).
+        # in prior deploys (under any of the folder names).
         "inference_pipeline/executorch.zip",
         "ceco_lad_inference_pipeline/executorch.zip",
+        "cesal_inference_pipeline/executorch.zip",
+        # BGL dataset files from before BGL was dropped from the project.
+        "data/BGL/**",
+        "outputs/bgl/**",
+        "configs/inference/bgl*.yaml",
+        "configs/training/bgl.yaml",
         # Raw OpenStack log files inadvertently uploaded in prior deploys.
         "data/OpenStack/raw/**",
     ],
@@ -113,16 +122,16 @@ api.upload_folder(
         # Q-BAT checkpoints (218 MB) — downloaded at runtime from HF dataset repo
         "checkpoints/qbat/**",
         # Entire executorch directory — compiled libs not needed in Space repo
-        "ceco_lad_inference_pipeline/executorch/**",
+        "cesal_inference_pipeline/executorch/**",
         # The 696 MB executorch.zip is a download artefact left behind by
         # `run.py download` / `launch_dashboard.py`; it lives next to the
         # executorch/ folder so the pattern above does NOT match it.
-        "ceco_lad_inference_pipeline/executorch.zip",
+        "cesal_inference_pipeline/executorch.zip",
         # Raw OpenStack log files — fetched at runtime by spaces_startup.py
         # from the HF assets dataset repo; not needed in the Space repo.
         "data/OpenStack/raw/**",
         # Local database — rebuilt from scratch on startup
-        "dashboard/ceco_lad.db",
+        "dashboard/cesal.db",
         # Demo video (~117 MB) — downloaded at runtime from HF assets dataset repo.
         # If shipped via the Space repo it ends up as an LFS pointer (~134 B)
         # inside the Docker build context, which breaks playback.

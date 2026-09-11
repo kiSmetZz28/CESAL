@@ -1,4 +1,4 @@
-"""Cross-platform entry point for CECO-LAD pipelines.
+"""Cross-platform entry point for CESAL pipelines.
 
 Usage
 -----
@@ -7,17 +7,22 @@ Usage
   python run.py eval     [DATASET] [VOTING]
   python run.py convert  [DATASET]
   python run.py infer    [DATASET]
+  python run.py classify [MODELS]
+  python run.py respond  [MODEL]
   python run.py help
 
 Examples
 --------
   python run.py download                  # Download all pre-trained checkpoints
-  python run.py download bgl              # Download BGL checkpoints only
-  python run.py download bgl bat          # Download BGL full-precision only
-  python run.py train bgl
-  python run.py eval bgl all
-  python run.py convert bgl
-  python run.py infer bgl
+  python run.py download hdfs             # Download HDFS checkpoints only
+  python run.py download hdfs bat         # Download HDFS full-precision only
+  python run.py train hdfs
+  python run.py eval hdfs all
+  python run.py convert hdfs
+  python run.py infer hdfs
+  python run.py classify                            # all LLMs in configs/llm/hdfs.yaml
+  python run.py classify qwen2.5-14b-instruct       # one LLM backbone
+  python run.py respond                             # HDFS detections → anomaly queues → classification → workflows
 """
 
 import subprocess
@@ -72,12 +77,12 @@ def main() -> None:
         sys.exit(0)
 
     elif command == "train":
-        dataset = argv[1] if len(argv) > 1 else "bgl"
+        dataset = argv[1] if len(argv) > 1 else "os"
         print(f"[run] Training BAT ensemble — dataset: {dataset}")
         _run_module("training_pipeline.train", "--config", f"configs/training/{dataset}.yaml")
 
     elif command == "eval":
-        dataset = argv[1] if len(argv) > 1 else "bgl"
+        dataset = argv[1] if len(argv) > 1 else "os"
         voting = argv[2] if len(argv) > 2 else "all"
         print(f"[run] Evaluating BAT ensemble — dataset: {dataset}  voting: {voting}")
         _run_module("training_pipeline.evaluate",
@@ -85,16 +90,32 @@ def main() -> None:
                     "--voting", voting)
 
     elif command == "convert":
-        dataset = argv[1] if len(argv) > 1 else "bgl"
+        dataset = argv[1] if len(argv) > 1 else "os"
         print(f"[run] Converting BAT → Q-BAT — dataset: {dataset}")
         _run(str(_ROOT / "quantization" / "qbat_export.py"),
              "--config", f"configs/training/{dataset}.yaml", "--all")
 
     elif command == "infer":
-        dataset = argv[1] if len(argv) > 1 else "bgl"
+        dataset = argv[1] if len(argv) > 1 else "os"
         print(f"[run] Inference pipeline — dataset: {dataset}")
-        _run_module("ceco_lad_inference_pipeline.run",
+        _run_module("cesal_inference_pipeline.run",
                     "--config", f"configs/inference/{dataset}.yaml")
+
+    elif command == "classify":
+        models = argv[1] if len(argv) > 1 else None
+        print(f"[run] LLM open-set incident classification — models: {models or 'all in configs/llm/hdfs.yaml'}")
+        _run_module("incident_response.evaluate", "--config", "configs/llm/hdfs.yaml",
+                    *(["--models", models] if models else []))
+
+    elif command == "respond":
+        model = argv[1] if len(argv) > 1 else None
+        print("[run] Incident response — building anomaly queues from HDFS detection outputs")
+        rc = _run_keep_going("-m", "incident_response.queues", "--config", "configs/llm/hdfs.yaml")
+        if rc != 0:
+            sys.exit(rc)
+        print(f"[run] Classifying queued incidents — model: {model or 'respond_model in configs/llm/hdfs.yaml'}")
+        _run_module("incident_response.process_queues", "--config", "configs/llm/hdfs.yaml",
+                    *(["--model", model] if model else []))
 
     elif command in ("help", "--help", "-h"):
         print(__doc__)

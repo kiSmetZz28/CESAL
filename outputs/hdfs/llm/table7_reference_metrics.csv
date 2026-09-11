@@ -1,0 +1,49 @@
+model,label,precision,recall,f1,support
+meta-llama/Meta-Llama-3.1-8B-Instruct,Namenode not updated after deleting block,0.8829113924050633,0.754054054054054,0.8134110787172012,740
+meta-llama/Meta-Llama-3.1-8B-Instruct,Write exception client give up,0.6,1.0,0.75,3
+meta-llama/Meta-Llama-3.1-8B-Instruct,Write failed at beginning,1.0,1.0,1.0,2
+meta-llama/Meta-Llama-3.1-8B-Instruct,Replica immediately deleted,0.9279169211973122,0.9134095009019844,0.9206060606060606,1663
+meta-llama/Meta-Llama-3.1-8B-Instruct,Received block that does not belong to any file,0.9916839916839917,0.9695121951219512,0.9804727646454265,492
+meta-llama/Meta-Llama-3.1-8B-Instruct,Redundant addStoredBlock,0.9931506849315068,0.8504398826979472,0.9162717219589257,341
+meta-llama/Meta-Llama-3.1-8B-Instruct,Delete a block that no longer exists on data node,0.918918918918919,0.8649706457925636,0.8911290322580645,511
+meta-llama/Meta-Llama-3.1-8B-Instruct,Empty packet for block,0.9595375722543352,0.9822485207100592,0.9707602339181286,169
+meta-llama/Meta-Llama-3.1-8B-Instruct,Receive block exception,0.4,1.0,0.5714285714285714,62
+meta-llama/Meta-Llama-3.1-8B-Instruct,Replication Monitor timeout,0.3956043956043956,1.0,0.5669291338582677,36
+meta-llama/Meta-Llama-3.1-8B-Instruct,Other anomaly type,0.44,0.7333333333333333,0.55,105
+meta-llama/Meta-Llama-3.1-8B-Instruct,macro avg,0.7736112615450477,0.9152698302374449,0.8119098724900589,4124
+google/gemma-2-9b-it,Namenode not updated after deleting block,0.8836477987421384,0.7594594594594595,0.8168604651162791,740
+google/gemma-2-9b-it,Write exception client give up,0.6,1.0,0.75,3
+google/gemma-2-9b-it,Write failed at beginning,1.0,1.0,1.0,2
+google/gemma-2-9b-it,Replica immediately deleted,0.9245960502692998,0.9290438965724594,0.9268146370725855,1663
+google/gemma-2-9b-it,Received block that does not belong to any file,0.989648033126294,0.9715447154471545,0.9805128205128205,492
+google/gemma-2-9b-it,Redundant addStoredBlock,0.9931740614334471,0.8533724340175953,0.917981072555205,341
+google/gemma-2-9b-it,Delete a block that no longer exists on data node,0.911340206185567,0.8649706457925636,0.8875502008032129,511
+google/gemma-2-9b-it,Empty packet for block,0.9542857142857143,0.9881656804733728,0.9709302325581395,169
+google/gemma-2-9b-it,Receive block exception,0.39490445859872614,1.0,0.5662100456621004,62
+google/gemma-2-9b-it,Replication Monitor timeout,0.391304347826087,1.0,0.5625,36
+google/gemma-2-9b-it,Other anomaly type,0.56,0.6666666666666666,0.6086956521739131,105
+google/gemma-2-9b-it,macro avg,0.7820818791333886,0.9121112271299339,0.8170959205867505,4124
+Qwen/Qwen2.5-7B-Instruct,Namenode not updated after deleting block,0.8815165876777251,0.754054054054054,0.8128186453022578,740
+Qwen/Qwen2.5-7B-Instruct,Write exception client give up,0.6,1.0,0.75,3
+Qwen/Qwen2.5-7B-Instruct,Write failed at beginning,1.0,1.0,1.0,2
+Qwen/Qwen2.5-7B-Instruct,Replica immediately deleted,0.9238609112709832,0.9266386049308478,0.9252476733713599,1663
+Qwen/Qwen2.5-7B-Instruct,Received block that does not belong to any file,0.9896265560165975,0.9695121951219512,0.9794661190965093,492
+Qwen/Qwen2.5-7B-Instruct,Redundant addStoredBlock,0.9898305084745763,0.8563049853372434,0.9182389937106918,341
+Qwen/Qwen2.5-7B-Instruct,Delete a block that no longer exists on data node,0.9132231404958677,0.8649706457925636,0.8884422110552764,511
+Qwen/Qwen2.5-7B-Instruct,Empty packet for block,0.9542857142857143,0.9881656804733728,0.9709302325581395,169
+Qwen/Qwen2.5-7B-Instruct,Receive block exception,0.389937106918239,1.0,0.5610859728506787,62
+Qwen/Qwen2.5-7B-Instruct,Replication Monitor timeout,0.3711340206185567,1.0,0.5413533834586466,36
+Qwen/Qwen2.5-7B-Instruct,Other anomaly type,0.5725806451612904,0.6761904761904762,0.6200873362445415,105
+Qwen/Qwen2.5-7B-Instruct,macro avg,0.7805450173563228,0.912348785627319,0.8152427788771001,4124
+Qwen/Qwen2.5-14B-Instruct,Namenode not updated after deleting block,0.9156050955414012,0.777027027027027,0.8406432748538012,740
+Qwen/Qwen2.5-14B-Instruct,Write exception client give up,0.6,1.0,0.75,3
+Qwen/Qwen2.5-14B-Instruct,Write failed at beginning,1.0,1.0,1.0,2
+Qwen/Qwen2.5-14B-Instruct,Replica immediately deleted,0.9415623136553369,0.9494888755261576,0.9455089820359281,1663
+Qwen/Qwen2.5-14B-Instruct,Received block that does not belong to any file,0.991701244813278,0.9715447154471545,0.9815195071868583,492
+Qwen/Qwen2.5-14B-Instruct,Redundant addStoredBlock,0.9731543624161074,0.8504398826979472,0.9076682316118936,341
+Qwen/Qwen2.5-14B-Instruct,Delete a block that no longer exists on data node,0.908,0.8884540117416829,0.8981206726013847,511
+Qwen/Qwen2.5-14B-Instruct,Empty packet for block,0.9649122807017544,0.9763313609467456,0.9705882352941176,169
+Qwen/Qwen2.5-14B-Instruct,Receive block exception,0.37575757575757573,1.0,0.5462555066079295,62
+Qwen/Qwen2.5-14B-Instruct,Replication Monitor timeout,0.43373493975903615,1.0,0.6050420168067226,36
+Qwen/Qwen2.5-14B-Instruct,Other anomaly type,0.6637168141592921,0.7142857142857143,0.6880733944954128,105
+Qwen/Qwen2.5-14B-Instruct,macro avg,0.797104056982162,0.920688326152039,0.8303108928630952,4124

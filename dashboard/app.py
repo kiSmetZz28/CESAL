@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CECO-LAD Web Dashboard — FastAPI backend."""
+"""CESAL Web Dashboard — FastAPI backend."""
 import asyncio
 import json
 import os
@@ -20,11 +20,11 @@ from pydantic import BaseModel
 ROOT = Path(__file__).parent.parent
 # Make dashboard/ importable so db.py / ingest.py can be imported directly
 sys.path.insert(0, str(Path(__file__).parent))
-# Make project root importable so ceco_core / ceco_lad_inference_pipeline are accessible
+# Make project root importable so cesal_core / cesal_inference_pipeline are accessible
 sys.path.insert(0, str(ROOT))
 import db as _db
 
-app = FastAPI(title="CECO-LAD Dashboard")
+app = FastAPI(title="CESAL Dashboard")
 
 # Serve static assets (demo video etc.) from the dashboard directory.
 #
@@ -54,11 +54,6 @@ _CTX_LEN = 10  # matches Preprocessor.sequence() context_length=10 (all precedin
 # txt file root — same files the loaders use
 _DATA_DIR = ROOT / "data"
 _TXT_PATHS: dict[str, dict[str, list[Path]]] = {
-    "bgl": {
-        "train": [_DATA_DIR / "BGL" / "bgl_train.txt"],
-        "test":  [_DATA_DIR / "BGL" / "bgl_test_normal.txt",
-                  _DATA_DIR / "BGL" / "bgl_test_abnormal.txt"],
-    },
     "hdfs": {
         "train": [_DATA_DIR / "HDFS" / "hdfs_train.txt"],
         "test":  [_DATA_DIR / "HDFS" / "hdfs_test_normal.txt",
@@ -72,7 +67,7 @@ _TXT_PATHS: dict[str, dict[str, list[Path]]] = {
 }
 
 # scaler state per dataset
-_scalers: dict[str, Optional[dict]] = {"bgl": None, "hdfs": None, "os": None}
+_scalers: dict[str, Optional[dict]] = {"hdfs": None, "os": None}
 
 # Cache of "interesting" test line_numbers per dataset:
 # lines kept at edge where the three edge models disagree (not all 0 or all 1).
@@ -138,16 +133,13 @@ def _build_interesting_lines(dataset: str) -> None:
     # rows and takes several minutes; direct arithmetic is O(1).
     # Line_numbers are assigned sequentially during ingest (no gaps), so
     # all_lns[db_pos] == first_test_ln + db_pos exactly.
-    if dataset == "bgl":
-        first_test_ln = _db_local.BGL_N_TRAIN_LINES
-        n_db = _db_local.BGL_N_TEST_NORMAL_LINES + _db_local.BGL_N_TEST_ABNORMAL_LINES
-    elif dataset == "hdfs":
+    if dataset == "hdfs":
         first_test_ln = _db_local.HDFS_N_TRAIN_LINES
         n_db = _db_local.HDFS_N_TEST_NORMAL_LINES + _db_local.HDFS_N_TEST_ABNORMAL_LINES
     elif dataset == "os":
         # OS train_normal occupies lines 0..N-1; test starts immediately after.
         # Look up the exact start with a single MIN query (fast, indexed).
-        _db_path = str(Path(__file__).parent / "ceco_lad.db")
+        _db_path = str(Path(__file__).parent / "cesal.db")
         try:
             with _sqlite3.connect(_db_path, timeout=30) as _c:
                 _row = _c.execute(
@@ -176,13 +168,13 @@ def _build_interesting_lines(dataset: str) -> None:
     # preserving the relative interesting-case order within each group.
     #
     # Strategy differs by dataset because of how line_numbers are assigned:
-    #   BGL / OS  — split-level block_id; entries are CONSECUTIVE within a split
+    #   OS        — split-level block_id; entries are CONSECUTIVE within a split
     #               file, so position = ln − MIN(ln in split).  2 batch queries.
     #   HDFS      — block-level block_id (blk_-XXX); entries from the same block
     #               are INTERLEAVED in the raw log with other blocks, so
     #               ln − MIN(ln in block) >> actual preceding count.  Needs real
     #               COUNT per entry, but blocks are tiny (≤42 events) and indexed.
-    db_path = str(Path(__file__).parent / "ceco_lad.db")
+    db_path = str(Path(__file__).parent / "cesal.db")
     has_padding: set[int] = set()
     try:
         with _sqlite3.connect(db_path, timeout=30) as _c:
@@ -210,7 +202,7 @@ def _build_interesting_lines(dataset: str) -> None:
                         if cnt < _CTX_LEN:
                             has_padding.add(ln)
             else:
-                # BGL / OS: entries within the same split file have consecutive
+                # OS: entries within the same split file have consecutive
                 # line_numbers, so position = ln − MIN(ln in split). 1 more query.
                 bid_set = list(set(ln_to_bid.values()))
                 if bid_set:
@@ -249,7 +241,7 @@ def _read_txt_lines(paths: list[Path]) -> list[str]:
 
 def _sync_fit_scaler(dataset: str) -> None:
     """Fit StandardScaler for one dataset from its training txt file.
-    Uses partial_fit to stay memory-efficient (BGL has ~8 M context rows)."""
+    Uses partial_fit to stay memory-efficient on large training files."""
     try:
         from sklearn.preprocessing import StandardScaler
         paths  = _TXT_PATHS[dataset]["train"]
@@ -335,7 +327,7 @@ _last_run_ok: bool = True                 # True = last run completed successful
 # ── Models ────────────────────────────────────────────────────────────────────
 class RunRequest(BaseModel):
     command: str                   # train | eval | convert | infer | download
-    dataset: str = "bgl"          # bgl | hdfs | os
+    dataset: str = "os"           # hdfs | os
     voting: str = "majority"
     routing_tolerance: float = 0.1
     routing_distance: str = "ma"
@@ -376,8 +368,8 @@ def _preload_bat_models(dataset: str) -> None:
         return
 
     try:
-        from ceco_core.models.EMAT import EMAT
-        from ceco_lad_inference_pipeline.lad_bat_cloud import _load_thresholds
+        from cesal_core.models.EMAT import EMAT
+        from cesal_inference_pipeline.lad_bat_cloud import _load_thresholds
         from itertools import product as iproduct
         import torch as _torch
 
@@ -423,7 +415,7 @@ def _preload_bat_models(dataset: str) -> None:
 def _predict_from_cache(arr: "np.ndarray", win_size: int,
                         dataset: str, start: int, max_models: int) -> list:
     """Run inference using in-RAM models for the given dataset — no disk I/O."""
-    from ceco_core.utils.energy import compute_energy_batch
+    from cesal_core.utils.energy import compute_energy_batch
     import torch as _torch
     import concurrent.futures
 
@@ -509,26 +501,9 @@ def _lookup_pipeline_result(dataset: str, session_idx: int) -> Optional[dict]:
             win_size    = _cfg.get("win_size", 100)
             routing_pct = int(_cfg.get("routing_tolerance", 0.1) * 100)
 
-    # Both BGL and OS use proportional mapping from the index returned by
-    # _find_window_for_raw to the correct position in the npy event arrays.
-    # This ensures predictions match the pipeline exactly regardless of how
-    # many events each session/line contributed.
-    if dataset == "bgl":
-        # BGL: session_idx = combined local test line index (raw log line).
-        # Each line maps to one npy event proportionally.
-        N_NORM_LINES  = _db.BGL_N_TEST_NORMAL_LINES    # 925712
-        N_ANOM_LINES  = _db.BGL_N_TEST_ABNORMAL_LINES  # 348460
-        N_NORM_EVENTS = _db.BGL_N_NORMAL_EVENTS         # 854957
-        N_ANOM_EVENTS = _db.BGL_N_ABNORMAL_EVENTS       # 419143
-        if session_idx < N_NORM_LINES:
-            start = min(int(session_idx * N_NORM_EVENTS / N_NORM_LINES),
-                        N_NORM_EVENTS - 1)
-        else:
-            k     = session_idx - N_NORM_LINES
-            start = N_NORM_EVENTS + min(int(k * N_ANOM_EVENTS / N_ANOM_LINES),
-                                        N_ANOM_EVENTS - 1)
-        end = min(start + 1, len(hybrid))
-    elif dataset == "os":
+    # Map the index returned by _find_window_for_raw to the correct position in
+    # the npy event arrays so predictions match the pipeline exactly.
+    if dataset == "os":
         # OS npy is per-line; session_idx is the direct npy position.
         start = min(session_idx, len(hybrid) - 1)
         end   = start + 1
@@ -749,7 +724,7 @@ def _find_window_for_raw(dataset: str, split: str, line_number: int, block_id: s
     For HDFS the block_id gives an exact match.
     """
     import sqlite3
-    db_path = str(Path(__file__).parent / "ceco_lad.db")
+    db_path = str(Path(__file__).parent / "cesal.db")
 
     if dataset == "os":
         if split == "train" or block_id == "train_normal":
@@ -769,20 +744,8 @@ def _find_window_for_raw(dataset: str, split: str, line_number: int, block_id: s
                     _db.OS_N_ABNORMAL_EVENTS - 1)
             return _db.OS_N_NORMAL_EVENTS + k
 
-    elif dataset == "bgl":
-        # Each raw BGL log line maps directly to one npy result — no session
-        # grouping.  Return the combined local test index:
-        #   test_normal  lines → 0 .. N_TEST_NORMAL_LINES-1
-        #   test_abnormal lines → N_TEST_NORMAL_LINES .. N_TEST_NORMAL_LINES+N_TEST_ABNORMAL_LINES-1
-        BGL_N_TRAIN_LINES = _db.BGL_N_TRAIN_LINES
-        if block_id == "bgl_train" or split == "train":
-            lines_per = _db.BGL_LINES_PER_SESSION.get("bgl_train", 41)
-            return max(0, line_number // lines_per)
-        local = max(0, line_number - BGL_N_TRAIN_LINES)
-        return local  # combined test local line index
-
     elif dataset == "hdfs":
-        # HDFS npy arrays are indexed by raw test line (same as BGL).
+        # HDFS npy arrays are indexed by raw test line.
         # Return the test-local line index so _lookup_pipeline_result can index
         # directly into hybrid_preds.npy / routed_indices.npy.
         if split == "train":
@@ -826,9 +789,9 @@ async def predict_from_raw(
     if not all_lines:
         return {"error": "No session data found. Check that the dataset is fully ingested."}
 
-    # For BGL, HDFS, and OS the window_idx is a raw per-line npy index —
+    # For HDFS and OS the window_idx is a raw per-line npy index —
     # don't clamp against the txt-file session count.
-    if dataset not in ("bgl", "hdfs", "os") and window_idx >= len(all_lines):
+    if dataset not in ("hdfs", "os") and window_idx >= len(all_lines):
         window_idx = len(all_lines) - 1
 
     if split == "test":
@@ -837,19 +800,7 @@ async def predict_from_raw(
         result = None
 
     if result is None:
-        # For BGL: convert raw line index → session index for txt-file lookup.
-        if dataset == "bgl" and split == "test":
-            N_NORM = _db.BGL_N_TEST_NORMAL_LINES
-            if window_idx < N_NORM:
-                lp = _db.BGL_LINES_PER_SESSION.get("bgl_test_normal", 44)
-                sess = min(window_idx // lp, _db.BGL_N_TEST_NORMAL_SESSIONS - 1)
-            else:
-                lp   = _db.BGL_LINES_PER_SESSION.get("bgl_test_abnormal", 27)
-                k    = window_idx - N_NORM
-                sess = _db.BGL_N_TEST_NORMAL_SESSIONS + min(k // lp, 13041)
-            content = all_lines[sess] if sess < len(all_lines) else ""
-        else:
-            content = all_lines[window_idx]
+        content = all_lines[window_idx]
         result  = await asyncio.to_thread(_fresh_predict, dataset, content)
         if "error" in result:
             return result
@@ -857,14 +808,9 @@ async def predict_from_raw(
 
     result["line_index"] = window_idx
 
-    # Derive ground truth from pipeline npy gt array when available (HDFS, BGL),
-    # or from block_id / windows table for other datasets.
-    if dataset == "bgl":
-        result["ground_truth"] = (
-            1 if block_id == "bgl_test_abnormal" else
-            0 if block_id in ("bgl_train", "bgl_test_normal") else None
-        )
-    elif dataset == "hdfs":
+    # Derive ground truth from line/npy position for HDFS and OS,
+    # or from the windows table for other datasets.
+    if dataset == "hdfs":
         # Ground truth derived directly from line_number: test_abnormal lines
         # start at HDFS_N_TRAIN_LINES + HDFS_N_TEST_NORMAL_LINES in the DB.
         # This is reliable regardless of npy file size.
@@ -942,12 +888,8 @@ async def _startup():
     st = await _db.get_status()
     if not st.get("win_os_test") or not st.get("raw_os"):
         _trigger_ingest()
-    # Re-ingest BGL windows from txt files if the old CSV-based import is present
-    # (detects upgrade: old key is "bgl_windows"; new key is "bgl_windows_txt").
-    import ingest as _ingest
-    asyncio.create_task(asyncio.to_thread(_ingest.ingest_bgl_windows))
     # Fit StandardScaler for all datasets (needed for single-session prediction)
-    for _ds in ("os", "hdfs", "bgl"):
+    for _ds in ("os", "hdfs"):
         asyncio.create_task(asyncio.to_thread(_sync_fit_scaler, _ds))
     # Preload BAT models into RAM only when no separate cloud env is available
     # (i.e. HF Spaces / Docker where CLOUD_PYTHON == this interpreter).
@@ -964,7 +906,7 @@ async def _startup():
         async def _preload_after_ingest():
             while _ingest_running:
                 await asyncio.sleep(30)
-            for _ds in ("os", "bgl"):
+            for _ds in ("os",):
                 await asyncio.to_thread(_preload_bat_models, _ds)
         asyncio.create_task(_preload_after_ingest())
 
@@ -1288,16 +1230,16 @@ def _parse_log_metrics(lines: list[str]) -> dict:
 # Override EDGE_PYTHON / CLOUD_PYTHON env vars to use a different interpreter
 # (e.g. set both to sys.executable in Docker where conda envs don't exist).
 _CONDA = Path.home() / "miniconda3" / "envs"
-EDGE_PYTHON  = os.getenv("EDGE_PYTHON",  str(_CONDA / "ceco-lad-edge"  / "bin" / "python"))
-CLOUD_PYTHON = os.getenv("CLOUD_PYTHON", str(_CONDA / "ceco-lad-cloud" / "bin" / "python"))
+EDGE_PYTHON  = os.getenv("EDGE_PYTHON",  str(_CONDA / "cesal-edge"  / "bin" / "python"))
+CLOUD_PYTHON = os.getenv("CLOUD_PYTHON", str(_CONDA / "cesal-cloud" / "bin" / "python"))
 
 # True when the full inference pipeline (run.py + ExecuTorch executor_runner) is present.
 # Falls back to demo_runner.py when either component is missing.
 _RUNNER_BIN = (
-    ROOT / "ceco_lad_inference_pipeline" / "executorch" / "cmake-out" / "executor_runner"
+    ROOT / "cesal_inference_pipeline" / "executorch" / "cmake-out" / "executor_runner"
 )
 _FULL_PIPELINE_AVAILABLE = (
-    (ROOT / "ceco_lad_inference_pipeline" / "run.py").exists()
+    (ROOT / "cesal_inference_pipeline" / "run.py").exists()
     and _RUNNER_BIN.exists()
 )
 
@@ -1308,7 +1250,7 @@ def _build_precomputed_infer_cmd(ds: str) -> list[str]:
     Used when neither the full pipeline nor BAT checkpoints are available.
     The frontend then loads whatever is already in outputs/{ds}/."""
     script = "\n".join([
-        f'echo "=== CECO-LAD  [{ds.upper()}] — no checkpoints available ==="',
+        f'echo "=== CESAL  [{ds.upper()}] — no checkpoints available ==="',
         f'echo "Pre-computed results loaded from outputs/{ds}/. See the Results tab."',
     ])
     return ["bash", "-c", script]
@@ -1325,7 +1267,7 @@ def _build_container_infer_cmd(ds: str, tolerance: float, distance: str) -> list
       Stage 4 — hybrid metrics
 
     Falls back to the pre-computed status message when BAT checkpoints or a
-    cloud section are absent for the requested dataset (e.g. BGL, HDFS).
+    cloud section are absent for the requested dataset (e.g. HDFS).
     """
     # Need both a cloud section in the config and actual .pth checkpoints.
     if not _cfg_has_cloud(ds):
@@ -1374,8 +1316,8 @@ def _build_infer_cmd(ds: str, tolerance: float, distance: str) -> list[str]:
     if has_cloud and EDGE_PYTHON != CLOUD_PYTHON:
         script = (
             f'set -euo pipefail\n'
-            f'echo "--- Phase 1/2: Edge inference  (env: ceco-lad) ---"\n'
-            f'{EDGE_PYTHON} -m ceco_lad_inference_pipeline.run --config {edge_cfg}\n'
+            f'echo "--- Phase 1/2: Edge inference  (env: cesal-edge) ---"\n'
+            f'{EDGE_PYTHON} -m cesal_inference_pipeline.run --config {edge_cfg}\n'
             f'echo "--- Phase 2/2: Cloud inference (env: hybrid)   ---"\n'
             f'{CLOUD_PYTHON} dashboard/cloud_runner.py --config {cloud_cfg}\n'
         )
@@ -1383,8 +1325,8 @@ def _build_infer_cmd(ds: str, tolerance: float, distance: str) -> list[str]:
         # No cloud section, or same env — run everything in the edge env
         script = (
             f'set -euo pipefail\n'
-            f'echo "--- Edge inference (env: ceco-lad) ---"\n'
-            f'{EDGE_PYTHON} -m ceco_lad_inference_pipeline.run --config {cloud_cfg}\n'
+            f'echo "--- Edge inference (env: cesal-edge) ---"\n'
+            f'{EDGE_PYTHON} -m cesal_inference_pipeline.run --config {cloud_cfg}\n'
         )
     return ["bash", "-c", script]
 
@@ -1446,7 +1388,7 @@ async def db_status():
 
 @app.get("/api/db/raw-logs")
 async def api_raw_logs(
-    dataset: str = "bgl",
+    dataset: str = "os",
     page: int = 0,
     per_page: int = 100,
     search: str = "",
@@ -1457,7 +1399,7 @@ async def api_raw_logs(
 
 @app.get("/api/db/windows")
 async def api_windows(
-    dataset: str = "bgl",
+    dataset: str = "os",
     split: str = "test",
     page: int = 0,
     per_page: int = 50,
@@ -1490,18 +1432,18 @@ async def api_context_window(
     """Return the preceding _CTX_LEN (=10) raw log entries for one log line.
 
     For HDFS the context is scoped to the same block_id (identifier partition).
-    For BGL/OpenStack the context is the preceding lines in the same split file
+    For OpenStack the context is the preceding lines in the same split file
     (time-based partition — consecutive raw log entries form one sequence).
     """
     import sqlite3 as _sqlite3
-    db_path = str(Path(__file__).parent / "ceco_lad.db")
+    db_path = str(Path(__file__).parent / "cesal.db")
 
     def _fetch():
         with _sqlite3.connect(db_path, timeout=30) as c:
             c.row_factory = _sqlite3.Row
             # For HDFS, block_id is the block identifier (e.g. blk_-XXX) so this
             # naturally scopes context to the same session.
-            # For BGL/OpenStack, block_id is the split name (e.g. bgl_test_normal)
+            # For OpenStack, block_id is the split name (e.g. test_normal)
             # so this scopes context to the same split file, which approximates
             # the time-window sequence boundary for consecutive entries.
             rows = c.execute(

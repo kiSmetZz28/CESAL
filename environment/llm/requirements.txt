@@ -1,0 +1,18 @@
+# LLM environment (cesal-llm) — incident_response/ (RAG-enhanced LLM open-set classification).
+# Versions from the Python 3.10 environment used to verify the paper Table 7 reproduction.
+# Install with:  pip install -r environment/llm/requirements.txt --extra-index-url https://download.pytorch.org/whl/cu130
+torch==2.11.0
+transformers==5.8.0
+accelerate==1.10.1
+tokenizers==0.22.1
+huggingface_hub==1.9.0
+safetensors==0.6.2
+sentencepiece==0.2.1
+protobuf==6.32.1
+Jinja2==3.1.6
+numpy==2.2.6
+pandas==2.3.3
+scipy==1.15.3
+scikit-learn==1.7.2
+PyYAML==6.0.3
+tqdm==4.67.1
