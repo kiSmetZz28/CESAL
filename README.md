@@ -248,6 +248,61 @@ python run.py infer hdfs
 
 For other stages — `train`, `convert` — see [Advanced Options](#advanced-options).
 
+### What you need to run CESAL
+
+Far less than the paper's testbed ([Hardware setup](#hardware-setup-section-41) records what the published numbers were measured on).
+
+| Purpose | Requirement |
+| --- | --- |
+| Edge stage, dashboard, unit tests | x86-64 CPU, 16 GB RAM. **No GPU needed.** |
+| Cloud BAT ensemble (81 EM-AT models) | One CUDA GPU; 16 GB VRAM is sufficient. |
+| LLM incident classification | One CUDA GPU, 16 GB VRAM (verified on an RTX 2000 Ada). Models larger than VRAM are partly offloaded to CPU RAM — slower, but it works. |
+| Edge resource measurements (Table 6) | Physical Raspberry Pi 3B+/4B/5. Not reproducible without that hardware. |
+
+**Disk** — budget about **40 GB** for a full HDFS + OpenStack run:
+
+| Item | Size |
+| --- | --- |
+| Repository clone | ~31 MB |
+| BAT checkpoints (81 `.pth` per dataset) | ~3.5 GB per dataset |
+| ExecuTorch runtime + build tree | ~1.4 GB |
+| Raw HDFS logs (dashboard log browser only) | ~1.6 GB |
+| Dashboard SQLite database (built at runtime) | ~5.4 GB |
+| Prediction outputs per dataset | ~1.2 GB |
+
+**Expected runtimes** (RTX 2000 Ada, 16-core CPU):
+
+| Task | Time |
+| --- | --- |
+| Environment setup, both envs | ~5–10 min |
+| Unit tests | ~3 s |
+| Full HDFS edge stage (221,540 windows × 3 Q-BAT models) | many hours — see note |
+| Full HDFS cloud stage (81 BAT checkpoints) | ~1–2 h on GPU |
+| LLM classification, one backbone, 4,124 sequences | ~1–3 h |
+
+> **Why the edge stage is slow.** If the ExecuTorch **Python bindings** are not installed in `cesal-edge`, the edge stage invokes the pre-built C++ `executor_runner` **once per window per model**, which extrapolates to roughly a day for full HDFS. OpenStack is far smaller and finishes quickly.
+
+**Accounts** — `run.py download` pulls checkpoints from Google Drive (no account, but it rate-limits per IP; re-run to resume). The LLM stage pulls four backbones from Hugging Face: `Meta-Llama-3.1-8B-Instruct` and `gemma-2-9b-it` are **gated**, so accept their licenses and run `hf auth login` first.
+
+### Datasets and provenance
+
+CESAL is evaluated on two public log-analysis benchmarks distributed by [loghub](https://github.com/logpai/loghub):
+
+- **HDFS** — 11,175,629 log messages from Hadoop jobs on more than 200 Amazon EC2 nodes, with 16,838 anomalous sessions. The first 4,855 normal sessions are used for training and the remainder for testing.
+- **OpenStack** — 207,820 log messages from a CloudLab deployment (one control node, one network node, eight compute nodes), including 18,434 abnormal messages. The first 52,312 normal messages are used for training.
+
+Both contain only machine-generated operational telemetry — block identifiers, execution states and error traces. They include **no personal data and no human-subject data**, and no user study was conducted, so no ethical approval was required. The parsed event-sequence splits ship under `data/`; the HDFS open-set knowledge base can be rebuilt from loghub's `HDFS_v1/preprocessed/Event_traces.csv` with `python -m incident_response.data_prep`. CESAL itself is released under the [MIT license](LICENSE).
+
+### Troubleshooting
+
+| Symptom | Cause and fix |
+| --- | --- |
+| `Edge threshold file not found` | Inference *reads* pre-computed thresholds; only `run.py train` writes them. They are committed under `outputs/<ds>/thresholds_*.yaml` — if you point `output_dir` somewhere new, copy both threshold YAMLs into it first. |
+| Google Drive returns HTTP 403 | Per-IP rate limiting. Wait and re-run `run.py download`; it resumes. |
+| LLM stage fails with 401/403 from Hugging Face | Gated model. Accept the license on the model page, then `hf auth login`. |
+| Dashboard starts but panels are empty | The SQLite database is still importing on first launch; the indicator shows **Loading**. |
+| Pipeline can't find the cloud interpreter | Set `EDGE_PYTHON` and `CLOUD_PYTHON` explicitly; the defaults assume envs named `cesal-edge` and `cesal-cloud`. |
+
 ### Optional — Launch the local dashboard
 
 The dashboard is a web UI at **http://localhost:8765** that runs the inference pipeline and browses the parsed logs. There are two ways to start it.
@@ -395,7 +450,7 @@ The experimental environment spans a cloud platform, log collection and processi
 
 The Talon high-performance computing cluster handles BAT training and cloud-side verification; the Dell PowerEdge R650 handles log collection and storage; the two i7 servers support data processing, EM-AT analysis, Q-BAT preparation and model conversion; and edge deployment is evaluated on the Raspberry Pi cluster.
 
-Reproducing the artifact needs far less than this — see [REQUIREMENTS.md](REQUIREMENTS.md). Only Table 6 (edge resource consumption) requires the physical Raspberry Pi devices.
+Running CESAL needs far less than this — see [What you need to run CESAL](#what-you-need-to-run-cesal). Only Table 6 (edge resource consumption) requires the physical Raspberry Pi devices.
 
 ### Log-based incident detection (Table 3)
 
@@ -405,7 +460,7 @@ Reproducing the artifact needs far less than this — see [REQUIREMENTS.md](REQU
 | BAT (cloud only)                    |  99.99 | 100.00 |   99.99 |       99.99 |      100.00 |        99.99 |
 | **CESAL** (10% routed to the cloud) |  99.96 | 100.00 |   99.98 |       99.90 |      100.00 |        99.95 |
 
-> **Evaluation protocol.** These are **point-adjusted** scores, following the Anomaly Transformer convention this code inherits: [`training_pipeline/solver.py`](training_pipeline/solver.py#L394-L412) marks an entire ground-truth anomaly segment as detected once any single line inside that segment is detected. Both test splits are assembled as all-normal lines followed by all-abnormal lines ([`cesal_core/data/loaders.py:45-53`](cesal_core/data/loaders.py#L45-L53)), so each test set contains exactly **one** anomaly segment. [`artifact/claims/claim1_detection.sh`](artifact/claims/claim1_detection.sh) reports raw and point-adjusted scores side by side so the effect of the protocol is explicit.
+> **Evaluation protocol.** These are **point-adjusted** scores, following the Anomaly Transformer convention this code inherits: [`training_pipeline/solver.py`](training_pipeline/solver.py#L394-L412) marks an entire ground-truth anomaly segment as detected once any single line inside that segment is detected. Both test splits are assembled as all-normal lines followed by all-abnormal lines ([`cesal_core/data/loaders.py:45-53`](cesal_core/data/loaders.py#L45-L53)), so each test set contains exactly **one** anomaly segment, and a single correctly flagged line inside it yields near-perfect recall. Raw (un-adjusted) scores differ substantially on OpenStack: 481 raw positives of which 123 are true, giving F1 1.30 before adjustment against 99.04 after.
 >
 > The per-model vote arrays `outputs/<dataset>/edge_preds_per_model.npy` and `cloud_preds_per_model.npy` are **recorded results downloaded with the other assets**, not regenerated by the pipeline — no code in this repository writes them. The dashboard reads them to display per-model votes.
 
@@ -436,35 +491,12 @@ HDFS:
 
 ---
 
-## Artifact evaluation
+## Citing and artifact metadata
 
-CESAL is packaged for artifact evaluation. Start with [INSTALL.md](INSTALL.md).
-
-| Document | Purpose |
+| File | Purpose |
 | --- | --- |
-| [install.sh](install.sh) | Scripted install of both environments, ending in the test suite |
-| [INSTALL.md](INSTALL.md) | Step-by-step install and reproduction |
-| [REQUIREMENTS.md](REQUIREMENTS.md) | Hardware, software, disk budget, expected runtimes |
-| [STATUS.md](STATUS.md) | Badges claimed, evaluation protocol, known issues |
-| [metadata.toml](metadata.toml) | Artifact metadata (pre-filled; regenerate with [artmeta](https://github.com/jelenamirkovic/artmeta) before submitting) |
 | [CITATION.cff](CITATION.cff) | How to cite CESAL |
-
-### Claim → script mapping
-
-| Claim | Paper | Script | Runtime |
-| --- | --- | --- | --- |
-| Log-based incident detection | Sec. 4.2, Table 3 | [`claim1_detection.sh`](artifact/claims/claim1_detection.sh) | OpenStack minutes; HDFS long (see below) |
-| Open-set incident classification | Sec. 4.6, Table 7 | [`claim2_classification.sh`](artifact/claims/claim2_classification.sh) | 1–3 h per backbone, GPU |
-| Controlled response workflows | Sec. 3.7, Table 1 | [`claim3_response.sh`](artifact/claims/claim3_response.sh) | seconds, no GPU |
-| Scaled-down end-to-end run | — | [`claim4_scaled_down.sh`](artifact/claims/claim4_scaled_down.sh) | **~2 min** |
-
-Quickest way to confirm a working install, exercising all four pipeline stages:
-
-```bash
-./artifact/claims/claim4_scaled_down.sh
-```
-
-> **Runtime note.** A full HDFS edge pass scores 221,540 windows with 3 Q-BAT models. When the ExecuTorch **Python bindings** are unavailable, the edge stage shells out to the pre-built C++ `executor_runner` once per window per model, which extrapolates to roughly a day. OpenStack is far smaller. Use the scaled-down script to exercise the same code path in about two minutes.
+| [metadata.toml](metadata.toml) | Artifact metadata (pre-filled; regenerate with [artmeta](https://github.com/jelenamirkovic/artmeta) before submitting) |
 
 ### Unit tests
 
