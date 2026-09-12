@@ -26,66 +26,13 @@ CESAL is a security-aware cloud–edge framework for log-based incident detectio
 
 ### Models
 
-| Component          | Where        | What                                                                                                                                                                   |
-| ------------------ | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **EM-AT**          | Base learner | Anomaly Transformer that scores log sequences by reconstruction error and association discrepancy, with EM-GMM-based automated thresholding                            |
-| **BAT**            | Cloud        | Bagging-style ensemble of 81 EM-AT models, each trained on a bootstrap sample with its own epochs, loss weight, batch size, and encoder depth; majority voting         |
-| **Q-BAT**          | Edge         | Ensemble of 3 EM-AT models quantized with TorchAO (int8 dynamic activations, int4 weights) and exported as ExecuTorch `.pte` programs                                  |
-| **LLM classifier** | Cloud        | Qwen2.5-14B-Instruct by default; combines retrieved reference sequences with open-set decision rules to output one of 10 known HDFS anomaly types or the unknown class |
+**EM-AT — the base learner.** An Anomaly Transformer whose encoder learns normal log behaviour from normal sequences only. Each layer's Anomaly Attention models two views of a sequence — a *series association* capturing global dependencies and a *prior association* capturing local adjacency — and their divergence, combined with reconstruction error, forms the anomaly score. EM-AT's addition is **EM-GMM automated thresholding**: rather than tuning a cut-off by hand, it fits a Gaussian mixture to the score distribution and derives the threshold from the estimated normal proportion, so no per-device tuning is needed across heterogeneous deployments. Code: [cesal_core/models/](cesal_core/models/), [cesal_core/utils/energy.py](cesal_core/utils/energy.py).
 
-#### EM-AT — the base learner (Sec. 3.5.1)
+**BAT — the cloud detector.** A single EM-AT is sensitive to its training sample and hyperparameters, especially for rare or context-dependent anomalies. BAT is a bagging ensemble of **81** EM-AT learners, each trained on a bootstrap subset with a different configuration (epochs, loss weight, encoder depth, batch size) to increase diversity. Every learner carries its own EM-GMM threshold, and their binary decisions are combined by majority voting. Code: [training_pipeline/](training_pipeline/), [cesal_inference_pipeline/lad_bat_cloud.py](cesal_inference_pipeline/lad_bat_cloud.py).
 
-EM-AT extends the Anomaly Transformer by replacing manual threshold selection with **EM-GMM-based automated thresholding**, so no device-specific tuning is needed across heterogeneous cloud–edge deployments. A Transformer encoder learns normal log behaviour from normal training sequences only; each encoder layer contains an **Anomaly Attention** module and a feed-forward network. Anomaly Attention models two associations — the **series association** `S` (global log dependencies) and the **prior association** `P` (local adjacency patterns). Their difference is the **association discrepancy**, defined as the symmetrized KL divergence (Eq. 1):
+**Q-BAT — the edge detector.** BAT is too heavy for edge hardware, so Q-BAT keeps only **3** EM-AT learners and quantizes them with TorchAO (8-bit activations, 4-bit weights), exporting each as an ExecuTorch `.pte` program that runs natively on-device. This keeps edge inference feasible on a Raspberry Pi while preserving ensemble-based robustness. Code: [quantization/qbat_export.py](quantization/qbat_export.py), [cesal_inference_pipeline/lad_qbat_edge.py](cesal_inference_pipeline/lad_qbat_edge.py).
 
-```
-AD(P, S; C) = [ (1/N) · Σ_{n=1..N} ( KL(P_i,:^n ‖ S_i,:^n) + KL(S_i,:^n ‖ P_i,:^n) ) ]_{i=1..L}
-```
-
-The anomaly score combines reconstruction error with the normalized association discrepancy (Eq. 2), where `⊙` is element-wise multiplication and `Ĉ` the reconstruction of `C`:
-
-```
-E(C) = softmax( −AD(P, S; C) ) ⊙ ‖ C_i,: − Ĉ_i,: ‖²₂ ,   i = 1..L
-```
-
-**Automated thresholding.** EM-AT fits a Gaussian Mixture Model to the anomaly score distribution, choosing the number of components by BIC. Components are sorted by increasing mean `μ₁ ≤ μ₂ ≤ … ≤ μ_H` with mixture weights `ξ₁…ξ_H`. Because low scores usually correspond to normal behaviour, EM-AT treats the lowest-mean components as the normal region: it finds the smallest `m` with `Σ_{k=1..m} ξ_k ≥ τ`, estimates the anomaly proportion `r = 1 − Σ_{k=1..m} ξ_k`, and sets the threshold `λ` as the `(1−r)`-quantile of the score distribution. A base learner is therefore the pair `(f, λ)`.
-
-Configuration: 512 hidden channels, 8 attention heads, Adam with initial learning rate 1e-4.
-
-Code: [cesal_core/models/](cesal_core/models/), scoring in [cesal_core/utils/energy.py](cesal_core/utils/energy.py), thresholding in [training_pipeline/solver.py](training_pipeline/solver.py) and [cesal_inference_pipeline/lad_qbat_edge.py](cesal_inference_pipeline/lad_qbat_edge.py).
-
-#### BAT — cloud-side bagging ensemble (Sec. 3.5.2)
-
-A single EM-AT is sensitive to the sampled training data and to hyperparameters, especially when rare or context-dependent anomalies appear only in limited patterns. BAT alleviates this by **bagging**: each base learner trains on a bootstrap subset sampled with replacement from the normal training set, and — to increase ensemble diversity — with a configuration drawn from a predefined hyperparameter pool.
-
-```
-Algorithm 1 — BAT training
-Input : normal training set C_train; ensemble size I; bootstrap size n; hyperparameter pool H
-Output: trained BAT ensemble B = {(b_i, λ_i^B)}_{i=1..I}
-for i = 1 … I:
-    h_i    ← SelectConfig(H, i)          # epochs, batch size, encoder depth, loss weight
-    C_i    ← BootstrapSample(C_train, n) # sample n with replacement
-    b_i    ← TrainEMAT(C_i; h_i)         # train the i-th EM-AT base learner
-    E_i    ← Score(b_i, C_i)             # training anomaly scores
-    λ_i^B  ← FitThreshold_EM-GMM(E_i)    # per-learner threshold
-    B      ← B ∪ {(b_i, λ_i^B)}
-```
-
-At inference each base learner converts its anomaly scores to binary decisions using its own threshold, and BAT aggregates them by **majority voting**. The ensemble size is **I = 81** — the full grid of epochs `{3, 6, 10}` × loss weight η `{3, 4, 5}` × encoder depth `{3, 6, 8}` × batch size `{32, 64, 96}`. The ensemble-size analysis (Fig. 5) shows performance stabilizes after roughly 65 base learners, so 81 sits comfortably in the stable region.
-
-Code: [training_pipeline/](training_pipeline/), cloud inference in [cesal_inference_pipeline/lad_bat_cloud.py](cesal_inference_pipeline/lad_bat_cloud.py), voting in [cesal_core/utils/voting.py](cesal_core/utils/voting.py).
-
-#### Q-BAT — quantized edge ensemble (Sec. 3.5.3)
-
-BAT's compute and memory cost makes it impractical to deploy directly on edge hardware — in Table 6 the full BAT ensemble is marked *Not Executable* on all three Raspberry Pi models, because it exceeds available memory. Q-BAT is a compact ensemble of **K = 3** quantized EM-AT base learners, `Q = {(q_k, λ_k^Q)}_{k=1..K}` — the largest ensemble that runs reliably on a Raspberry Pi without excessive resource consumption.
-
-Each base learner is trained in PyTorch, then optimized for edge execution with two PyTorch-native tools:
-
-- **ExecuTorch** gives a path from model export to on-device execution without cross-framework conversion, removing the risk of inconsistency between the trained model and the deployed edge binary. Ahead-of-time export, a reduced operator representation and memory planning yield predictable runtime behaviour and low memory overhead.
-- **TorchAO** applies the `int8_dynamic_activation_int4_weight()` scheme: activations quantized to 8-bit integers and weights to 4-bit integers, reducing model size, memory footprint and compute cost while maintaining detection accuracy.
-
-Deployment has two phases: **program preparation** (export → quantize → lower through the ExecuTorch pipeline → serialize to a `.pte` program) and **program execution** (the `.pte` is loaded on the edge device and run to produce anomaly predictions).
-
-Code: [quantization/qbat_export.py](quantization/qbat_export.py) (export), [cesal_inference_pipeline/lad_qbat_edge.py](cesal_inference_pipeline/lad_qbat_edge.py) (edge inference).
+**LLM classifier — incident classification and response.** Qwen2.5-14B-Instruct by default. It combines retrieved reference sequences with open-set decision rules to label each detected abnormal sequence as one of 10 known HDFS anomaly types or as unknown, then maps that label to a predefined response workflow. Code: [incident_response/](incident_response/).
 
 ### Framework Overview
 
@@ -252,56 +199,29 @@ For other stages — `train`, `convert` — see [Advanced Options](#advanced-opt
 
 Far less than the paper's testbed ([Hardware setup](#hardware-setup-section-41) records what the published numbers were measured on).
 
-| Purpose | Requirement |
-| --- | --- |
-| Edge stage, dashboard, unit tests | x86-64 CPU, 16 GB RAM. **No GPU needed.** |
-| Cloud BAT ensemble (81 EM-AT models) | One CUDA GPU; 16 GB VRAM is sufficient. |
-| LLM incident classification | One CUDA GPU, 16 GB VRAM (verified on an RTX 2000 Ada). Models larger than VRAM are partly offloaded to CPU RAM — slower, but it works. |
-| Edge resource measurements (Table 6) | Physical Raspberry Pi 3B+/4B/5. Not reproducible without that hardware. |
+| Purpose                              | Requirement                                                                                                                             |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Edge stage, dashboard, unit tests    | x86-64 CPU, 16 GB RAM. **No GPU needed.**                                                                                               |
+| Cloud BAT ensemble (81 EM-AT models) | One CUDA GPU; 16 GB VRAM is sufficient.                                                                                                 |
+| LLM incident classification          | One CUDA GPU, 16 GB VRAM (verified on an RTX 2000 Ada). Models larger than VRAM are partly offloaded to CPU RAM — slower, but it works. |
+| Edge resource measurements (Table 6) | Physical Raspberry Pi 3B+/4B/5. Not reproducible without that hardware.                                                                 |
 
 **Disk** — budget about **40 GB** for a full HDFS + OpenStack run:
 
-| Item | Size |
-| --- | --- |
-| Repository clone | ~31 MB |
-| BAT checkpoints (81 `.pth` per dataset) | ~3.5 GB per dataset |
-| ExecuTorch runtime + build tree | ~1.4 GB |
-| Raw HDFS logs (dashboard log browser only) | ~1.6 GB |
-| Dashboard SQLite database (built at runtime) | ~5.4 GB |
-| Prediction outputs per dataset | ~1.2 GB |
-
-**Expected runtimes** (RTX 2000 Ada, 16-core CPU):
-
-| Task | Time |
-| --- | --- |
-| Environment setup, both envs | ~5–10 min |
-| Unit tests | ~3 s |
-| Full HDFS edge stage (221,540 windows × 3 Q-BAT models) | many hours — see note |
-| Full HDFS cloud stage (81 BAT checkpoints) | ~1–2 h on GPU |
-| LLM classification, one backbone, 4,124 sequences | ~1–3 h |
-
-> **Why the edge stage is slow.** If the ExecuTorch **Python bindings** are not installed in `cesal-edge`, the edge stage invokes the pre-built C++ `executor_runner` **once per window per model**, which extrapolates to roughly a day for full HDFS. OpenStack is far smaller and finishes quickly.
-
-**Accounts** — `run.py download` pulls checkpoints from Google Drive (no account, but it rate-limits per IP; re-run to resume). The LLM stage pulls four backbones from Hugging Face: `Meta-Llama-3.1-8B-Instruct` and `gemma-2-9b-it` are **gated**, so accept their licenses and run `hf auth login` first.
+| Item                                         | Size                |
+| -------------------------------------------- | ------------------- |
+| Repository clone                             | ~31 MB              |
+| BAT checkpoints (81 `.pth` per dataset)      | ~3.5 GB per dataset |
+| ExecuTorch runtime + build tree              | ~1.4 GB             |
+| Raw HDFS logs (dashboard log browser only)   | ~1.6 GB             |
+| Dashboard SQLite database (built at runtime) | ~5.4 GB             |
+| Prediction outputs per dataset               | ~1.2 GB             |
 
 ### Datasets and provenance
 
-CESAL is evaluated on two public log-analysis benchmarks distributed by [loghub](https://github.com/logpai/loghub):
+CESAL is evaluated on the **HDFS** and **OpenStack** log datasets, both public benchmarks distributed by [loghub](https://github.com/logpai/loghub). The parsed event-sequence splits the pipeline consumes are bundled under [`data/`](data/), so inference runs without downloading anything. The HDFS open-set test set and knowledge base can be rebuilt from loghub's `HDFS_v1/preprocessed/Event_traces.csv` with `python -m incident_response.data_prep`.
 
-- **HDFS** — 11,175,629 log messages from Hadoop jobs on more than 200 Amazon EC2 nodes, with 16,838 anomalous sessions. The first 4,855 normal sessions are used for training and the remainder for testing.
-- **OpenStack** — 207,820 log messages from a CloudLab deployment (one control node, one network node, eight compute nodes), including 18,434 abnormal messages. The first 52,312 normal messages are used for training.
-
-Both contain only machine-generated operational telemetry — block identifiers, execution states and error traces. They include **no personal data and no human-subject data**, and no user study was conducted, so no ethical approval was required. The parsed event-sequence splits ship under `data/`; the HDFS open-set knowledge base can be rebuilt from loghub's `HDFS_v1/preprocessed/Event_traces.csv` with `python -m incident_response.data_prep`. CESAL itself is released under the [MIT license](LICENSE).
-
-### Troubleshooting
-
-| Symptom | Cause and fix |
-| --- | --- |
-| `Edge threshold file not found` | Inference *reads* pre-computed thresholds; only `run.py train` writes them. They are committed under `outputs/<ds>/thresholds_*.yaml` — if you point `output_dir` somewhere new, copy both threshold YAMLs into it first. |
-| Google Drive returns HTTP 403 | Per-IP rate limiting. Wait and re-run `run.py download`; it resumes. |
-| LLM stage fails with 401/403 from Hugging Face | Gated model. Accept the license on the model page, then `hf auth login`. |
-| Dashboard starts but panels are empty | The SQLite database is still importing on first launch; the indicator shows **Loading**. |
-| Pipeline can't find the cloud interpreter | Set `EDGE_PYTHON` and `CLOUD_PYTHON` explicitly; the defaults assume envs named `cesal-edge` and `cesal-cloud`. |
+Both datasets contain only machine-generated operational telemetry — block identifiers, execution states and error traces. They include no personal data and no human-subject data, and no user study was conducted. CESAL itself is released under the [MIT license](LICENSE).
 
 ### Optional — Launch the local dashboard
 
@@ -338,37 +258,11 @@ python dashboard/app.py                                       # PORT=8799 python
   <img src="pictures/llm_module.png" width="850">
 </p>
 
-#### How the module works (Sec. 3.7, Fig. 4)
+Detected abnormal sequences are buffered in an anomaly queue — edge-side `Q_E` or cloud-side `Q_C` — rather than being classified inline, which lets CESAL defer analysis until connectivity and cloud resources allow. Each queued sequence is matched against a knowledge base of reference abnormal sequences, and the retrieved evidence is assembled with the sequence and the candidate label set into a structured prompt. The LLM must return exactly one label, choosing a known anomaly type only when the evidence supports it and falling back to **"Unknown Anomaly Types"** otherwise, so unfamiliar patterns are never forced into an existing category.
 
-Abnormal sequences detected by the collaborative LAD pipeline are buffered in an **anomaly queue** — edge-side `Q_E` or cloud-side `Q_C` — instead of being classified inline. This decouples detection from classification and response, letting CESAL defer analysis until connectivity is sufficient, cloud resources are available, or an operator requests it. Each queued sequence `c_j` then passes through three stages:
+The predicted label selects a predefined response workflow (paper Table 1, implemented verbatim in [`incident_response/workflows.py`](incident_response/workflows.py)). The agent never invents a response: low-impact steps such as evidence collection, status validation and safe retry can run automatically, while high-impact steps such as metadata modification, permanent block cleanup or service-level restart require administrator approval. Unknown anomalies trigger no automated mitigation — the sequence, its retrieved evidence and system context are preserved and flagged for human investigation.
 
-1. **RAG evidence retrieval.** Reference abnormal log sequences for each known anomaly type are indexed offline as a knowledge base. The detected sequence is used as the query, and the most relevant reference entries `R_j` are retrieved as evidence. Grounding the decision in observed log evidence reduces reliance on unconstrained generation and improves consistency of type-level classification.
-2. **Open-set classification.** The retrieved evidence, the input sequence, and the candidate label set `A = {a₁ … a_S, a_unk}` are assembled into a structured prompt, and the LLM must output **exactly one** label: `â_j = G(c_j, R_j, A)`. A known type is selected only when the retrieved evidence and the full input sequence provide sufficient support; otherwise the sequence is assigned to **"Unknown Anomaly Types"**. This open-set design avoids forcing unfamiliar abnormal patterns into known categories and preserves unknown cases for later human investigation and knowledge-base refinement.
-3. **Workflow selection.** The predicted label is mapped to its predefined workflow, `w_j = Ω(â_j)` — see Table 1 below.
-
-Default backbone: **Qwen2.5-14B-Instruct** (14.7B parameters), chosen for long-context support, instruction following, and structured output that the downstream workflow-selection module can parse directly.
-
-**Execution and escalation policy.** The LLM agent never generates arbitrary response plans: its output only *selects* among predefined workflows, and execution is constrained by policy checks and approval gates. Low-impact actions — evidence collection, status validation, diagnostic command execution, safe retry, metadata-view refresh, controlled re-replication — can execute automatically when policy conditions are satisfied. High-impact actions — metadata modification, permanent block cleanup, destructive cleanup, service-level restart — remain subject to safeguards or **administrator approval**. Sequences classified as "Unknown Anomaly Types" trigger **no** automated mitigation: the abnormal sequence, retrieved evidence and system context are preserved and the case is flagged for human investigation.
-
-> **Implementation note.** The paper describes the knowledge base as indexed in a vector database. This implementation retrieves lexically — TF-IDF cosine similarity combined with multiset and bigram Jaccard overlap over event tokens, plus exact/containment/prefix/suffix bonuses — in [incident_response/classifier.py](incident_response/classifier.py). No embedding model or vector store is required, which keeps the module dependency-light and deterministic.
-
-#### Table 1 — Predefined response workflows and escalation policy (HDFS)
-
-`🔒` marks a workflow containing an administrator-approval step, `⬆` one containing an escalation step. Verbatim text lives in [`incident_response/workflows.py`](incident_response/workflows.py); print any of them with `python -m incident_response.workflows --label "<type>"`.
-
-| Anomaly type | Gate | Predefined controlled response workflow |
-| --- | :---: | --- |
-| Namenode not updated after deleting block | 🔒 | Collect NameNode edit logs, namespace snapshots, and DataNode block reports; run HDFS fsck to verify namespace and block consistency; refresh NameNode/DataNode metadata views through approved interfaces; if inconsistency persists, submit an approval-gated metadata synchronization task. |
-| Write exception client give up | ⬆ | Collect client logs, DataNode status, and network diagnostics; identify the failed stage in the write pipeline; verify target DataNode availability and pipeline health; trigger a safe write retry after the pipeline is recovered; escalate repeated failures with the collected evidence. |
-| Write failed at beginning | — | Check safe mode, permission, quota, and block allocation status; inspect client-side and NameNode initialization logs; correct safe configuration issues through approved management actions when permitted; trigger a controlled write retry after the initial write path is validated. |
-| Replica immediately deleted | 🔒 | Inspect replication policy, block state, and replica placement records; determine whether the replica is invalid, corrupt, excessive, or prematurely removed; trigger re-replication when policy conditions are satisfied; submit administrator approval for destructive replica cleanup or metadata correction. |
-| Received block that does not belong to any file | 🔒 | Compare DataNode block records with NameNode namespace metadata; run HDFS fsck to identify orphan, stale, or inconsistent blocks; quarantine suspicious block records through approved interfaces; submit administrator approval before permanent block cleanup or metadata modification. |
-| Redundant addStoredBlock | ⬆ | Inspect duplicate block reports and repeated addStoredBlock events; verify whether the replica has already been registered in NameNode metadata; refresh block mappings through approved interfaces; suppress duplicate update handling when safe; escalate persistent metadata inconsistency. |
-| Delete a block that no longer exists on data node | ⬆ | Compare the deletion request with the local DataNode block state; refresh DataNode block reports and NameNode metadata views; reconcile stale deletion requests through approved metadata update procedures; escalate repeated stale deletion events that indicate NameNode/DataNode state divergence. |
-| Empty packet for block | ⬆ | Inspect block transfer logs, client status, and network conditions; determine whether the event is caused by timeout, transfer interruption, or client disconnect; restart or retry the block transfer after the connection and pipeline state are recovered; escalate repeated transfer failures. |
-| Receive block exception | ⬆ | Collect receiver DataNode logs, disk I/O status, permissions, and network diagnostics; identify storage, permission, or communication causes; execute safe node-level recovery or retry actions when permitted; escalate failures requiring manual intervention. |
-| Replication Monitor timeout | 🔒 | Check under-replicated block queues, NameNode workload, and live DataNode status; inspect delayed or blocked replication tasks; trigger approved rebalancing or restart delayed replication tasks when safe; submit administrator approval for service-level recovery operations. |
-| **Unknown Anomaly Types** | 👤 | Flag the sequence as an unknown anomaly; preserve the full abnormal log sequence, retrieved evidence, and system context; notify engineers or domain experts for manual investigation. **No automated mitigation.** |
+> **Implementation note.** The paper describes the knowledge base as indexed in a vector database; this implementation retrieves lexically (TF-IDF combined with token and bigram overlap) in [incident_response/classifier.py](incident_response/classifier.py), so no embedding model or vector store is required.
 
 Meta-Llama-3.1-8B-Instruct and gemma-2-9b-it are gated on Hugging Face: accept their licenses and run `hf auth login` first. The open-set test set (4,124 unique abnormal sequences) and the knowledge base (top-100 sequences per known type) are bundled in `data/HDFS/open_set/`; rebuild them from loghub's `HDFS_v1/preprocessed/Event_traces.csv` with `python -m incident_response.data_prep`.
 
@@ -438,15 +332,15 @@ Numbers from the paper (Section 4), which also reports baselines, the BAT ensemb
 
 The experimental environment spans a cloud platform, log collection and processing servers, and edge devices:
 
-| Platform | Hardware profile | Operating system |
-| --- | --- | --- |
-| **Talon cluster node** | 2 × 18-core Intel Xeon Gold 6140; 8 × NVIDIA Tesla V100; 1.5 TB memory | Red Hat Enterprise Linux 9.2 |
-| **Dell PowerEdge R650** | 36-core Intel Xeon Platinum; Mellanox ConnectX-6 100 Gb NIC; 256 GB memory | Ubuntu 24.04.2 LTS |
-| **Data processing server** | Intel Core i7-14700 (28 cores / 56 threads); NVIDIA RTX 2000 Ada Generation; 32 GB memory | Windows 11 |
-| **Data analytics server** | Intel Core i7-14700 (28 cores / 56 threads); NVIDIA RTX 2000 Ada Generation; 32 GB memory | Ubuntu 24.04.2 LTS |
-| **Raspberry Pi 5** | Cortex-A76, 4 cores / 4 threads; 8 GB memory | Ubuntu 20.04.5 LTS |
-| **Raspberry Pi 4B** | Cortex-A72, 4 cores / 4 threads; 8 GB memory | Ubuntu 20.04.5 LTS |
-| **Raspberry Pi 3B+** | Cortex-A53, 4 cores / 4 threads; 1 GB memory | Ubuntu 20.04.5 LTS |
+| Platform                   | Hardware profile                                                                          | Operating system             |
+| -------------------------- | ----------------------------------------------------------------------------------------- | ---------------------------- |
+| **Talon cluster node**     | 2 × 18-core Intel Xeon Gold 6140; 8 × NVIDIA Tesla V100; 1.5 TB memory                    | Red Hat Enterprise Linux 9.2 |
+| **Dell PowerEdge R650**    | 36-core Intel Xeon Platinum; Mellanox ConnectX-6 100 Gb NIC; 256 GB memory                | Ubuntu 24.04.2 LTS           |
+| **Data processing server** | Intel Core i7-14700 (28 cores / 56 threads); NVIDIA RTX 2000 Ada Generation; 32 GB memory | Windows 11                   |
+| **Data analytics server**  | Intel Core i7-14700 (28 cores / 56 threads); NVIDIA RTX 2000 Ada Generation; 32 GB memory | Ubuntu 24.04.2 LTS           |
+| **Raspberry Pi 5**         | Cortex-A76, 4 cores / 4 threads; 8 GB memory                                              | Ubuntu 20.04.5 LTS           |
+| **Raspberry Pi 4B**        | Cortex-A72, 4 cores / 4 threads; 8 GB memory                                              | Ubuntu 20.04.5 LTS           |
+| **Raspberry Pi 3B+**       | Cortex-A53, 4 cores / 4 threads; 1 GB memory                                              | Ubuntu 20.04.5 LTS           |
 
 The Talon high-performance computing cluster handles BAT training and cloud-side verification; the Dell PowerEdge R650 handles log collection and storage; the two i7 servers support data processing, EM-AT analysis, Q-BAT preparation and model conversion; and edge deployment is evaluated on the Raspberry Pi cluster.
 
@@ -491,14 +385,7 @@ HDFS:
 
 ---
 
-## Citing and artifact metadata
-
-| File | Purpose |
-| --- | --- |
-| [CITATION.cff](CITATION.cff) | How to cite CESAL |
-| [metadata.toml](metadata.toml) | Artifact metadata (pre-filled; regenerate with [artmeta](https://github.com/jelenamirkovic/artmeta) before submitting) |
-
-### Unit tests
+## Unit tests
 
 ```bash
 conda activate cesal-edge
