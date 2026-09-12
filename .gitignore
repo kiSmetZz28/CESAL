@@ -22,8 +22,7 @@ dist/
 build/
 .eggs/
 
-# Tests and test artifacts
-tests/
+# Test artifacts (the tests/ suite itself is tracked: artifact reviewers run it)
 .pytest_cache/
 .coverage
 htmlcov/
@@ -55,3 +54,4 @@ outputs/*/llm/*
 # ExecuTorch source + build tree (~1.4 GB, downloaded via tools/download_data.py)
 cesal_inference_pipeline/executorch/
 cesal_inference_pipeline/executorch.zip
+dashboard/*.bak

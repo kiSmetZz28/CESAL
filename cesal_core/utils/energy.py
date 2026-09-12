@@ -34,7 +34,10 @@ def compute_energy_batch(
     Returns
     -------
     np.ndarray
-        1-D array of energy values, length B (one score per window).
+        2-D array of shape [B, win_size]: one energy score per *time step*, not
+        per window. Callers that need per-line scores flatten with reshape(-1)
+        (see cesal_inference_pipeline/lad_bat_cloud.py); callers that need a
+        single score per window reduce with .mean() (see dashboard/bat_predict.py).
     """
     criterion = nn.MSELoss(reduction='none')
     device = next(model.parameters()).device

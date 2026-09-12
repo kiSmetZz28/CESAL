@@ -208,11 +208,17 @@ def main() -> None:
 
         demo_max = cfg.get("demo_max_windows", int(os.getenv("DEMO_MAX_WINDOWS", "0")))
         if demo_max > 0 and len(test_windows) > demo_max:
-            idx = np.linspace(0, len(test_windows) - 1, demo_max, dtype=int)
+            n_windows = len(test_windows)
+            idx = np.linspace(0, n_windows - 1, demo_max, dtype=int)
+            # ground_truth holds one label per *line* (win_size labels per window),
+            # so the window index must be expanded to the lines each selected
+            # window covers. Edge predictions are per line too, and evaluate()
+            # requires both arrays to have the same length.
+            line_idx = (idx[:, None] * win_size + np.arange(win_size)).reshape(-1)
             test_windows = test_windows[idx]
-            ground_truth = ground_truth[idx]
+            ground_truth = ground_truth[line_idx]
             logging.info("Demo mode: using %d / %d test windows (evenly sampled).",
-                         demo_max, len(idx) + (len(np.concatenate(labels_list)) - demo_max))
+                         demo_max, n_windows)
 
         x_tensor = torch.from_numpy(test_windows).float().to(device)
         n_edge   = len(edge_combos)
