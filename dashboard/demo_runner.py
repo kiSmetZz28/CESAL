@@ -199,6 +199,7 @@ def main() -> None:
         # ── Step 1: Edge scan ─────────────────────────────────────────────────
         edge_step = rep.step("edge").start()
 
+        edge_step.phase("parsing log data into windows")
         test_loader = get_loader_segment(
             [3, 1, 3, batch_sz], data_path,
             batch_size=batch_sz, win_size=win_size, step=win_size,
@@ -231,6 +232,7 @@ def main() -> None:
         edge_step.detail("window size", win_size)
         edge_step.detail("edge-proxy models", f"{n_edge} BAT running in parallel")
         edge_step.expect("models", n_edge)
+        edge_step.phase(f"scoring every window with {n_edge} models")
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=n_edge) as executor:
             futures = [executor.submit(_run_edge_bat, combo, dataset, win_size, input_c,
@@ -248,6 +250,7 @@ def main() -> None:
                 f"(missing checkpoint or threshold) — scoring with {len(valid)}."
             )
 
+        edge_step.phase("combining the models' votes")
         energy_cols   = [r[0] for r in valid]
         thresh_arr    = np.array([r[1] for r in valid])
         energy_matrix = np.concatenate(energy_cols, axis=1)
@@ -282,6 +285,7 @@ def main() -> None:
 
     # Compute training energy for routing covariance (uses normal distribution only).
     # Try each edge combo as ensemble_param until one is accepted by the data loader.
+    route_step.phase("learning how the scores normally spread")
     train_energy_matrix = None
     for combo in edge_combos:
         ep, k, layers, bsz = combo
@@ -318,6 +322,7 @@ def main() -> None:
     if energy_matrix.shape[1] >= 2:
         try:
             _, inv_cov = compute_inv_cov(train_energy_matrix)
+            route_step.phase("measuring how certain each window was")
             routed_indices = select_indices_by_distance(
                 test_scores=energy_matrix,
                 thresholds=thresh_arr,
@@ -334,6 +339,7 @@ def main() -> None:
         n_route = max(1, int(len(margin) * tolerance))
         routed_indices = sorted(np.argsort(margin)[-n_route:].tolist())
 
+    route_step.phase("collecting the events to send to the cloud")
     routed_idx_arr = np.array(routed_indices, dtype=int)
     np.save(os.path.join(out_base, "routed_indices.npy"), routed_idx_arr)
 
@@ -393,10 +399,12 @@ def main() -> None:
         hybrid_raw = predictions.copy()
         hybrid_raw[use_indices] = cloud_preds
 
+        st.phase("replacing edge verdicts with the cloud's")
         st.detail("merge unit", "line")
         st.detail("edge verdicts replaced", len(use_indices))
 
         hybrid_flagged = int(hybrid_raw.sum())
+        st.phase("scoring the run against the known answers")
         hybrid_adj = _point_adjust(ground_truth, hybrid_raw)
         np.save(os.path.join(out_base, "hybrid_preds.npy"), hybrid_adj)
         evaluate(ground_truth, hybrid_adj, prefix="Hybrid")

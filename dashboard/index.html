@@ -1231,7 +1231,7 @@ function connectStream() {
       PL.results = [];
       updatePipelineBanner();
     } else {
-      setStage(4);
+      setStage(LP.plan.length || 4);
       setFlowStep('result');
       setFriendlyStatus('✅', 'Analysis complete!',
         'All stages finished. Check the Results tab for detection scores.');
@@ -1509,7 +1509,7 @@ const LP = {
   totalCloudModels:0, cloudModelsDone:0,
   // Structured-event state: set once the first "@@CESAL" event arrives, which
   // switches off the legacy prose-matching fallback for the rest of the run.
-  structured:false, plan:[], stepRows:{}, curStep:null, expect:null,
+  structured:false, plan:[], stepRows:{}, curStep:null, expect:null, trackIds:null,
 };
 
 function resetLiveProgress() {
@@ -1517,6 +1517,7 @@ function resetLiveProgress() {
   LP.totalEdgeModels=0; LP.edgeModelsDone=0;
   LP.totalCloudModels=0; LP.cloudModelsDone=0;
   LP.structured=false; LP.plan=[]; LP.stepRows={}; LP.curStep=null; LP.expect=null;
+  LP.trackIds=null;
   document.getElementById('liveCard').style.display = 'block';
   document.getElementById('opLine').textContent = 'Starting up…';
   document.getElementById('stepProgWrap').style.display = 'none';
@@ -1529,7 +1530,12 @@ function resetLiveProgress() {
 }
 
 function setStage(n) {
-  ['stg-edge','stg-routing','stg-cloud','stg-done'].forEach((id,i)=>{
+  // Ids come from the running plan once one is declared; otherwise the static
+  // inference track that the page ships with.
+  const ids = (LP.trackIds && LP.trackIds.length)
+    ? LP.trackIds.map(id => 'stg-' + id)
+    : ['stg-edge','stg-routing','stg-cloud','stg-done'];
+  ids.forEach((id,i)=>{
     const el=document.getElementById(id); if(!el)return;
     el.className='stage-step';
     if(i+1<n)  el.classList.add('done');
@@ -1574,6 +1580,22 @@ const STEP_HELP = {
            'Cloud decisions replace the edge ones for every escalated event, then the whole run is scored.'],
 };
 
+// Icons for the step ids the runners declare; anything unknown gets a gear.
+const STEP_ICON = {
+  edge:'⚡', route:'🔀', cloud:'☁️', hybrid:'✅',
+  plan:'📋', sweep:'🎓', locate:'🔎', convert:'🗜️',
+};
+
+function renderStageTrack(plan) {
+  const track = document.querySelector('.stage-track');
+  if (!track || !plan.length) return;
+  LP.trackIds = plan.map(s => s.id);
+  track.innerHTML = plan.map(s =>
+    `<div class="stage-step" id="stg-${s.id}">` +
+    `<span class="s-icon">${STEP_ICON[s.id] || '⚙️'}</span>${esc(s.title)}</div>`
+  ).join('');
+}
+
 function setStepDetails(id) {
   const rows = LP.stepRows[id] || [];
   const el = document.getElementById('threshLive');
@@ -1602,8 +1624,12 @@ function applyStepEvent(e) {
     case 'run_start':
       LP.plan = e.steps || [];
       LP.stepRows = {};
-      setFriendlyStatus('🚀', `Starting ${e.dataset || ''} analysis…`,
-        `${LP.plan.length} steps: ` + LP.plan.map(s => s.title).join(' → '));
+      // The track is built from the plan the runner declared, so a training or
+      // conversion run shows its own steps rather than the inference labels.
+      renderStageTrack(LP.plan);
+      setFriendlyStatus('🚀', `Starting ${e.dataset || ''} ${e.run || 'run'}…`,
+        (e.about || '').trim().split('\n')[0] ||
+        (`${LP.plan.length} steps: ` + LP.plan.map(s => s.title).join(' → ')));
       break;
 
     case 'step_start': {
@@ -1617,8 +1643,11 @@ function applyStepEvent(e) {
       document.getElementById('stepDetailTitle').textContent =
         `Step ${e.n} of ${e.total} · ${e.title}`;
       document.getElementById('opLine').textContent = e.title + '…';
+      // Prefer the runner's own plain-language line; STEP_HELP is the fallback
+      // for older runners that do not send one.
       const h = STEP_HELP[e.id];
-      if (h) setFriendlyStatus(h[0], h[1], h[2]);
+      if (e.explain) setFriendlyStatus(h ? h[0] : '⚙️', e.title, e.explain);
+      else if (h)    setFriendlyStatus(h[0], h[1], h[2]);
       break;
     }
 
@@ -1640,6 +1669,26 @@ function applyStepEvent(e) {
         ? `${e.done.toLocaleString()} / ${e.total.toLocaleString()} ${e.unit}…`
         : `${e.done.toLocaleString()} ${e.unit}…`;
       break;
+
+    // Sub-stages within a step. The row is added when the phase opens and
+    // updated with its duration when it closes, so the panel shows both what
+    // is running now and what each earlier part cost.
+    case 'step_phase': {
+      const rows = LP.stepRows[e.id] = LP.stepRows[e.id] || [];
+      rows.push({k: '▸ ' + e.name, v: 'running…', phase: e.name});
+      setStepDetails(e.id);
+      document.getElementById('opLine').textContent = e.name + '…';
+      break;
+    }
+
+    case 'step_phase_done': {
+      const rows = LP.stepRows[e.id] || [];
+      for (let i = rows.length - 1; i >= 0; i--) {
+        if (rows[i].phase === e.name) { rows[i].v = e.secs + 's'; break; }
+      }
+      setStepDetails(e.id);
+      break;
+    }
 
     case 'step_note':
       document.getElementById('opLine').textContent = e.msg;
@@ -1698,13 +1747,14 @@ function applyStepEvent(e) {
       break;
 
     case 'run_done': {
-      setStage(4);
+      // Light the last step of whatever plan ran, not a fixed fourth stage.
+      setStage(LP.plan.length || 4);
       setFlowStep('result');
       setStepProgress(0, 0);
       const best = (e.metrics || []).slice(-1)[0];
-      setFriendlyStatus('✅', 'Analysis complete!',
-        best ? `${best.label}: ${best.f_score.toFixed(2)}% F-score · finished in ${e.secs}s`
-             : `All steps finished in ${e.secs}s.`);
+      setFriendlyStatus('✅', 'Finished!',
+        best ? `${best.label}: ${best.f_score.toFixed(2)}% F-score · took ${e.secs}s`
+             : `All ${LP.plan.length || ''} steps finished in ${e.secs}s.`);
       document.getElementById('opLine').textContent = `Finished in ${e.secs}s`;
       break;
     }

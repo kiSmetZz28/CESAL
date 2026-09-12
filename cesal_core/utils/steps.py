@@ -44,18 +44,62 @@ import time
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 __all__ = [
-    "StepReporter", "Step", "INFER_STEPS", "current", "current_run",
-    "bars_suppressed", "fmt_count", "fmt_secs",
+    "StepReporter", "Step", "INFER_STEPS", "TRAIN_STEPS", "CONVERT_STEPS",
+    "CLASSIFY_STEPS", "RESPOND_STEPS",
+    "current", "current_run",
+    "bars_suppressed", "clear_bar", "redraw_bar", "fmt_count", "fmt_secs",
 ]
 
-# The canonical four steps of the collaborative inference pipeline. Defined once
-# here so the CLI runners, the demo runner and the dashboard all use the same
-# ids, titles and ordering.
-INFER_STEPS: List[Tuple[str, str]] = [
-    ("edge",   "Edge Q-BAT scan"),
-    ("route",  "Uncertainty routing"),
-    ("cloud",  "Cloud BAT verification"),
-    ("hybrid", "Hybrid merge & scoring"),
+# Canonical step plans, defined once here so the CLI runners, the demo runner and
+# the dashboard all use the same ids, titles and ordering. The third element of
+# each entry is a plain-language line printed under the step's banner, so someone
+# who does not know the system can still follow what it is doing.
+
+INFER_STEPS: List[Tuple[str, str, str]] = [
+    ("edge",   "Edge Q-BAT scan",
+     "Small on-device models read every log window and flag anything unusual."),
+    ("route",  "Uncertainty routing",
+     "Windows the device was least sure about are picked out for a second opinion."),
+    ("cloud",  "Cloud BAT verification",
+     "A much larger ensemble in the cloud re-examines only those uncertain windows."),
+    ("hybrid", "Hybrid merge & scoring",
+     "Cloud answers replace the device's for those windows, and the result is scored."),
+]
+
+TRAIN_STEPS: List[Tuple[str, str, str]] = [
+    ("plan",  "Plan the ensemble",
+     "Work out how many models to build and what settings each one gets."),
+    ("sweep", "Train base models",
+     "Each model learns what normal log activity looks like, so it can spot the abnormal."),
+]
+
+CONVERT_STEPS: List[Tuple[str, str, str]] = [
+    ("locate",  "Find trained models",
+     "Check which trained models are on disk and ready to be shrunk."),
+    ("convert", "Shrink models for the device",
+     "Each model is compressed and repackaged so it can run on small edge hardware."),
+]
+
+# `run.py classify` — benchmark the LLM incident classifier (paper Table 7).
+CLASSIFY_STEPS: List[Tuple[str, str, str]] = [
+    ("prepare",  "Build the evidence base",
+     "Load the abnormal log sequences and the reference library they are matched against."),
+    ("classify", "Ask each language model to label them",
+     "For every sequence, similar known incidents are retrieved and the model names the type."),
+    ("score",    "Score the labels",
+     "Compare the labels against the known answers and write the per-class results."),
+]
+
+# `run.py respond` — detections → queues → classification → response workflows.
+RESPOND_STEPS: List[Tuple[str, str, str]] = [
+    ("queue",    "Queue the detected incidents",
+     "Sessions the detector flagged are filed by who caught them — the device or the cloud."),
+    ("classify", "Identify each incident's type",
+     "Each queued sequence is matched to a known incident type, or marked as an unknown one."),
+    ("workflow", "Choose a response for each",
+     "Known types map to a predefined response plan; unknown ones are held for a human."),
+    ("score",    "Score the identifications",
+     "Check the identified types against the known answers for the sessions that have them."),
 ]
 
 # Fixed width keeps banners aligned in both the terminal and the log file.
@@ -74,13 +118,19 @@ def _events_enabled() -> bool:
 
 
 def bars_suppressed() -> bool:
-    """True when tqdm progress bars should be turned off.
+    """True when a subordinate tqdm progress bar should be turned off.
 
-    The dashboard reads the runner's output as plain lines, so a bar's carriage
-    returns arrive as unreadable fragments. Bars stay on for interactive CLI
-    runs, where parsing millions of log lines genuinely benefits from one.
+    Three reasons to suppress: the dashboard reads the runner's output as plain
+    lines and a bar's carriage returns arrive there as unreadable fragments; the
+    output is not a terminal at all; or a step-level bar is already on screen, in
+    which case a second bar fighting for the same line only confuses. Bars stay
+    on for interactive runs that have no step bar of their own — parsing millions
+    of log lines genuinely benefits from one.
     """
-    return _events_enabled() or not sys.stderr.isatty()
+    if _events_enabled() or not sys.stderr.isatty():
+        return True
+    with _bar_lock:
+        return _active_bar is not None
 
 
 def fmt_count(n: Any) -> str:
@@ -95,6 +145,83 @@ def fmt_secs(secs: float) -> str:
     if secs < 3600:
         return f"{int(secs // 60)}m {secs % 60:04.1f}s"
     return f"{int(secs // 3600)}h {int((secs % 3600) // 60):02d}m"
+
+
+# ── Terminal progress bar ─────────────────────────────────────────────────────
+# Drawn in place on stderr for interactive runs. Log lines and the bar share the
+# stream, so the console handler in cesal_core.utils.config clears the bar before
+# writing a line and redraws it afterwards; without that the two interleave and
+# leave fragments behind.
+
+_BAR_WIDTH = 26
+_bar_lock = threading.RLock()
+_active_bar: Optional["_ProgressBar"] = None
+
+
+class _ProgressBar:
+    """An in-place ``████░░░░ 42%`` bar with a running time estimate."""
+
+    def __init__(self, label: str, total: int):
+        self.label = label
+        self.total = max(int(total), 1)
+        self.done = 0
+        self.note = ""
+        self.started = time.perf_counter()
+        self._drawn = False
+
+    def _line(self) -> str:
+        frac = min(self.done / self.total, 1.0)
+        filled = int(round(frac * _BAR_WIDTH))
+        bar = "█" * filled + "░" * (_BAR_WIDTH - filled)
+        text = f"   {bar} {frac * 100:5.1f}%  {self.done:,}/{self.total:,} {self.label}"
+        if 0 < self.done < self.total:
+            elapsed = time.perf_counter() - self.started
+            text += f" · ~{fmt_secs(elapsed / self.done * (self.total - self.done))} left"
+        if self.note:
+            text += f" · {self.note}"
+        return text[:150]
+
+    def draw(self) -> None:
+        try:
+            sys.stderr.write("\r\033[K" + self._line())
+            sys.stderr.flush()
+            self._drawn = True
+        except Exception:
+            pass
+
+    def clear(self) -> None:
+        if not self._drawn:
+            return
+        try:
+            sys.stderr.write("\r\033[K")
+            sys.stderr.flush()
+        except Exception:
+            pass
+        self._drawn = False
+
+    def close(self) -> None:
+        """Leave the completed bar on screen and move to a fresh line."""
+        if self._drawn:
+            try:
+                sys.stderr.write("\r\033[K" + self._line() + "\n")
+                sys.stderr.flush()
+            except Exception:
+                pass
+        self._drawn = False
+
+
+def clear_bar() -> None:
+    """Erase the active bar so a log line can be written cleanly."""
+    with _bar_lock:
+        if _active_bar is not None:
+            _active_bar.clear()
+
+
+def redraw_bar() -> None:
+    """Redraw the active bar after a log line has been written."""
+    with _bar_lock:
+        if _active_bar is not None:
+            _active_bar.draw()
 
 
 def _leader(label: str, value: str, indent: int = 3, width: int = 28) -> str:
@@ -132,21 +259,38 @@ def current_run() -> Optional["StepReporter"]:
 class Step:
     """One numbered pipeline step; created by :meth:`StepReporter.step`."""
 
-    def __init__(self, reporter: "StepReporter", step_id: str, title: str, index: int):
+    def __init__(self, reporter: "StepReporter", step_id: str, title: str,
+                 index: int, explain: str = ""):
         self.id = step_id
         self.title = title
+        self.explain = explain
         self.index = index
         self._rep = reporter
         self._lock = threading.Lock()
         self._started = 0.0
         self._outcome: Dict[str, Any] = {}
+        self._failure = ""
+        self._seen_details: set = set()
+        self._phase_name = ""
+        self._phase_started = 0.0
         self._counters: Dict[str, Dict[str, int]] = {}
+        self._bar_unit: Optional[str] = None
         self.elapsed = 0.0
         self.state = "pending"
 
     # ── live reporting ────────────────────────────────────────────────────
     def detail(self, label: str, value: Any) -> None:
-        """Print one aligned ``label ... value`` line as the step runs."""
+        """Print one aligned ``label ... value`` line as the step runs.
+
+        Repeats of an identical label/value pair are dropped: a step that builds
+        many models re-reports the same dataset facts each time, and printing
+        them once is the useful behaviour.
+        """
+        key = (label, str(value))
+        with self._lock:
+            if key in self._seen_details:
+                return
+            self._seen_details.add(key)
         logging.info("%s", _leader(label, fmt_count(value)))
         self._rep._emit({"t": "step_detail", "id": self.id,
                          "k": label, "v": str(value)})
@@ -156,17 +300,66 @@ class Step:
         logging.info("   %s", message)
         self._rep._emit({"t": "step_note", "id": self.id, "msg": message})
 
+    def phase(self, name: str) -> None:
+        """Announce the sub-stage now running inside this step.
+
+        A step like the edge scan is several distinct pieces of work — parsing
+        the logs, scoring them, combining the votes — and a run that only says
+        "Edge Q-BAT scan" gives no idea which of them is taking the time. The
+        name is printed as the phase begins, so the detail lines it produces
+        appear underneath it; its duration follows when it finishes, and is
+        omitted for phases too brief to be worth a line.
+        """
+        self._close_phase()
+        self._phase_name = name
+        self._phase_started = time.perf_counter()
+        logging.info("   ├─ %s", name)
+        self._rep._emit({"t": "step_phase", "id": self.id, "name": name})
+
+    # Phases quicker than this are not worth a line of their own.
+    _PHASE_REPORT_SECS = 1.0
+
+    def _close_phase(self, last: bool = False) -> None:
+        if not self._phase_name:
+            return
+        secs = time.perf_counter() - self._phase_started
+        if secs >= self._PHASE_REPORT_SECS:
+            logging.info("   %s  took %s", "│" if not last else "╵", fmt_secs(secs))
+        self._rep._emit({"t": "step_phase_done", "id": self.id,
+                         "name": self._phase_name, "secs": round(secs, 3)})
+        self._phase_name = ""
+
     def warn(self, message: str) -> None:
         logging.warning("   ! %s", message)
         self._rep._emit({"t": "step_warn", "id": self.id, "msg": message})
 
-    def expect(self, unit: str, total: int) -> None:
-        """Declare how many items of ``unit`` this step will process."""
+    def expect(self, unit: str, total: int, bar: bool = True) -> None:
+        """Declare how many items of ``unit`` this step will process.
+
+        On an interactive terminal this also starts a progress bar. Where a bar
+        cannot be drawn (a redirected log, or the dashboard reading the stream)
+        progress falls back to milestone lines at each 25%.
+        """
+        global _active_bar
         with self._lock:
             self._counters[unit] = {"done": 0, "total": int(total),
                                     "mark": 0, "epct": -1}
+        if bar and total > 0 and not bars_suppressed():
+            with _bar_lock:
+                if _active_bar is not None:
+                    _active_bar.close()
+                _active_bar = _ProgressBar(unit, total)
+                self._bar_unit = unit
+                _active_bar.draw()
         self._rep._emit({"t": "step_expect", "id": self.id,
                          "unit": unit, "total": int(total)})
+
+    def progress_note(self, text: str) -> None:
+        """Set the trailing note on the progress bar (e.g. what is running now)."""
+        with _bar_lock:
+            if _active_bar is not None:
+                _active_bar.note = text
+                _active_bar.draw()
 
     def tick(self, unit: str, n: int = 1) -> None:
         """Count ``n`` completed items.
@@ -198,6 +391,11 @@ class Step:
             else:
                 show = done % 25 == 0
                 emit = done % 25 == 0
+        with _bar_lock:
+            if _active_bar is not None and unit == getattr(self, "_bar_unit", None):
+                _active_bar.done = done
+                _active_bar.draw()
+                show = False  # the bar already conveys progress
         if show:
             if total:
                 logging.info("   %s/%s %s  (%d%%)", f"{done:,}", f"{total:,}",
@@ -211,6 +409,15 @@ class Step:
     def outcome(self, **values: Any) -> None:
         """Record the step's result; rendered in its closing block."""
         self._outcome.update(values)
+
+    def fail(self, message: str) -> None:
+        """Mark this step as failed without raising.
+
+        For steps that process many items and finish the batch before deciding
+        the whole thing did not succeed — reporting "done" there would be
+        untrue. The closing block and the run summary both show the failure.
+        """
+        self._failure = message
 
     # ── lifecycle ─────────────────────────────────────────────────────────
     # Usable either as a context manager (preferred) or explicitly via
@@ -226,8 +433,12 @@ class Step:
         logging.info("%s", _RULE)
         logging.info(" STEP %d/%d · %s", self.index, self._rep.total, self.title)
         logging.info("%s", _RULE)
+        if self.explain:
+            logging.info("   %s", self.explain)
+            logging.info("")
         self._rep._emit({"t": "step_start", "id": self.id, "n": self.index,
-                         "total": self._rep.total, "title": self.title})
+                         "total": self._rep.total, "title": self.title,
+                         "explain": self.explain})
         return self
 
     def __enter__(self) -> "Step":
@@ -238,24 +449,41 @@ class Step:
         self.__exit__(None, None, None)
 
     def __exit__(self, exc_type, exc, tb) -> bool:
-        global _active_step
+        global _active_step, _active_bar
         if self.state != "running":  # already closed, or never started
             return False
+        with _bar_lock:
+            if _active_bar is not None:
+                _active_bar.close()
+                _active_bar = None
         self.elapsed = time.perf_counter() - self._started
         with _active_lock:
             _active_step = None
 
         if exc_type is not None:
             self.state = "failed"
+            self._close_phase(last=True)
             logging.error("   ✗ failed after %s — %s", fmt_secs(self.elapsed), exc)
             self._rep._record(self, error=str(exc))
             self._rep._emit({"t": "step_fail", "id": self.id,
                              "secs": round(self.elapsed, 3), "error": str(exc)})
             return False  # never swallow the exception
 
-        self.state = "done"
+        self._close_phase(last=True)
         for label, value in self._outcome.items():
             logging.info("%s", _leader(label.replace("_", " "), fmt_count(value)))
+
+        if self._failure:
+            self.state = "failed"
+            logging.error("   ✗ %s", self._failure)
+            self._rep._record(self, error=self._failure)
+            self._rep._emit({"t": "step_fail", "id": self.id,
+                             "secs": round(self.elapsed, 3),
+                             "error": self._failure,
+                             "outcome": {k: str(v) for k, v in self._outcome.items()}})
+            return False
+
+        self.state = "done"
         logging.info("   ✓ done in %s", fmt_secs(self.elapsed))
         self._rep._record(self)
         self._rep._emit({"t": "step_done", "id": self.id,
@@ -276,10 +504,13 @@ class _NullStep(Step):
 
     def detail(self, label: str, value: Any) -> None: pass
     def note(self, message: str) -> None: pass
+    def phase(self, name: str) -> None: pass
     def warn(self, message: str) -> None: logging.warning("%s", message)
-    def expect(self, unit: str, total: int) -> None: pass
+    def expect(self, unit: str, total: int, bar: bool = True) -> None: pass
+    def progress_note(self, text: str) -> None: pass
     def tick(self, unit: str, n: int = 1) -> None: pass
     def outcome(self, **values: Any) -> None: pass
+    def fail(self, message: str) -> None: pass
     def start(self) -> "Step": return self
     def done(self) -> None: pass
     def __enter__(self) -> "Step": return self
@@ -311,13 +542,18 @@ class StepReporter:
         self,
         run: str,
         dataset: str = "",
-        steps: Sequence[Tuple[str, str]] = (),
+        steps: Sequence[Sequence[str]] = (),
         adopt: str = "",
+        about: str = "",
     ):
         global _active_run
         self.run = run
         self.dataset = dataset
-        self.plan: List[Tuple[str, str]] = list(steps)
+        self.about = about
+        # Plan entries are (id, title) or (id, title, plain-language explanation).
+        self.plan: List[Tuple[str, str, str]] = [
+            (e[0], e[1], e[2] if len(e) > 2 else "") for e in steps
+        ]
         self._records: List[Dict[str, Any]] = []
         self._skipped: Dict[str, str] = {}
         self._metrics: List[Dict[str, Any]] = []
@@ -327,8 +563,9 @@ class StepReporter:
         inherited = self._adopt(adopt) if adopt else False
 
         self.total = len(self.plan)
-        self._by_id = {sid: i + 1 for i, (sid, _) in enumerate(self.plan)}
-        self._titles = dict(self.plan)
+        self._by_id = {e[0]: i + 1 for i, e in enumerate(self.plan)}
+        self._titles = {e[0]: e[1] for e in self.plan}
+        self._explains = {e[0]: e[2] for e in self.plan}
 
         with _active_lock:
             _active_run = self
@@ -338,10 +575,16 @@ class StepReporter:
             logging.info("%s", _RULE_HEAVY)
             logging.info(" CESAL · %s%s", run, f" · {dataset}" if dataset else "")
             logging.info("%s", _RULE_HEAVY)
-            for i, (_, title) in enumerate(self.plan, start=1):
+            if about:
+                for line in about.strip().splitlines():
+                    logging.info("   %s", line.strip())
+                logging.info("")
+            for i, (_, title, _x) in enumerate(self.plan, start=1):
                 logging.info("   %d. %s", i, title)
             self._emit({"t": "run_start", "run": run, "dataset": dataset,
-                        "steps": [{"id": s, "title": t} for s, t in self.plan]})
+                        "about": about,
+                        "steps": [{"id": i, "title": t, "explain": x}
+                                  for i, t, x in self.plan]})
 
     # ── cross-process handoff ─────────────────────────────────────────────
     def _adopt(self, path: str) -> bool:
@@ -351,7 +594,8 @@ class StepReporter:
                 data = json.load(f)
         except (OSError, ValueError):
             return False  # a missing handoff must never break the run
-        self.plan = [(s["id"], s["title"]) for s in data.get("plan", [])] or self.plan
+        self.plan = [(s["id"], s["title"], s.get("explain", ""))
+                     for s in data.get("plan", [])] or self.plan
         self._records = list(data.get("records", []))
         self._skipped = dict(data.get("skipped", {}))
         self._metrics = list(data.get("metrics", []))
@@ -365,7 +609,7 @@ class StepReporter:
         payload = {
             "run": self.run,
             "dataset": self.dataset,
-            "plan": [{"id": s, "title": t} for s, t in self.plan],
+            "plan": [{"id": i, "title": t, "explain": x} for i, t, x in self.plan],
             "records": self._records,
             "skipped": self._skipped,
             "metrics": self._metrics,
@@ -401,7 +645,8 @@ class StepReporter:
     def step(self, step_id: str, title: str = "") -> Step:
         """Open the step registered as ``step_id`` (use as a context manager)."""
         index = self._by_id.get(step_id, len(self._records) + 1)
-        return Step(self, step_id, title or self._titles.get(step_id, step_id), index)
+        return Step(self, step_id, title or self._titles.get(step_id, step_id),
+                    index, self._explains.get(step_id, ""))
 
     def skip(self, step_id: str, reason: str) -> None:
         """Record a step that was deliberately not run, and say why."""
@@ -437,7 +682,7 @@ class StepReporter:
                      f" · {self.dataset}" if self.dataset else "")
         logging.info("%s", _RULE_HEAVY)
 
-        for index, (step_id, title) in enumerate(self.plan, start=1):
+        for index, (step_id, title, _x) in enumerate(self.plan, start=1):
             rec = by_id.get(step_id)
             if rec and rec["state"] == "done":
                 logging.info("%s", _leader(f"{index}. ✓ {title}",
@@ -456,10 +701,10 @@ class StepReporter:
 
         if self._metrics:
             logging.info("   %s", "─" * (_WIDTH - 6))
-            logging.info("   Detection quality")
+            logging.info("   Scores")
             for m in self._metrics:
-                logging.info("     %-9s P %6.2f   R %6.2f   F1 %6.2f",
-                             m["label"], m["precision"], m["recall"], m["f_score"])
+                logging.info("     %-22s P %6.2f   R %6.2f   F1 %6.2f",
+                             m["label"][:22], m["precision"], m["recall"], m["f_score"])
 
         logging.info("   %s", "─" * (_WIDTH - 6))
         if outputs:

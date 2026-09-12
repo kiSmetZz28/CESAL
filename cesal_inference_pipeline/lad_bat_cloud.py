@@ -129,11 +129,13 @@ def run(windows: np.ndarray, config: dict) -> np.ndarray:
     else:
         max_workers = min(4, os.cpu_count() or 1)
 
+    step = steps.current()
+
+    step.phase("reading calibration thresholds")
     thresholds   = _load_thresholds(thresholds_yaml)
     search_keys  = ['num_epochs', 'k', 'e_layer_num', 'batch_size']
     combinations = list(product(*[config[k] for k in search_keys]))
 
-    step = steps.current()
     step.detail("windows to verify", len(windows))
     step.detail("BAT checkpoints", len(combinations))
     step.detail("device", f"{device} ({max_workers} worker(s))")
@@ -141,7 +143,10 @@ def run(windows: np.ndarray, config: dict) -> np.ndarray:
     step.expect("models", len(combinations))
 
     # Transfer input to device once — shared read-only across all models.
+    step.phase(f"loading the routed windows onto {device}")
     x = torch.from_numpy(windows).float().to(device)
+
+    step.phase(f"re-scoring them with {len(combinations)} BAT models")
 
     if max_workers == 1:
         # Sequential — no thread pool overhead, one model in VRAM at a time.
@@ -175,6 +180,7 @@ def run(windows: np.ndarray, config: dict) -> np.ndarray:
             f"were skipped (missing file or threshold) — voting with {len(all_preds)}."
         )
 
+    step.phase(f"taking the {voting} vote across the ensemble")
     verdict = ensemble_method(voting, np.concatenate(all_preds, axis=1))
     n_flagged = int(verdict.sum())
     step.outcome(**{

@@ -14,6 +14,7 @@ Outputs in <output_dir>/:
   per_class_f1_table.csv       per-class F1 (%) pivot, one column per model
 """
 
+
 import argparse
 import gc
 import json
@@ -33,12 +34,24 @@ from sklearn.metrics import accuracy_score, classification_report, precision_rec
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from cesal_core.utils import steps
 from cesal_core.utils.config import load_config, setup_logging
+from cesal_core.utils.steps import StepReporter
 from incident_response.classifier import (
     ALL_EVAL_LABELS, KNOWN_LABELS, OTHER_LABEL,
     LexicalSequenceRetriever, build_kb_docs_from_csv, load_llm, normalize_open_set_test_label,
     normalize_sequence, predict_one, resolve_model_name, safe_name,
 )
+
+
+_ABOUT = """
+Testing how well a language model can name the kind of incident behind an
+abnormal stretch of logs.
+The detector only says "this looks wrong". This step goes further: for each
+abnormal sequence it retrieves similar incidents from a reference library and
+asks a language model which known type it matches — or whether it matches none
+of them, in which case it is kept as an unknown type for a person to look at.
+"""
 
 
 def load_data(cfg: Dict[str, Any]) -> Tuple[pd.DataFrame, pd.DataFrame]:
@@ -97,11 +110,15 @@ def effective_params(model_name: str, cfg: Dict[str, Any]) -> Dict[str, Any]:
 def evaluate_model(model_name: str, cfg: Dict[str, Any], retriever, test_df: pd.DataFrame,
                    load_in_4bit: bool = False) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     text_col, label_col = cfg["text_col"], cfg["label_col"]
-    logging.info("========== Loading model: %s ==========", model_name)
+    steps.current().phase(f"loading {model_name}")
     tokenizer, model = load_llm(model_name, load_in_4bit=load_in_4bit)
 
     params = effective_params(model_name, cfg)
-    logging.info("Effective params: %s", params)
+    logging.debug("Effective params: %s", params)
+    steps.current().phase(f"labelling {len(test_df):,} sequences with {model_name.split('/')[-1]}")
+
+    step = steps.current()
+    step.progress_note(model_name.split("/")[-1])
 
     rows = []
     total_infer_time = 0.0
@@ -138,13 +155,13 @@ def evaluate_model(model_name: str, cfg: Dict[str, Any], retriever, test_df: pd.
         })
 
         if i < cfg.get("debug_first_n", 10):
-            logging.info("INPUT: %s | TRUE: %s | SRC: %s | RAW: %r | PRED: %s | %.4fs",
+            logging.debug("INPUT: %s | TRUE: %s | SRC: %s | RAW: %r | PRED: %s | %.4fs",
                          row[text_col], row[label_col], out["decision_source"],
                          out["raw_output"], out["pred_label"], infer_time)
 
-        if (i + 1) % cfg.get("print_every", 20) == 0:
-            logging.info("Processed %d/%d | Avg inference: %.4f sec/sample",
-                         i + 1, len(test_df), total_infer_time / (i + 1))
+        step.tick("sequences")
+        logging.debug("Processed %d/%d | Avg inference: %.4f sec/sample",
+                      i + 1, len(test_df), total_infer_time / (i + 1))
 
     total_eval_time = time.perf_counter() - start_all
     results_df = pd.DataFrame(rows)
@@ -157,9 +174,11 @@ def evaluate_model(model_name: str, cfg: Dict[str, Any], retriever, test_df: pd.
     metrics["max_new_tokens"] = params["max_new_tokens"]
     metrics["length_penalty"] = params["length_penalty"]
 
-    logging.info("Accuracy %.4f | Macro P %.4f | Macro R %.4f | Macro F1 %.4f",
-                 metrics["accuracy"], metrics["macro_precision"], metrics["macro_recall"], metrics["macro_f1"])
-    logging.info("\n%s", metrics["report"])
+    logging.info("   %-26s P %6.2f   R %6.2f   F1 %6.2f",
+                 model_name.split("/")[-1],
+                 metrics["macro_precision"] * 100, metrics["macro_recall"] * 100,
+                 metrics["macro_f1"] * 100)
+    logging.debug("\n%s", metrics["report"])
 
     del model, tokenizer
     gc.collect()
@@ -182,47 +201,87 @@ def main() -> None:
         cfg["output_dir"] = args.output_dir
     model_names = [resolve_model_name(m) for m in (args.models.split(",") if args.models else cfg["models"]) if m.strip()]
 
-    seed = cfg["random_seed"]
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    os.makedirs(cfg["output_dir"], exist_ok=True)
+    rep = StepReporter("classify", dataset=cfg.get("dataset", "HDFS"),
+                       steps=steps.CLASSIFY_STEPS, about=_ABOUT)
 
-    test_df, kb_df = load_data(cfg)
-    kb_docs = build_kb_docs_from_csv(kb_df)
-    logging.info("Known labels: %d | Open-set label: %s | KB sequence docs: %d",
-                 len(KNOWN_LABELS), OTHER_LABEL, len(kb_docs))
-    logging.info("Test label distribution:\n%s", test_df[cfg["label_col"]].value_counts())
+    # ── Step 1: load the sequences and the reference library ──────────────
+    with rep.step("prepare") as st:
+        seed = cfg["random_seed"]
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        os.makedirs(cfg["output_dir"], exist_ok=True)
 
+        st.phase("reading the abnormal sequences")
+        test_df, kb_df = load_data(cfg)
+        st.phase("indexing the reference library")
+        kb_docs = build_kb_docs_from_csv(kb_df)
+        logging.debug("Test label distribution:\n%s", test_df[cfg["label_col"]].value_counts())
+
+        st.detail("sequences to label", len(test_df))
+        st.detail("reference incidents", len(kb_docs))
+        st.detail("known incident types", len(KNOWN_LABELS))
+        st.detail("fallback label", OTHER_LABEL)
+        st.outcome(**{
+            "language models to try": len(model_names),
+            "models": ", ".join(m.split("/")[-1] for m in model_names),
+        })
+
+    # ── Step 2: label every sequence with every model ─────────────────────
     retrievers: Dict[bool, LexicalSequenceRetriever] = {}
     summary_rows, per_class_rows = [], []
 
-    for model_name in model_names:
-        length_penalty = effective_params(model_name, cfg)["length_penalty"]
-        if length_penalty not in retrievers:
-            retrievers[length_penalty] = LexicalSequenceRetriever(kb_docs, length_penalty=length_penalty)
-        results_df, metrics = evaluate_model(model_name, cfg, retrievers[length_penalty], test_df,
-                                             load_in_4bit=args.load_in_4bit)
-        model_safe = safe_name(model_name)
-        result_path = os.path.join(cfg["output_dir"], f"results_{model_safe}.csv")
-        report_path = os.path.join(cfg["output_dir"], f"report_{model_safe}.txt")
-        results_df.to_csv(result_path, index=False)
-        with open(report_path, "w", encoding="utf-8") as f:
-            f.write(metrics["report"])
+    with rep.step("classify") as st:
+        # One tick per (model, sequence): the bar tracks the whole benchmark,
+        # which for four backbones over 4,124 sequences runs for hours.
+        st.expect("sequences", len(model_names) * len(test_df))
 
-        summary_rows.append({k: v for k, v in metrics.items() if k not in {"per_class", "report"}})
-        per_class_rows.extend(metrics["per_class"])
-        logging.info("Saved %s and %s", result_path, report_path)
+        for model_name in model_names:
+            length_penalty = effective_params(model_name, cfg)["length_penalty"]
+            if length_penalty not in retrievers:
+                retrievers[length_penalty] = LexicalSequenceRetriever(kb_docs, length_penalty=length_penalty)
+            results_df, metrics = evaluate_model(model_name, cfg, retrievers[length_penalty], test_df,
+                                                 load_in_4bit=args.load_in_4bit)
+            model_safe = safe_name(model_name)
+            result_path = os.path.join(cfg["output_dir"], f"results_{model_safe}.csv")
+            report_path = os.path.join(cfg["output_dir"], f"report_{model_safe}.txt")
+            results_df.to_csv(result_path, index=False)
+            with open(report_path, "w", encoding="utf-8") as f:
+                f.write(metrics["report"])
 
-    summary_df = pd.DataFrame(summary_rows)
-    per_class_df = pd.DataFrame(per_class_rows)
-    summary_df.to_csv(os.path.join(cfg["output_dir"], "model_summary.csv"), index=False)
-    per_class_df.to_csv(os.path.join(cfg["output_dir"], "per_class_metrics_long.csv"), index=False)
+            summary_rows.append({k: v for k, v in metrics.items() if k not in {"per_class", "report"}})
+            per_class_rows.extend(metrics["per_class"])
+            logging.debug("Saved %s and %s", result_path, report_path)
 
-    f1_table = per_class_df.pivot(index="label", columns="model", values="f1") * 100.0
-    f1_table = f1_table.reindex(ALL_EVAL_LABELS).dropna(how="all")
-    f1_table.to_csv(os.path.join(cfg["output_dir"], "per_class_f1_table.csv"))
-    logging.info("Saved aggregate files to %s", cfg["output_dir"])
+        best = max(summary_rows, key=lambda r: r["macro_f1"]) if summary_rows else None
+        st.outcome(**{
+            "models evaluated": len(summary_rows),
+            "labels assigned": len(model_names) * len(test_df),
+            "best model": (f"{best['model'].split('/')[-1]} "
+                           f"(F1 {best['macro_f1'] * 100:.2f})") if best else "—",
+        })
+
+    # ── Step 3: write the per-class tables ────────────────────────────────
+    with rep.step("score") as st:
+        summary_df = pd.DataFrame(summary_rows)
+        per_class_df = pd.DataFrame(per_class_rows)
+        summary_df.to_csv(os.path.join(cfg["output_dir"], "model_summary.csv"), index=False)
+        per_class_df.to_csv(os.path.join(cfg["output_dir"], "per_class_metrics_long.csv"), index=False)
+
+        f1_table = per_class_df.pivot(index="label", columns="model", values="f1") * 100.0
+        f1_table = f1_table.reindex(ALL_EVAL_LABELS).dropna(how="all")
+        f1_table.to_csv(os.path.join(cfg["output_dir"], "per_class_f1_table.csv"))
+
+        for row in summary_rows:
+            rep.metric(row["model"].split("/")[-1],
+                       row["accuracy"] * 100, row["macro_precision"] * 100,
+                       row["macro_recall"] * 100, row["macro_f1"] * 100)
+        st.outcome(**{
+            "incident types scored": len(f1_table),
+            "files written": "model_summary.csv, per_class_metrics_long.csv, per_class_f1_table.csv",
+        })
+
+    rep.finish(outputs=cfg["output_dir"])
 
 
 if __name__ == "__main__":

@@ -12,7 +12,9 @@ Usage — convert every combination in the sweep (all Q-BAT models):
     python quantization/qbat_export.py --config configs/training/os.yaml --all
 """
 import argparse
+import logging
 import os
+import sys
 from itertools import product
 from pathlib import Path
 
@@ -22,10 +24,25 @@ from torch.export import export, ExportedProgram
 from executorch.exir import EdgeProgramManager, ExecutorchBackendConfig, to_edge
 from torchao.quantization.quant_api import Int8DynActInt4WeightQuantizer
 
+# Run directly as a script (as run.py does), so put the project root on the path
+# the way the other entry points do rather than relying on `pip install -e .`.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from cesal_core.models.EMAT import EMAT
+from cesal_core.utils import steps
 from cesal_core.utils.energy import my_kl_loss
-from cesal_core.utils.config import load_config
+from cesal_core.utils.config import load_config, setup_logging
 from cesal_core.utils.io import mkdir
+from cesal_core.utils.steps import StepReporter
+
+_ABOUT = """
+Shrinking the trained models so they can run on a small edge device.
+A trained model stores its numbers at full precision, which is fine on a server
+but too large and too slow for hardware like a Raspberry Pi. Each model is
+re-encoded at lower precision and repackaged into a self-contained file the
+device can execute directly. The result is a much smaller model that gives
+nearly the same answers.
+"""
 
 
 class _ExportableEMAT(nn.Module):
@@ -75,17 +92,27 @@ def convert_one(
     output_c: int,
     e_layer_num: int,
 ) -> None:
-    """Export and quantize one EMAT .pth checkpoint into a .pte file."""
+    """Export and quantize one EMAT .pth checkpoint into a .pte file.
+
+    Reports the four sub-stages through the active step (see
+    cesal_core/utils/steps.py), so a long conversion shows what it is doing
+    rather than appearing to hang.
+    """
     device = torch.device("cpu")
     dtype = torch.float32
+    step = steps.current()
 
+    step.progress_note(f"{Path(dst_pte).stem} — loading")
     emat = EMAT(win_size=win_size, enc_in=input_c, c_out=output_c, e_layers=e_layer_num)
     emat.load_state_dict(torch.load(src_ckpt, map_location=device, weights_only=True))
 
     model = _ExportableEMAT(emat, win_size=win_size)
     model.eval().to(dtype=dtype, device=device)
 
-    # A8W4: int8 dynamic activations, int4 weights (ExecuTorch 0.3 API)
+    # A8W4: int8 dynamic activations, int4 weights (ExecuTorch 0.3 API).
+    # This is the step that shrinks the model: weights drop from 32-bit floats
+    # to 4-bit integers, trading a little numeric precision for ~8x less space.
+    step.progress_note(f"{Path(dst_pte).stem} — quantizing")
     model = Int8DynActInt4WeightQuantizer(
         precision=dtype,
         groupsize=-1,
@@ -93,17 +120,27 @@ def convert_one(
 
     sample_input = (torch.randn(1, win_size, input_c, dtype=dtype, device=device),)
 
+    step.progress_note(f"{Path(dst_pte).stem} — exporting")
     exported: ExportedProgram = export(model, sample_input, strict=True)
     edge: EdgeProgramManager = to_edge(exported)
     et_program = edge.to_executorch(ExecutorchBackendConfig(passes=[]))
 
+    step.progress_note(f"{Path(dst_pte).stem} — writing")
     mkdir(os.path.dirname(dst_pte))
     with open(dst_pte, "wb") as f:
         f.write(et_program.buffer)
-    print(f"  Saved: {dst_pte}")
+
+
+def _mb(path: str) -> float:
+    """Size of a file in MB, or 0.0 when it is missing."""
+    try:
+        return os.path.getsize(path) / (1024 * 1024)
+    except OSError:
+        return 0.0
 
 
 if __name__ == "__main__":
+    setup_logging("convert_qbat")
     parser = argparse.ArgumentParser(
         description="Convert EMAT .pth checkpoints to ExecuTorch .pte files."
     )
@@ -138,20 +175,75 @@ if __name__ == "__main__":
             args.batch_size  or cfg["batch_size"][0],
         )]
 
-    print(f"Converting {len(combos)} model(s) — dataset: {dataset}")
-    skipped = 0
-    for num_epochs, k, e_layers, batch_size in combos:
-        fileparam = f"e{num_epochs}_k{k}_l{e_layers}_b{batch_size}"
-        src = os.path.join(src_dir,  f"{dataset}_{fileparam}_checkpoint.pth")
-        dst = os.path.join(dst_dir,  f"{dataset}_{fileparam}.pte")
+    rep = StepReporter("convert", dataset=dataset, steps=steps.CONVERT_STEPS,
+                       about=_ABOUT)
 
-        if not os.path.exists(src):
-            print(f"  Skipping (checkpoint not found): {src}")
-            skipped += 1
-            continue
+    # ── Step 1: see what is available to convert ──────────────────────────
+    with rep.step("locate") as st:
+        st.detail("reading from", src_dir)
+        st.detail("writing to", dst_dir)
+        pending, missing = [], []
+        for num_epochs, k, e_layers, batch_size in combos:
+            fileparam = f"e{num_epochs}_k{k}_l{e_layers}_b{batch_size}"
+            src = os.path.join(src_dir, f"{dataset}_{fileparam}_checkpoint.pth")
+            dst = os.path.join(dst_dir, f"{dataset}_{fileparam}.pte")
+            (pending if os.path.exists(src) else missing).append(
+                (fileparam, src, dst, e_layers)
+            )
+        if missing:
+            st.warn(f"{len(missing)} of {len(combos)} trained models are not on disk "
+                    f"and will be skipped — run 'train' first to create them.")
+        st.outcome(**{
+            "models requested": len(combos),
+            "ready to convert": len(pending),
+            "missing": len(missing),
+            "size on disk now": f"{sum(_mb(p[1]) for p in pending):.1f} MB",
+        })
 
-        print(f"  [{fileparam}] ...")
-        convert_one(src, dst, win_size, input_c, output_c, e_layers)
+    if not pending:
+        rep.skip("convert", "None of the requested models are on disk, so there is "
+                            "nothing to convert.")
+        rep.finish(outputs=dst_dir)
+        sys.exit(1)
 
-    converted = len(combos) - skipped
-    print(f"\nDone: {converted} converted, {skipped} skipped.")
+    # ── Step 2: quantize and export each one ──────────────────────────────
+    with rep.step("convert") as st:
+        st.expect("models", len(pending))
+        converted, failed = 0, 0
+        src_mb = dst_mb = 0.0
+
+        for fileparam, src, dst, e_layers in pending:
+            try:
+                convert_one(src, dst, win_size, input_c, output_c, e_layers)
+                before, after = _mb(src), _mb(dst)
+                src_mb += before
+                dst_mb += after
+                converted += 1
+                logging.info(
+                    "   %-18s %6.1f MB → %5.1f MB  (%.0f%% smaller)",
+                    fileparam, before, after,
+                    (1 - after / before) * 100 if before else 0.0,
+                )
+            except Exception as exc:  # one failure must not abort the batch
+                failed += 1
+                logging.warning("   %-18s FAILED — %s", fileparam, exc)
+            st.tick("models")
+
+        st.outcome(**{
+            "models converted": f"{converted}/{len(pending)}",
+            "models failed": failed,
+            "total size before": f"{src_mb:.1f} MB",
+            "total size after": f"{dst_mb:.1f} MB",
+            "space saved": (f"{src_mb - dst_mb:.1f} MB "
+                            f"({(1 - dst_mb / src_mb) * 100:.0f}% smaller)"
+                            if src_mb else "—"),
+        })
+        if converted == 0:
+            st.fail(
+                f"No model could be converted ({failed} failed). The messages "
+                f"above name the cause; a mismatch between the installed torchao "
+                f"and the model is the usual one."
+            )
+
+    rep.finish(outputs=dst_dir)
+    sys.exit(0 if converted else 1)

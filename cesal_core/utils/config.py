@@ -5,6 +5,8 @@ from typing import Any, Dict
 
 import yaml
 
+from cesal_core.utils import steps
+
 _LOG_DIR = "logs"
 
 
@@ -29,6 +31,22 @@ class _ConsoleFormatter(logging.Formatter):
         return message
 
 
+class _ConsoleHandler(logging.StreamHandler):
+    """Console handler that co-operates with the in-place progress bar.
+
+    The bar and the log share stderr, so a line written while the bar is on
+    screen would other­wise be spliced into it. Erase the bar, write the line,
+    then redraw it below.
+    """
+
+    def emit(self, record: logging.LogRecord) -> None:
+        steps.clear_bar()
+        try:
+            super().emit(record)
+        finally:
+            steps.redraw_bar()
+
+
 def setup_logging(prefix: str) -> None:
     """Configure root logger to write to a timestamped file under logs/ and to stdout."""
     os.makedirs(_LOG_DIR, exist_ok=True)
@@ -46,11 +64,15 @@ def setup_logging(prefix: str) -> None:
         logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
     )
 
-    console_handler = logging.StreamHandler()
+    console_handler = _ConsoleHandler()
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(_ConsoleFormatter())
 
-    logging.basicConfig(level=logging.DEBUG, handlers=[file_handler, console_handler])
+    # force=True: importing torch/executorch/torchao can install a root handler
+    # before we get here, which would make basicConfig a silent no-op and leave
+    # the default "WARNING:root:..." format spliced into the progress bar.
+    logging.basicConfig(level=logging.DEBUG,
+                        handlers=[file_handler, console_handler], force=True)
 
     # Third-party DEBUG output would bury the pipeline's own record in the file.
     for noisy in ("matplotlib", "urllib3", "transformers", "filelock",

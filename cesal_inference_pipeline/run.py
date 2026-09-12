@@ -120,7 +120,9 @@ def run_inference(inference_config_path: str) -> None:
         # Routing on per-line energy scores → routed_indices are line indices.
         if result.energy_matrix.shape[1] >= 2:
             try:
+                st.phase("learning how the scores normally spread")
                 _, inv_cov = compute_inv_cov(result.train_energy_matrix)
+                st.phase("measuring how certain each window was")
                 routed_indices = select_indices_by_distance(
                     test_scores=result.energy_matrix,
                     thresholds=result.thresholds,
@@ -137,6 +139,7 @@ def run_inference(inference_config_path: str) -> None:
             n_route = max(1, int(len(margin) * tolerance))
             routed_indices = sorted(np.argsort(margin)[-n_route:].tolist())
 
+        st.phase("collecting the events to send to the cloud")
         np.save(
             os.path.join(out_base, 'routed_indices.npy'),
             np.array(routed_indices, dtype=int),

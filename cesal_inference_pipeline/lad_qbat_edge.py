@@ -283,6 +283,9 @@ def run(config: dict) -> EdgeResult:
         raise ValueError("No edge models listed in inference config under 'edge_models'.")
 
     # Load pre-computed thresholds (must exist before running inference)
+    step = steps.current()
+
+    step.phase("reading calibration thresholds")
     thresh_path = config.get('threshold_output',
                              str(Path('outputs') / dataset.lower() / 'thresholds_edge.yaml'))
     stored_thresholds = _load_thresholds(thresh_path)
@@ -290,6 +293,7 @@ def run(config: dict) -> EdgeResult:
     ensemble_param = [config.get('num_epochs', 3), config.get('k', 3),
                       config.get('e_layer_num', 3), batch_size]
 
+    step.phase("parsing log data into windows")
     test_loader = get_loader_segment(
         ensemble_param, data_path,
         batch_size=batch_size, win_size=win_size, step=win_size,
@@ -305,7 +309,6 @@ def run(config: dict) -> EdgeResult:
     test_windows = np.concatenate(test_windows_list, axis=0)
     ground_truth = np.concatenate(label_list).astype(int)
 
-    step = steps.current()
     step.detail("test windows", len(test_windows))
     step.detail("window size", win_size)
     step.detail("Q-BAT models", f"{len(model_cfgs)} running in parallel")
@@ -316,6 +319,8 @@ def run(config: dict) -> EdgeResult:
     # (every model scores every window) rather than the 3-model counter.
     if not _EXECUTORCH_AVAILABLE and _RUNNER_AVAILABLE:
         step.expect("window scans", len(test_windows) * len(model_cfgs))
+
+    step.phase(f"scoring every window with {len(model_cfgs)} Q-BAT models")
 
     # All models score the same read-only array concurrently.
     # ExecuTorch (C inference) releases the GIL, so threads run in true parallel.
@@ -343,6 +348,7 @@ def run(config: dict) -> EdgeResult:
             f"skipped (missing checkpoint or threshold) — scoring with {len(valid)}."
         )
 
+    step.phase("combining the models' votes")
     test_energy_cols = [r[0] for r in valid]
     thresholds_list  = [r[1] for r in valid]
 

@@ -12,6 +12,7 @@ from cesal_core.data.loaders import get_loader_segment
 from cesal_core.models.EMAT import EMAT
 from cesal_core.utils.energy import my_kl_loss
 from cesal_core.utils.metrics import evaluate as _evaluate
+from cesal_core.utils.steps import fmt_secs as _fmt_secs
 
 
 def _fit_gmm(energy: np.ndarray, n_components: int, covariance_type: str,
@@ -42,7 +43,7 @@ def adjust_learning_rate(optimizer: torch.optim.Optimizer, epoch: int, lr: float
     new_lr = lr * (0.5 ** ((epoch - 1) // 1))
     for param_group in optimizer.param_groups:
         param_group['lr'] = new_lr
-    logging.info("Learning rate updated to %g", new_lr)
+    logging.debug("Learning rate updated to %g", new_lr)
 
 
 class EarlyStopping:
@@ -68,7 +69,7 @@ class EarlyStopping:
             self._save(val_loss, val_loss2, model, path, hyperparameter)
         elif score < self.best_score + self.delta or score2 < self.best_score2 + self.delta:
             self.counter += 1
-            logging.info("EarlyStopping counter: %d / %d", self.counter, self.patience)
+            logging.debug("EarlyStopping counter: %d / %d", self.counter, self.patience)
             if self.counter >= self.patience:
                 self.early_stop = True
         else:
@@ -79,7 +80,7 @@ class EarlyStopping:
 
     def _save(self, val_loss, val_loss2, model, path, hyperparameter):
         if self.verbose:
-            logging.info(
+            logging.debug(
                 "Validation loss decreased (%.6f -> %.6f). Saving model...",
                 self.val_loss_min, val_loss,
             )
@@ -177,7 +178,7 @@ class Solver:
         return np.average(loss_1), np.average(loss_2)
 
     def train(self) -> None:
-        logging.info("======================TRAIN MODE======================")
+        logging.debug("======================TRAIN MODE======================")
 
         time_now = time.time()
         path = self.model_save_path
@@ -229,7 +230,7 @@ class Solver:
                 if (i + 1) % 100 == 0:
                     speed = (time.time() - time_now) / iter_count
                     left_time = speed * ((self.num_epochs - epoch) * train_steps - i)
-                    logging.info('\tspeed: {:.4f}s/iter; left time: {:.4f}s'.format(speed, left_time))
+                    logging.debug('\tspeed: {:.4f}s/iter; left time: {:.4f}s'.format(speed, left_time))
                     iter_count = 0
                     time_now = time.time()
 
@@ -238,19 +239,23 @@ class Solver:
                 loss2.backward()
                 self.optimizer.step()
 
-            logging.info("Epoch: {} cost time: {}".format(epoch + 1, time.time() - epoch_time))
+            epoch_secs = time.time() - epoch_time
             train_loss = np.average(loss1_list)
             vali_loss1, vali_loss2 = self.vali(self.test_loader)
 
+            # A lower loss means the model reconstructs normal activity more
+            # closely, so it can tell normal from abnormal more sharply.
             logging.info(
-                "Epoch %d, Steps %d | Train Loss: %.7f  Vali Loss: %.7f",
-                epoch + 1, train_steps, train_loss, vali_loss1,
+                "      epoch %d/%d · train loss %.6f · check loss %.6f · %s",
+                epoch + 1, self.num_epochs, train_loss, vali_loss1,
+                _fmt_secs(epoch_secs),
             )
+            logging.debug("Epoch %d, Steps %d", epoch + 1, train_steps)
 
             param = [self.num_epochs, self.k, self.e_layer_num, self.batch_size]
             early_stopping(vali_loss1, vali_loss2, self.model, path, param)
             if early_stopping.early_stop:
-                logging.info("Early stopping")
+                logging.info("      stopped early — the model stopped improving")
                 break
 
             adjust_learning_rate(self.optimizer, epoch + 1, self.lr)

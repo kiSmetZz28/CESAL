@@ -13,12 +13,12 @@
 
 ## How It Works
 
-CESAL is a security-aware cloud–edge framework for log-based incident detection, classification, and controlled response. It follows an **edge-first, cloud-assisted** strategy:
+An **edge-first, cloud-assisted** pipeline, in four stages:
 
-- **Edge-side detection** — Q-BAT, an ensemble of quantized EM-AT models, scores log sequences locally on resource-constrained devices.
-- **Uncertainty-guided routing** — a Mahalanobis distance-based routing policy keeps confident samples at the edge and escalates only the most uncertain ones (10% by default) to the cloud, reducing edge-to-cloud transmission of security-sensitive logs.
-- **Cloud-side verification** — BAT, a high-capacity ensemble of 81 EM-AT models, re-evaluates the escalated samples.
-- **Incident classification and controlled response** — detected abnormal sequences are queued and classified by a retrieval-augmented LLM into a known anomaly type or an unknown anomaly; known types are mapped to predefined response workflows, and unknown ones are flagged for human investigation.
+- **Edge detection** — Q-BAT, an ensemble of quantized EM-AT models, scores log sequences on the device itself.
+- **Uncertainty routing** — a Mahalanobis distance policy keeps confident samples local and escalates only the most uncertain (10% by default), limiting how much security-sensitive log data leaves the edge.
+- **Cloud verification** — BAT, an ensemble of 81 EM-AT models, re-evaluates what was escalated.
+- **Classification and response** — detected sequences are queued, labelled by a retrieval-augmented LLM as a known anomaly type or unknown, and mapped to a predefined response workflow; unknown ones go to a human.
 
 <p align="center">
   <img src="pictures/framework.png" width="800">
@@ -26,13 +26,13 @@ CESAL is a security-aware cloud–edge framework for log-based incident detectio
 
 ### Models
 
-**EM-AT — the base learner.** An Anomaly Transformer whose encoder learns normal log behaviour from normal sequences only. Each layer's Anomaly Attention models two views of a sequence — a _series association_ capturing global dependencies and a _prior association_ capturing local adjacency — and their divergence, combined with reconstruction error, forms the anomaly score. EM-AT's addition is **EM-GMM automated thresholding**: rather than tuning a cut-off by hand, it fits a Gaussian mixture to the score distribution and derives the threshold from the estimated normal proportion, so no per-device tuning is needed across heterogeneous deployments. Code: [cesal_core/models/](cesal_core/models/), [cesal_core/utils/energy.py](cesal_core/utils/energy.py).
+**EM-AT — the base learner.** An Anomaly Transformer trained on normal sequences only. Its Anomaly Attention scores each sequence by the divergence between a _series association_ (global dependencies) and a _prior association_ (local adjacency), combined with reconstruction error. EM-AT adds **EM-GMM automated thresholding** — a Gaussian mixture fitted to the score distribution sets the cut-off from the estimated normal proportion, so no per-device tuning is needed. Code: [cesal_core/models/](cesal_core/models/), [cesal_core/utils/energy.py](cesal_core/utils/energy.py).
 
-**BAT — the cloud detector.** A single EM-AT is sensitive to its training sample and hyperparameters, especially for rare or context-dependent anomalies. BAT is a bagging ensemble of **81** EM-AT learners, each trained on a bootstrap subset with a different configuration (epochs, loss weight, encoder depth, batch size) to increase diversity. Every learner carries its own EM-GMM threshold, and their binary decisions are combined by majority voting. Code: [training_pipeline/](training_pipeline/), [cesal_inference_pipeline/lad_bat_cloud.py](cesal_inference_pipeline/lad_bat_cloud.py).
+**BAT — the cloud detector.** A single EM-AT is sensitive to its training sample and hyperparameters, especially for rare anomalies. BAT bags **81** EM-AT learners, each on a bootstrap subset with a different configuration (epochs, loss weight, encoder depth, batch size), each with its own EM-GMM threshold, combined by majority vote. Code: [training_pipeline/](training_pipeline/), [cesal_inference_pipeline/lad_bat_cloud.py](cesal_inference_pipeline/lad_bat_cloud.py).
 
-**Q-BAT — the edge detector.** BAT is too heavy for edge hardware, so Q-BAT keeps only **3** EM-AT learners and quantizes them with TorchAO (8-bit activations, 4-bit weights), exporting each as an ExecuTorch `.pte` program that runs natively on-device. This keeps edge inference feasible on a Raspberry Pi while preserving ensemble-based robustness. Code: [quantization/qbat_export.py](quantization/qbat_export.py), [cesal_inference_pipeline/lad_qbat_edge.py](cesal_inference_pipeline/lad_qbat_edge.py).
+**Q-BAT — the edge detector.** BAT is too heavy for edge hardware. Q-BAT keeps **3** learners and quantizes them with TorchAO (8-bit activations, 4-bit weights), exporting each as an ExecuTorch `.pte` program — ensemble robustness at a size a Raspberry Pi can run. Code: [quantization/qbat_export.py](quantization/qbat_export.py), [cesal_inference_pipeline/lad_qbat_edge.py](cesal_inference_pipeline/lad_qbat_edge.py).
 
-**LLM classifier — incident classification and response.** Qwen2.5-14B-Instruct by default. It combines retrieved reference sequences with open-set decision rules to label each detected abnormal sequence as one of 10 known HDFS anomaly types or as unknown, then maps that label to a predefined response workflow. Code: [incident_response/](incident_response/).
+**LLM classifier.** Qwen2.5-14B-Instruct by default. Retrieved reference sequences plus open-set decision rules label each detected sequence as one of 10 known HDFS anomaly types or unknown, which then selects a response workflow. Code: [incident_response/](incident_response/).
 
 ### Framework Overview
 
@@ -61,7 +61,7 @@ CESAL is a security-aware cloud-edge framework for log-based incident detection,
 
 ## Repository Structure
 
-`run.py` is the primary entry point — a single CLI that dispatches every pipeline stage (download, train, eval, convert, infer, classify, respond). `launch_dashboard.py` is an optional local helper that bundles asset download with launching the web UI. Everything else falls into one of three groups — **shared library**, **pipeline stages**, or **supporting assets**.
+`run.py` is the entry point — one CLI dispatching every stage (download, train, eval, convert, infer, classify, respond). `launch_dashboard.py` optionally bundles asset download with launching the web UI. Everything else is a **shared library**, a **pipeline stage**, or a **supporting asset**.
 
 <pre>
 CESAL/
@@ -135,7 +135,7 @@ All commands run from the project root. CESAL uses **two Conda environments**, o
 | `cesal-edge`  | **Edge**  | PyTorch 2.6 (CPU) + ExecuTorch 0.5          | Dashboard, Q-BAT edge inference (`.pte` via ExecuTorch), pipeline orchestration. CPU is sufficient.                                                                                                                         |
 | `cesal-cloud` | **Cloud** | PyTorch 2.4 + CUDA 12.4 + transformers 4.47 | BAT ensemble training (81 models), cloud re-check inference, and LLM-based incident classification and response (`incident_response/`). GPU strongly recommended; the inference pipeline launches this env as a subprocess. |
 
-**Why two environments?** Edge and cloud have different runtime needs. Edge uses ExecuTorch (compact, CPU-only, runs `.pte` quantized models), while cloud uses full-precision PyTorch with CUDA. Splitting them keeps each install minimal and avoids version conflicts between ExecuTorch and CUDA PyTorch.
+**Why two?** Edge runs ExecuTorch (compact, CPU-only, `.pte` quantized models); cloud runs full-precision PyTorch with CUDA. Separating them keeps each install minimal and avoids version conflicts between the two.
 
 ### Step 1 — Set up environments
 
@@ -171,7 +171,7 @@ conda env list   # should list both 'cesal-edge' and 'cesal-cloud'
 
 ### Step 2 — Download checkpoints and the edge runtime
 
-`run.py` is the project's main entry point. Use `run.py download` to fetch the BAT (`.pth`) and Q-BAT (`.pte`) checkpoints required by the inference pipeline. Whenever Q-BAT checkpoints are part of the download, `run.py` _also_ installs the **ExecuTorch 0.5.0 runtime** (and its bundled `torchao` build) — these are required by `run.py infer` (edge stage) and `run.py convert`.
+`run.py download` fetches the BAT (`.pth`) and Q-BAT (`.pte`) checkpoints. When Q-BAT is included it also installs the **ExecuTorch 0.5.0 runtime** and its bundled `torchao` build, which `run.py infer` and `run.py convert` need.
 
 ```bash
 conda activate cesal-edge
@@ -185,7 +185,7 @@ python run.py download hdfs qbat      # HDFS quantized Q-BAT + ExecuTorch runtim
 
 ### Step 3 — Run the full pipeline from the CLI
 
-`run.py` dispatches every pipeline stage. Pre-computed thresholds for both datasets are bundled with the repository, so you can run inference immediately:
+Pre-computed thresholds for both datasets are bundled, so inference runs immediately:
 
 ```bash
 conda activate cesal-edge
@@ -195,22 +195,26 @@ python run.py infer hdfs
 
 #### Reading the output
 
-Inference reports as four numbered steps. Each opens with a banner, lists the inputs it is working from, and closes with an indented block of **what it actually found** plus the time it took:
+Every stage — `infer`, `train`, `convert`, `classify`, `respond` — reports as numbered steps. Each names the sub-steps running inside it, and closes with **what it found** and how long it took:
 
 ```
 ──────────────────────────────────────────────────────────────────
  STEP 2/4 · Uncertainty routing
 ──────────────────────────────────────────────────────────────────
+   Windows the device was least sure about are picked out for a second opinion.
    distance .................... Mahalanobis
    tolerance ................... 10% of events
+   ├─ learning how the scores normally spread
    covariance fitted on ........ 52,200 training events
+   ├─ measuring how certain each window was
+   ├─ collecting the events to send to the cloud
    events considered ........... 4,000
    routed to cloud ............. 400 (10.0%)
    kept at edge ................ 3,600
    ✓ done in 1.3s
 ```
 
-The run ends with a summary of every step, its state and its duration, followed by the detection scores:
+Each step is introduced in plain language, so the output is followable without knowing the system. The run ends with a summary of every step, its state and its duration, followed by the scores:
 
 ```
 ══════════════════════════════════════════════════════════════════
@@ -221,7 +225,7 @@ The run ends with a summary of every step, its state and its duration, followed 
    3. ✓ Cloud BAT verification ............. 1m 41.6s
    4. ✓ Hybrid merge & scoring ............. 0.4s
    ────────────────────────────────────────────────────────────
-   Detection quality
+   Scores
      Edge      P  99.06   R 100.00   F1  99.53
      Hybrid    P  99.96   R 100.00   F1  99.98
    ────────────────────────────────────────────────────────────
@@ -229,11 +233,11 @@ The run ends with a summary of every step, its state and its duration, followed 
    total time .............................. 2m 24.3s
 ```
 
-A step that does not run says so and gives the reason rather than disappearing — for example, `3. – Cloud BAT verification ... skipped` when the config has no `cloud` section or nothing was routed. Steps 3 and 4 execute in the `cesal-cloud` environment as a subprocess, but the numbering and the closing summary span both processes, so one run reads as one sequence.
+A step that does not run says so with its reason (`3. – Cloud BAT verification ... skipped`) rather than disappearing. Steps 3 and 4 run in `cesal-cloud` as a subprocess, but the numbering and summary span both processes, so one run reads as one sequence.
 
-The terminal shows a readable digest: the 81 cloud checkpoints report as milestone counters (`21/81 models (25%)`) rather than 81 separate lines. The full per-model record is kept in the timestamped file under `logs/`, which logs at DEBUG.
+Long-running work draws a progress bar with a time estimate; the terminal stays a digest (81 cloud checkpoints report as `21/81 models (25%)`, not 81 lines) while the full per-model record goes to the timestamped DEBUG log under `logs/`.
 
-For other stages — `train`, `convert` — see [Advanced Options](#advanced-options).
+For `train` and `convert`, see [Advanced Options](#advanced-options).
 
 ### What you need to run CESAL
 
@@ -265,9 +269,9 @@ Both datasets contain only machine-generated operational telemetry — block ide
 
 ### Optional — Launch the local dashboard
 
-The dashboard is a web UI at **http://localhost:8765** that runs the inference pipeline and browses the parsed logs. There are two ways to start it.
+A web UI at **http://localhost:8765** that runs the pipeline and browses the parsed logs.
 
-**First time — fetch the assets, then launch.** `launch_dashboard.py` performs the same checkpoint + ExecuTorch download as `run.py download`, and additionally fetches the **raw log files** needed for the log-browsing panels:
+**First time — fetch assets, then launch.** `launch_dashboard.py` does the same download as `run.py download`, plus the **raw log files** the log-browsing panels need:
 
 ```bash
 conda activate cesal-edge
@@ -277,7 +281,7 @@ python launch_dashboard.py --no-bat       # skip BAT checkpoints (~3.5 GB × dat
 python launch_dashboard.py --status       # print what is present / missing, then exit (no downloads, no setup)
 ```
 
-**Every run after that — start the UI directly.** This skips all setup and comes up in a few seconds:
+**Afterwards — start the UI directly.** Skips all setup; up in seconds:
 
 ```bash
 conda activate cesal-edge
@@ -286,27 +290,29 @@ export CLOUD_PYTHON=~/miniconda3/envs/cesal-cloud/bin/python  # interpreter for 
 python dashboard/app.py                                       # PORT=8799 python dashboard/app.py for another port
 ```
 
-`python dashboard/app.py` is exactly what `launch_dashboard.py` execs once its asset checks pass, so it serves the same UI — it simply never downloads or installs anything. Prefer it for day-to-day runs, because `launch_dashboard.py` re-runs the ExecuTorch **Python-bindings** install (a cmake build) on every launch whenever `from executorch.runtime import Runtime` fails in the active environment. Those bindings are optional: the edge stage falls back to the pre-built C++ `executor_runner` that ships in the ExecuTorch download, which is the path the pipeline uses by default.
+`python dashboard/app.py` is exactly what `launch_dashboard.py` execs once its asset checks pass — same UI, but it never downloads or installs. Prefer it day to day: `launch_dashboard.py` re-runs the ExecuTorch **Python-bindings** cmake build on every launch whenever `from executorch.runtime import Runtime` fails. Those bindings are optional — the edge stage falls back to the pre-built C++ `executor_runner` from the ExecuTorch download, which is the default path anyway.
 
-`EDGE_PYTHON` and `CLOUD_PYTHON` tell the dashboard which interpreters to spawn for the pipeline stages (defaults: `~/miniconda3/envs/cesal-edge/bin/python` and `~/miniconda3/envs/cesal-cloud/bin/python`); set them when your environment names differ. A built-in **? Help** button guides you through the panels.
+`EDGE_PYTHON` and `CLOUD_PYTHON` name the interpreters the dashboard spawns per stage (defaults: `~/miniconda3/envs/cesal-edge/bin/python` and `~/miniconda3/envs/cesal-cloud/bin/python`); set them if your environment names differ. A built-in **? Help** button walks through the panels.
 
-While a run is in progress, **Live Execution Progress** tracks the same four steps the CLI prints. The stage track shows which step is active, **What's happening now** carries a progress bar for the work inside it (windows scored, models voted), and **Current step** lists that step's inputs and then its results — so each step ends with a visible outcome rather than scrolling away. A skipped step states its reason. The dashboard follows the run through the structured progress events the runners emit (`cesal_core/utils/steps.py`), not by pattern-matching log text, so the display cannot silently drift out of sync when a log message is reworded. On first launch the **Database** indicator shows **Loading** while log data is imported. The HDFS log-browsing panel also needs a few minutes the first time each process serves it, while it builds an ordering cache in memory; the results, config and prediction panels respond immediately.
+**Live Execution Progress** tracks the same steps the CLI prints: the stage track shows the active step, **What's happening now** carries a progress bar for the work inside it, and **Current step** lists that step's inputs, sub-steps and results — so each step ends with a visible outcome instead of scrolling away. A skipped step states its reason. The panel is driven by structured progress events from the runners ([cesal_core/utils/steps.py](cesal_core/utils/steps.py)) rather than by pattern-matching log text, so it cannot drift out of sync when a message is reworded.
+
+On first launch the **Database** indicator shows **Loading** while logs are imported, and the HDFS log-browsing panel needs a few minutes per process to build its ordering cache; the results, config and prediction panels respond immediately.
 
 ### Optional — LLM-based incident classification and controlled response
 
-`incident_response/` classifies abnormal HDFS log sequences into the 10 known anomaly types or `Other anomaly type` (unknown) with a RAG-enhanced LLM, then maps each label to a predefined response workflow (Table 1). It runs in the cloud environment (`cesal-cloud`) and needs a CUDA GPU; models that exceed GPU memory are partly offloaded to CPU RAM.
+`incident_response/` labels abnormal HDFS sequences as one of the 10 known anomaly types or `Other anomaly type` using a RAG-enhanced LLM, then maps each label to a response workflow (Table 1). Runs in `cesal-cloud` and needs a CUDA GPU; models exceeding GPU memory are partly offloaded to CPU RAM.
 
 <p align="center">
   <img src="pictures/llm_module.png" width="850">
 </p>
 
-Detected abnormal sequences are buffered in an anomaly queue — edge-side `Q_E` or cloud-side `Q_C` — rather than being classified inline, which lets CESAL defer analysis until connectivity and cloud resources allow. Each queued sequence is matched against a knowledge base of reference abnormal sequences, and the retrieved evidence is assembled with the sequence and the candidate label set into a structured prompt. The LLM must return exactly one label, choosing a known anomaly type only when the evidence supports it and falling back to **"Unknown Anomaly Types"** otherwise, so unfamiliar patterns are never forced into an existing category.
+Detected sequences are buffered in an anomaly queue — edge-side `Q_E` or cloud-side `Q_C` — rather than classified inline, so analysis can wait for connectivity and cloud capacity. Each queued sequence is matched against a knowledge base of reference sequences; the retrieved evidence, the sequence and the candidate labels form a structured prompt. The LLM returns exactly one label, choosing a known type only when the evidence supports it and otherwise **"Unknown Anomaly Types"**, so unfamiliar patterns are never forced into an existing category.
 
-The predicted label selects a predefined response workflow (paper Table 1, implemented verbatim in [`incident_response/workflows.py`](incident_response/workflows.py)). The agent never invents a response: low-impact steps such as evidence collection, status validation and safe retry can run automatically, while high-impact steps such as metadata modification, permanent block cleanup or service-level restart require administrator approval. Unknown anomalies trigger no automated mitigation — the sequence, its retrieved evidence and system context are preserved and flagged for human investigation.
+The label selects a predefined workflow (paper Table 1, implemented verbatim in [`incident_response/workflows.py`](incident_response/workflows.py)). The agent never invents a response: low-impact steps (evidence collection, status validation, safe retry) can run automatically; high-impact ones (metadata modification, permanent block cleanup, service restart) need administrator approval. Unknown anomalies trigger no mitigation — the sequence and its evidence are preserved for human investigation.
 
 > **Implementation note.** The paper describes the knowledge base as indexed in a vector database; this implementation retrieves lexically (TF-IDF combined with token and bigram overlap) in [incident_response/classifier.py](incident_response/classifier.py), so no embedding model or vector store is required.
 
-Meta-Llama-3.1-8B-Instruct and gemma-2-9b-it are gated on Hugging Face: accept their licenses and run `hf auth login` first. The open-set test set (4,124 unique abnormal sequences) and the knowledge base (top-100 sequences per known type) are bundled in `data/HDFS/open_set/`; rebuild them from loghub's `HDFS_v1/preprocessed/Event_traces.csv` with `python -m incident_response.data_prep`.
+Meta-Llama-3.1-8B-Instruct and gemma-2-9b-it are gated on Hugging Face — accept their licenses and run `hf auth login` first. The open-set test set (4,124 unique sequences) and knowledge base (top-100 per type) ship in `data/HDFS/open_set/`; rebuild them from loghub's `HDFS_v1/preprocessed/Event_traces.csv` with `python -m incident_response.data_prep`.
 
 ```bash
 conda activate cesal-cloud
@@ -316,11 +322,11 @@ python -m incident_response.workflows --label "Replica immediately deleted"
 python -m incident_response.workflows --results outputs/hdfs/llm/results_Qwen_Qwen2.5-14B-Instruct.csv
 ```
 
-Results go to `outputs/hdfs/llm/` (per-sequence predictions with retrieval evidence, `model_summary.csv`, `per_class_metrics_long.csv`); compare them with `outputs/hdfs/llm/table7_reference_metrics.csv`. Settings that differ per backbone (Qwen2.5-14B uses a length-aware retrieval score, lower thresholds, and 32 new tokens) are in `model_overrides` of `configs/llm/hdfs.yaml`.
+Results land in `outputs/hdfs/llm/` — per-sequence predictions with retrieval evidence, plus `model_summary.csv` and `per_class_metrics_long.csv` — to compare against `table7_reference_metrics.csv` in the same directory. Per-backbone settings live in `model_overrides` of `configs/llm/hdfs.yaml`.
 
 #### From detection to response
 
-`python run.py respond [MODEL]` connects the collaborative LAD pipeline to the module. It reads the outputs of `python run.py infer hdfs`, marks a test session as detected when CESAL's final prediction (edge Q-BAT, with routed events replaced by cloud BAT, before point adjustment) flags any of its events, and writes one incident record per detected session to `outputs/hdfs/llm/queues/`: `queue_cloud.csv` when cloud BAT verified an anomalous event, `queue_edge.csv` otherwise. It then classifies every queued sequence with `respond_model` (default Qwen2.5-14B-Instruct), attaches the selected workflow, and scores detected abnormal sessions whose anomaly type is known.
+`python run.py respond [MODEL]` connects the detection pipeline to this module. It reads the outputs of `python run.py infer hdfs` and marks a session detected when the final prediction (edge Q-BAT, routed events replaced by cloud BAT, before point adjustment) flags any of its events. Each detected session becomes one record in `outputs/hdfs/llm/queues/` — `queue_cloud.csv` if cloud BAT verified it, `queue_edge.csv` otherwise — which is then classified with `respond_model` (default Qwen2.5-14B-Instruct), given a workflow, and scored where the true anomaly type is known.
 
 ```bash
 conda activate cesal-edge
@@ -329,7 +335,7 @@ conda activate cesal-cloud
 python run.py respond         # queues → classification → workflows
 ```
 
-The LAD test data carries no block IDs or timestamps, so incident records are identified by session index. Its HDFS sessions come from a different log-key extraction than loghub's `Event_traces.csv`: most exception events (e.g. E7) are absent, so about 20% of abnormal sessions do not match a knowledge-base or test sequence exactly, and those sessions are left out of the classification score. Classifications are cached per unique sequence in `classified_<model>.csv`; re-running resumes where an interrupted run stopped.
+The LAD test data has no block IDs or timestamps, so records are keyed by session index. Its HDFS sessions come from a different log-key extraction than loghub's `Event_traces.csv` — most exception events (e.g. E7) are absent — so about 20% of abnormal sessions match no knowledge-base or test sequence exactly and are excluded from the classification score. Classifications are cached per unique sequence in `classified_<model>.csv`, so an interrupted run resumes.
 
 ---
 
@@ -354,6 +360,23 @@ python run.py train hdfs
 
 Each `train` invocation runs a hyperparameter sweep over `(num_epochs, k, e_layer_num, batch_size)` and writes **81 BAT checkpoints** to `checkpoints/bat/<dataset>/`.
 
+Training reports as two steps, with a progress bar across the sweep and one line per model and per epoch, so a long run always shows which model is being built and how the loss is moving:
+
+```
+──────────────────────────────────────────────────────────────────
+ STEP 2/2 · Train base models
+──────────────────────────────────────────────────────────────────
+   Each model learns what normal log activity looks like, so it can spot the abnormal.
+   parsed events ............... 52,289 train / 155,347 test (18,434 abnormal)
+      epoch 1/3 · train loss -8.566147 · check loss -8.501529 · 1.3s
+      epoch 2/3 · train loss -13.612495 · check loss -11.145834 · 1.0s
+      epoch 3/3 · train loss -14.872067 · check loss -11.644014 · 1.0s
+   model 1/2 · e3_k1_l3_b32       trained in 7.6s
+   ████████████░░░░░░░░░░░░░░  46.2%  37/81 models · ~18m 04s left · e6_k3_l6_b64
+```
+
+A model that fails does not abort the sweep — it is reported and the run continues, and the closing summary states how many of the 81 were trained.
+
 ### Convert to edge models
 
 ```bash
@@ -364,6 +387,19 @@ python run.py convert hdfs
 
 Applies quantization techniques and exports `.pte` files to `checkpoints/qbat/{dataset}/`. Skip if you already downloaded Q-BAT checkpoints via `python run.py download <dataset> qbat`.
 
+Conversion reports as two steps. The first says how many trained models were found and how much space they take; the second walks through them with a progress bar that names the current model and its sub-stage (loading → quantizing → exporting → writing), and reports the size each one dropped to:
+
+```
+──────────────────────────────────────────────────────────────────
+ STEP 2/2 · Shrink models for the device
+──────────────────────────────────────────────────────────────────
+   Each model is compressed and repackaged so it can run on small edge hardware.
+   e3_k1_l3_b32         28.0 MB →   4.2 MB  (85% smaller)
+   ████████░░░░░░░░░░░░░░░░░░  33.3%  27/81 models · ~4m 12s left · Openstack_e3_k3_l3_b64 — quantizing
+```
+
+The closing summary gives the total before and after, so the benefit of quantization is visible rather than implied.
+
 ---
 
 ## Results
@@ -372,21 +408,14 @@ Numbers from the paper (Section 4), which also reports baselines, the BAT ensemb
 
 ### Hardware setup (Section 4.1)
 
-The experimental environment spans a cloud platform, log collection and processing servers, and edge devices:
+What the published numbers were measured on. **Running CESAL needs far less** — see [What you need to run CESAL](#what-you-need-to-run-cesal).
 
-| Platform                   | Hardware profile                                                                          | Operating system             |
-| -------------------------- | ----------------------------------------------------------------------------------------- | ---------------------------- |
-| **Talon cluster node**     | 2 × 18-core Intel Xeon Gold 6140; 8 × NVIDIA Tesla V100; 1.5 TB memory                    | Red Hat Enterprise Linux 9.2 |
-| **Dell PowerEdge R650**    | 36-core Intel Xeon Platinum; Mellanox ConnectX-6 100 Gb NIC; 256 GB memory                | Ubuntu 24.04.2 LTS           |
-| **Data processing server** | Intel Core i7-14700 (28 cores / 56 threads); NVIDIA RTX 2000 Ada Generation; 32 GB memory | Windows 11                   |
-| **Data analytics server**  | Intel Core i7-14700 (28 cores / 56 threads); NVIDIA RTX 2000 Ada Generation; 32 GB memory | Ubuntu 24.04.2 LTS           |
-| **Raspberry Pi 5**         | Cortex-A76, 4 cores / 4 threads; 8 GB memory                                              | Ubuntu 20.04.5 LTS           |
-| **Raspberry Pi 4B**        | Cortex-A72, 4 cores / 4 threads; 8 GB memory                                              | Ubuntu 20.04.5 LTS           |
-| **Raspberry Pi 3B+**       | Cortex-A53, 4 cores / 4 threads; 1 GB memory                                              | Ubuntu 20.04.5 LTS           |
-
-The Talon high-performance computing cluster handles BAT training and cloud-side verification; the Dell PowerEdge R650 handles log collection and storage; the two i7 servers support data processing, EM-AT analysis, Q-BAT preparation and model conversion; and edge deployment is evaluated on the Raspberry Pi cluster.
-
-Running CESAL needs far less than this — see [What you need to run CESAL](#what-you-need-to-run-cesal).
+| Platform                      | Hardware profile                                                                     | OS                    | Role                               |
+| ----------------------------- | ------------------------------------------------------------------------------------ | --------------------- | ---------------------------------- |
+| **Talon cluster node**        | 2 × 18-core Xeon Gold 6140; 8 × NVIDIA Tesla V100; 1.5 TB memory                     | RHEL 9.2              | BAT training, cloud verification   |
+| **Dell PowerEdge R650**       | 36-core Xeon Platinum; Mellanox ConnectX-6 100 Gb NIC; 256 GB memory                 | Ubuntu 24.04.2        | Log collection and storage         |
+| **2 × i7-14700 servers**      | 28 cores / 56 threads; NVIDIA RTX 2000 Ada Generation; 32 GB memory                  | Windows 11 / Ubuntu 24.04.2 | Processing, Q-BAT prep, conversion |
+| **Raspberry Pi 5 / 4B / 3B+** | Cortex-A76 / A72 / A53, 4 cores; 8 / 8 / 1 GB memory                                 | Ubuntu 20.04.5        | Edge deployment measurements       |
 
 ### Log-based incident detection (Table 3)
 

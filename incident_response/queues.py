@@ -29,7 +29,19 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from cesal_core.utils import steps
 from cesal_core.utils.config import load_config, setup_logging
+from cesal_core.utils.steps import StepReporter
+
+_ABOUT = """
+Turning raw detections into incidents, working out what each one is, and
+choosing how to respond.
+Sessions the detector flagged are filed into two queues — one for what the edge
+device decided alone, one for what the cloud confirmed. Each queued sequence is
+then matched against a library of known incident types; anything that matches
+none of them is kept as unknown and left for a person. Known types map to a
+predefined response plan, whose riskier actions need an administrator's approval.
+"""
 
 # LAD test files in the order HDFSSegLoader concatenates them (normal first, then abnormal)
 TEST_FILES = (("hdfs_test_normal.txt", 0), ("hdfs_test_abnormal.txt", 1))
@@ -110,27 +122,55 @@ def main() -> None:
     det_cfg = load_config(cfg["detection_config"])
     data_path, out_dir = det_cfg["data_path"], det_cfg["output_dir"]
 
-    sequences, ground_truth = load_sessions(data_path)
-    edge, hybrid, routed = final_predictions(out_dir)
-    energy = np.load(os.path.join(out_dir, "energy_matrix.npy"), mmap_mode="r")
-    logging.info("Sessions: %d | scored events: %d of %d | anomalous events: %d (routed to cloud: %d)",
-                 len(sequences), len(hybrid), sum(map(len, sequences)), int(hybrid.sum()), int(routed.sum()))
+    rep = StepReporter("respond", dataset=det_cfg.get("dataset", "HDFS"),
+                       steps=steps.RESPOND_STEPS, about=_ABOUT)
 
-    records = build_queues(sequences, ground_truth, edge, hybrid, routed, energy)
-    os.makedirs(cfg["queue_dir"], exist_ok=True)
-    for queue, fname in QUEUE_FILES.items():
-        part = records[records["queue"] == queue]
-        path = os.path.join(cfg["queue_dir"], fname)
-        part.to_csv(path, index=False)
-        logging.info("%-5s queue: %6d incidents (%d abnormal sessions, %d normal false positives), "
-                     "%d unique sequences -> %s", queue, len(part), int(part["ground_truth"].sum()),
-                     int((part["ground_truth"] == 0).sum()), part["template_sequence"].nunique(), path)
-    starts = np.concatenate([[0], np.cumsum([len(s) for s in sequences])[:-1]])
-    unscored = (starts >= len(hybrid)) & (ground_truth == 1)
-    missed = int((ground_truth == 1).sum() - unscored.sum() - records["ground_truth"].sum())
-    logging.info("Detected %d sessions (%d unique sequences); abnormal sessions missed: %d "
-                 "(plus %d past the last full window, never scored)",
-                 len(records), records["template_sequence"].nunique(), missed, int(unscored.sum()))
+    with rep.step("queue") as st:
+        st.phase("reading the detector's verdicts")
+        sequences, ground_truth = load_sessions(data_path)
+        edge, hybrid, routed = final_predictions(out_dir)
+        energy = np.load(os.path.join(out_dir, "energy_matrix.npy"), mmap_mode="r")
+        st.detail("sessions in the test set", len(sequences))
+        st.detail("events scored", f"{len(hybrid):,} of {sum(map(len, sequences)):,}")
+        # routed counts every event sent to the cloud, not just the flagged ones.
+        st.detail("events flagged", f"{int(hybrid.sum()):,}")
+        st.detail("events re-checked in cloud", int(routed.sum()))
+
+        st.phase("filing each detected session into a queue")
+        records = build_queues(sequences, ground_truth, edge, hybrid, routed, energy)
+        os.makedirs(cfg["queue_dir"], exist_ok=True)
+        counts = {}
+        for queue, fname in QUEUE_FILES.items():
+            part = records[records["queue"] == queue]
+            path = os.path.join(cfg["queue_dir"], fname)
+            part.to_csv(path, index=False)
+            counts[queue] = len(part)
+            logging.info(
+                "   %-5s queue · %s incidents · %s truly abnormal · %s false alarms",
+                queue, f"{len(part):,}", f"{int(part['ground_truth'].sum()):,}",
+                f"{int((part['ground_truth'] == 0).sum()):,}",
+            )
+        starts = np.concatenate([[0], np.cumsum([len(s) for s in sequences])[:-1]])
+        unscored = (starts >= len(hybrid)) & (ground_truth == 1)
+        missed = int((ground_truth == 1).sum() - unscored.sum() - records["ground_truth"].sum())
+        if missed or int(unscored.sum()):
+            st.warn(f"{missed} abnormal sessions were not detected, and "
+                    f"{int(unscored.sum())} fell past the last full window and were never scored.")
+
+        st.outcome(**{
+            "incidents queued": len(records),
+            "caught at the edge": counts.get("edge", 0),
+            "verified in the cloud": counts.get("cloud", 0),
+            "unique sequences": records["template_sequence"].nunique(),
+        })
+
+    # Steps 2-4 run in process_queues.py; hand this run over so the two
+    # processes report as one numbered sequence with a single summary.
+    handoff = os.environ.get("CESAL_STEP_HANDOFF") or os.path.join(
+        cfg["queue_dir"], ".run_steps.json")
+    rep.export(handoff)
+    logging.info("")
+    logging.info("   Queues built — handing over to the classification step.")
 
 
 if __name__ == "__main__":

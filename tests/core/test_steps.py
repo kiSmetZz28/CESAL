@@ -207,3 +207,124 @@ def test_evaluate_registers_its_scores_with_the_active_run():
     assert rep._metrics[0]["label"] == "Edge"
     assert rep._metrics[0]["recall"] == pytest.approx(scores.recall)
     assert scores.recall == pytest.approx(50.0)
+
+
+# ── plain-language plans, failures and bars ───────────────────────────────────
+
+def test_canonical_plans_all_carry_an_explanation():
+    """Every declared step must explain itself to a non-expert reader."""
+    for plan in (steps.INFER_STEPS, steps.TRAIN_STEPS, steps.CONVERT_STEPS):
+        for entry in plan:
+            assert len(entry) == 3, entry
+            step_id, title, explain = entry
+            assert step_id and title
+            assert explain.endswith("."), f"{step_id}: explanation should read as a sentence"
+            assert len(explain.split()) >= 5, f"{step_id}: explanation is too terse"
+
+
+def test_two_tuple_plans_still_work():
+    rep = StepReporter("t", steps=[("a", "A")])
+    with rep.step("a") as st:
+        assert st.explain == ""
+    assert rep._records[0]["state"] == "done"
+
+
+def test_step_start_event_carries_the_explanation(events_on, capsys):
+    rep = StepReporter("infer", steps=steps.INFER_STEPS)
+    with rep.step("edge"):
+        pass
+    start = next(e for e in read_events(capsys) if e["t"] == "step_start")
+    assert start["explain"] == steps.INFER_STEPS[0][2]
+
+
+def test_fail_marks_the_step_failed_without_raising(events_on, capsys):
+    rep = StepReporter("convert", steps=steps.CONVERT_STEPS)
+    with rep.step("convert") as st:
+        st.outcome(**{"models converted": "0/4"})
+        st.fail("No model could be converted.")
+    rec = rep._records[0]
+    assert rec["state"] == "failed"
+    assert "No model could be converted." in rec["error"]
+    # The outcome collected before the failure is still reported.
+    assert rec["outcome"]["models converted"] == "0/4"
+    kinds = [e["t"] for e in read_events(capsys)]
+    assert "step_fail" in kinds and "step_done" not in kinds
+
+
+def test_repeated_identical_details_are_shown_once(events_on, capsys):
+    """A sweep re-reports the same dataset facts for every model it builds."""
+    rep = StepReporter("train", steps=steps.TRAIN_STEPS)
+    with rep.step("sweep") as st:
+        for _ in range(5):
+            st.detail("parsed events", "52,289 train")
+        st.detail("parsed events", "different value")
+    details = [e for e in read_events(capsys) if e["t"] == "step_detail"]
+    assert [d["v"] for d in details] == ["52,289 train", "different value"]
+
+
+def test_a_step_bar_suppresses_subordinate_bars(monkeypatch):
+    """Only one progress bar should compete for the terminal line at a time."""
+    monkeypatch.delenv("CESAL_EVENTS", raising=False)
+    monkeypatch.setattr(steps.sys, "stderr",
+                        type("T", (), {"isatty": lambda _s: True,
+                                       "write": lambda _s, t: None,
+                                       "flush": lambda _s: None})())
+    assert steps.bars_suppressed() is False
+    rep = StepReporter("train", steps=steps.TRAIN_STEPS)
+    with rep.step("sweep") as st:
+        st.expect("models", 4)
+        assert steps.bars_suppressed() is True   # the step owns the line now
+    assert steps.bars_suppressed() is False      # released when the step ends
+
+
+def test_progress_bar_renders_percentage_and_estimate():
+    bar = steps._ProgressBar("models", 81)
+    assert "0/81 models" in bar._line()
+    bar.done = 27
+    line = bar._line()
+    assert "33.3%" in line and "27/81 models" in line
+    assert "█" in line and "░" in line
+    bar.done = 81
+    assert "100.0%" in bar._line()
+    assert "left" not in bar._line()   # no estimate once it is finished
+
+
+# ── sub-steps (phases) ────────────────────────────────────────────────────────
+
+def test_phases_are_announced_and_timed(events_on, capsys):
+    rep = StepReporter("infer", steps=steps.INFER_STEPS)
+    with rep.step("edge") as st:
+        st.phase("parsing log data")
+        st.phase("scoring the windows")
+    events = read_events(capsys)
+    opened = [e["name"] for e in events if e["t"] == "step_phase"]
+    closed = [e["name"] for e in events if e["t"] == "step_phase_done"]
+    assert opened == ["parsing log data", "scoring the windows"]
+    # The final phase is closed by the step, not left dangling.
+    assert closed == opened
+    assert all("secs" in e for e in events if e["t"] == "step_phase_done")
+
+
+def test_a_phase_open_when_a_step_fails_is_still_closed(events_on, capsys):
+    rep = StepReporter("infer", steps=steps.INFER_STEPS)
+    with pytest.raises(RuntimeError):
+        with rep.step("edge") as st:
+            st.phase("scoring the windows")
+            raise RuntimeError("gpu fell over")
+    kinds = [e["t"] for e in read_events(capsys)]
+    assert "step_phase_done" in kinds and "step_fail" in kinds
+
+
+def test_phase_names_reach_the_log(caplog):
+    rep = StepReporter("infer", steps=steps.INFER_STEPS)
+    with caplog.at_level("INFO"):
+        with rep.step("edge") as st:
+            st.phase("parsing log data")
+    assert any("parsing log data" in r.message for r in caplog.records)
+
+
+def test_every_plan_has_unique_step_ids():
+    for plan in (steps.INFER_STEPS, steps.TRAIN_STEPS, steps.CONVERT_STEPS,
+                 steps.CLASSIFY_STEPS, steps.RESPOND_STEPS):
+        ids = [e[0] for e in plan]
+        assert len(ids) == len(set(ids)), ids

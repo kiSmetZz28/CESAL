@@ -109,11 +109,17 @@ def main() -> None:
 
     elif command == "respond":
         model = argv[1] if len(argv) > 1 else None
-        print("[run] Incident response — building anomaly queues from HDFS detection outputs")
+        # queues.py runs step 1 and process_queues.py runs steps 2-4. The handoff
+        # file carries the first process's step records to the second so the two
+        # report as one numbered run (see cesal_core/utils/steps.py).
+        import os
+        os.environ.setdefault(
+            "CESAL_STEP_HANDOFF",
+            str(_ROOT / "outputs" / "hdfs" / "llm" / "queues" / ".run_steps.json"),
+        )
         rc = _run_keep_going("-m", "incident_response.queues", "--config", "configs/llm/hdfs.yaml")
         if rc != 0:
             sys.exit(rc)
-        print(f"[run] Classifying queued incidents — model: {model or 'respond_model in configs/llm/hdfs.yaml'}")
         _run_module("incident_response.process_queues", "--config", "configs/llm/hdfs.yaml",
                     *(["--model", model] if model else []))
 
