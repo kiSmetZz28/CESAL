@@ -25,23 +25,12 @@ import torch
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
-# HDFS anomaly type IDs (loghub HDFS_v1 Event_traces.csv "Type") of the 10 known classes
-TYPE_TO_TEXT = {
-    5: "Namenode not updated after deleting block",
-    31: "Write exception client give up",
-    3: "Write failed at beginning",
-    0: "Replica immediately deleted",
-    4: "Received block that does not belong to any file",
-    1: "Redundant addStoredBlock",
-    21: "Delete a block that no longer exists on data node",
-    7: "Empty packet for block",
-    12: "Receive block exception",
-    8: "Replication Monitor timeout",
-}
-
-KNOWN_LABELS = list(TYPE_TO_TEXT.values())
-OTHER_LABEL = "Other anomaly type"
-ALL_EVAL_LABELS = KNOWN_LABELS + [OTHER_LABEL]
+from incident_response.labels import (  # noqa: F401  (re-exported: imported from here elsewhere)
+    ALL_EVAL_LABELS,
+    KNOWN_LABELS,
+    OTHER_LABEL,
+    TYPE_TO_TEXT,
+)
 
 # Short aliases for the LLM backbones evaluated in the paper (Table 7)
 MODEL_ALIASES = {

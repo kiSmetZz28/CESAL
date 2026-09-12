@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """CESAL Web Dashboard — FastAPI backend."""
 import asyncio
+import csv
 import json
 import os
 import re
@@ -911,6 +912,197 @@ async def _startup():
         asyncio.create_task(_preload_after_ingest())
 
 
+# ── Incident classification & response (read-only views over incident_response/) ──
+_INCIDENT_CACHE: dict = {}
+
+_INCIDENT_NUMERIC = (
+    "session_id", "n_events", "n_scored_events", "n_anomalous_events",
+    "n_edge_anomalous", "n_cloud_anomalous", "n_routed_events",
+    "ground_truth", "approval_steps", "escalation_steps",
+)
+_INCIDENT_LIST_FIELDS = (
+    "session_id", "queue", "ground_truth", "n_events", "n_anomalous_events",
+    "n_routed_events", "pred_label", "decision_source", "best_score",
+    "workflow", "approval_steps", "escalation_steps",
+)
+
+
+def _incident_paths(dataset: str):
+    """Queue directory and newest incidents_<model>.csv for one dataset."""
+    qdir = ROOT / "outputs" / dataset / "llm" / "queues"
+    found = sorted(qdir.glob("incidents_*.csv")) if qdir.is_dir() else []
+    return qdir, (found[-1] if found else None)
+
+
+def _load_incidents(dataset: str) -> dict:
+    """Incidents plus per-sequence classifications, cached on the incidents file mtime."""
+    qdir, inc_path = _incident_paths(dataset)
+    if inc_path is None:
+        return {"available": False,
+                "reason": f"No incidents_*.csv under outputs/{dataset}/llm/queues/ — "
+                          "run 'python run.py respond' to build and classify the anomaly queues."}
+
+    key = (str(inc_path), inc_path.stat().st_mtime_ns)
+    cached = _INCIDENT_CACHE.get(dataset)
+    if cached and cached.get("key") == key:
+        return cached
+
+    model = inc_path.stem[len("incidents_"):]
+    with open(inc_path, newline="", encoding="utf-8") as f:
+        incidents = list(csv.DictReader(f))
+    for row in incidents:
+        for field in _INCIDENT_NUMERIC:
+            if row.get(field) not in (None, ""):
+                row[field] = int(row[field])
+        row["best_score"] = float(row["best_score"]) if row.get("best_score") else None
+        row["automated_response"] = str(row.get("automated_response", "")).strip().lower() == "true"
+
+    classified: dict = {}
+    cls_path = qdir / f"classified_{model}.csv"
+    if cls_path.is_file():
+        with open(cls_path, newline="", encoding="utf-8") as f:
+            classified = {r["template_sequence"]: r for r in csv.DictReader(f)}
+
+    evaluation = []
+    eval_path = qdir / f"evaluation_{model}.csv"
+    if eval_path.is_file():
+        with open(eval_path, newline="", encoding="utf-8") as f:
+            evaluation = [
+                {"label": r["label"], "precision": float(r["precision"]),
+                 "recall": float(r["recall"]), "f1": float(r["f1"]), "support": int(r["support"])}
+                for r in csv.DictReader(f) if int(r["support"]) > 0
+            ]
+
+    data = {
+        "available": True, "key": key, "model": model,
+        "incidents": incidents, "classified": classified, "evaluation": evaluation,
+        "files": {
+            "incidents": str(inc_path.relative_to(ROOT)),
+            "classified": str(cls_path.relative_to(ROOT)) if cls_path.is_file() else None,
+            "evaluation": str(eval_path.relative_to(ROOT)) if eval_path.is_file() else None,
+        },
+    }
+    _INCIDENT_CACHE[dataset] = data
+    return data
+
+
+def _workflow_payload(label: str) -> dict:
+    """Predefined response workflow for one predicted label (paper Table 1)."""
+    try:
+        from incident_response.workflows import select_workflow
+    except Exception as exc:                                  # module absent (e.g. Docker image)
+        return {"error": f"response workflows unavailable: {exc}"}
+    wf = select_workflow(label)
+    return {
+        "anomaly_type": wf.anomaly_type,
+        "automated": wf.automated,
+        "steps": [{"action": s.action, "requires_approval": s.requires_approval,
+                   "escalation": s.escalation} for s in wf.steps],
+    }
+
+
+@app.get("/api/incidents/summary")
+async def incidents_summary(dataset: str = "hdfs"):
+    data = await asyncio.to_thread(_load_incidents, dataset)
+    if not data["available"]:
+        return data
+    inc, cls = data["incidents"], data["classified"]
+
+    labels: dict = {}
+    sources: dict = {}
+    for r in inc:
+        entry = labels.setdefault(r["pred_label"], {
+            "label": r["pred_label"], "count": 0, "workflow": r.get("workflow"),
+            "automated_response": r["automated_response"],
+            "approval_steps": r.get("approval_steps", 0),
+            "escalation_steps": r.get("escalation_steps", 0),
+        })
+        entry["count"] += 1
+        sources[r["decision_source"]] = sources.get(r["decision_source"], 0) + 1
+
+    return {
+        "available": True,
+        "model": data["model"],
+        "files": data["files"],
+        "counts": {
+            "total": len(inc),
+            "edge": sum(r["queue"] == "edge" for r in inc),
+            "cloud": sum(r["queue"] == "cloud" for r in inc),
+            "abnormal": sum(r["ground_truth"] == 1 for r in inc),
+            "false_positive": sum(r["ground_truth"] == 0 for r in inc),
+            "human_investigation": sum(not r["automated_response"] for r in inc),
+            "with_approval_step": sum((r.get("approval_steps") or 0) > 0 for r in inc),
+        },
+        "labels": sorted(labels.values(), key=lambda x: -x["count"]),
+        "decision_sources": dict(sorted(sources.items(), key=lambda kv: -kv[1])),
+        "unique_sequences": len(cls) or len({r["template_sequence"] for r in inc}),
+        "llm_calls": sum(1 for r in cls.values() if r.get("raw_output")),
+        "evaluation": data["evaluation"],
+        "weighted_f1": (
+            sum(e["f1"] * e["support"] for e in data["evaluation"])
+            / sum(e["support"] for e in data["evaluation"])
+        ) if data["evaluation"] else None,
+    }
+
+
+@app.get("/api/incidents/list")
+async def incidents_list(dataset: str = "hdfs", queue: str = "", label: str = "",
+                         ground_truth: str = "", page: int = 0, per_page: int = 25):
+    data = await asyncio.to_thread(_load_incidents, dataset)
+    if not data["available"]:
+        return data
+    rows = data["incidents"]
+    if queue:
+        rows = [r for r in rows if r["queue"] == queue]
+    if label:
+        rows = [r for r in rows if r["pred_label"] == label]
+    if ground_truth in ("0", "1"):
+        rows = [r for r in rows if r["ground_truth"] == int(ground_truth)]
+    start = max(page, 0) * max(per_page, 1)
+    return {
+        "available": True, "total": len(rows), "page": page, "per_page": per_page,
+        "rows": [{k: r.get(k) for k in _INCIDENT_LIST_FIELDS}
+                 for r in rows[start:start + per_page]],
+    }
+
+
+@app.get("/api/incidents/detail")
+async def incidents_detail(dataset: str = "hdfs", session_id: int = 0):
+    data = await asyncio.to_thread(_load_incidents, dataset)
+    if not data["available"]:
+        return data
+    row = next((r for r in data["incidents"] if r["session_id"] == session_id), None)
+    if row is None:
+        raise HTTPException(404, f"No queued incident with session_id {session_id}")
+
+    cls = data["classified"].get(row["template_sequence"], {})
+
+    def _parse(field: str) -> list:
+        try:
+            return json.loads(cls.get(field) or "[]")
+        except ValueError:
+            return []
+
+    retrieved = [
+        {"label": lab, "score": score, "sequence": seq}
+        for lab, score, seq in zip(_parse("retrieved_labels"), _parse("retrieved_scores"),
+                                   _parse("retrieved_sequences"))
+    ]
+    return {
+        "available": True,
+        "incident": row,
+        "candidate_labels": _parse("candidate_labels"),
+        "retrieved": retrieved,
+        "raw_output": cls.get("raw_output", ""),
+        "workflow": _workflow_payload(row["pred_label"]),
+    }
+
+
+@app.get("/api/incidents/workflow")
+async def incidents_workflow(label: str):
+    return _workflow_payload(label)
+
+
 # ── Pages ─────────────────────────────────────────────────────────────────────
 @app.get("/", response_class=HTMLResponse)
 async def index():
@@ -1318,7 +1510,7 @@ def _build_infer_cmd(ds: str, tolerance: float, distance: str) -> list[str]:
             f'set -euo pipefail\n'
             f'echo "--- Phase 1/2: Edge inference  (env: cesal-edge) ---"\n'
             f'{EDGE_PYTHON} -m cesal_inference_pipeline.run --config {edge_cfg}\n'
-            f'echo "--- Phase 2/2: Cloud inference (env: hybrid)   ---"\n'
+            f'echo "--- Phase 2/2: Cloud inference (env: cesal-cloud) ---"\n'
             f'{CLOUD_PYTHON} dashboard/cloud_runner.py --config {cloud_cfg}\n'
         )
     else:

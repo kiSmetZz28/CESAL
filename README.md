@@ -196,17 +196,30 @@ For other stages — `train`, `convert` — see [Advanced Options](#advanced-opt
 
 ### Optional — Launch the local dashboard
 
-`launch_dashboard.py` wraps the inference pipeline in a web UI at **http://localhost:8765**. It performs the same checkpoint + ExecuTorch download as `run.py download`, and additionally fetches the **raw log files** needed for the dashboard's log-browsing panels:
+The dashboard is a web UI at **http://localhost:8765** that runs the inference pipeline and browses the parsed logs. There are two ways to start it.
+
+**First time — fetch the assets, then launch.** `launch_dashboard.py` performs the same checkpoint + ExecuTorch download as `run.py download`, and additionally fetches the **raw log files** needed for the log-browsing panels:
 
 ```bash
 conda activate cesal-edge
-python launch_dashboard.py                # full setup (ExecuTorch + Q-BAT + raw logs + BAT) + launch UI
+python launch_dashboard.py                # download missing assets (ExecuTorch + Q-BAT + raw logs + BAT) + launch UI
 python launch_dashboard.py --setup-only   # download assets, do not launch
 python launch_dashboard.py --no-bat       # skip BAT checkpoints (~3.5 GB × dataset)
-python launch_dashboard.py --status       # show what is present / missing, then exit
+python launch_dashboard.py --status       # print what is present / missing, then exit (no downloads, no setup)
 ```
 
-A built-in **? Help** button in the dashboard guides you through all features. On first launch the **Database** indicator shows **Loading** while log data is imported.
+**Every run after that — start the UI directly.** This skips all setup and comes up in a few seconds:
+
+```bash
+conda activate cesal-edge
+export EDGE_PYTHON=$(which python)                            # interpreter for the edge stage
+export CLOUD_PYTHON=~/miniconda3/envs/cesal-cloud/bin/python  # interpreter for the BAT and LLM stages
+python dashboard/app.py                                       # PORT=8799 python dashboard/app.py for another port
+```
+
+`python dashboard/app.py` is exactly what `launch_dashboard.py` execs once its asset checks pass, so it serves the same UI — it simply never downloads or installs anything. Prefer it for day-to-day runs, because `launch_dashboard.py` re-runs the ExecuTorch **Python-bindings** install (a cmake build) on every launch whenever `from executorch.runtime import Runtime` fails in the active environment. Those bindings are optional: the edge stage falls back to the pre-built C++ `executor_runner` that ships in the ExecuTorch download, which is the path the pipeline uses by default.
+
+`EDGE_PYTHON` and `CLOUD_PYTHON` tell the dashboard which interpreters to spawn for the pipeline stages (defaults: `~/miniconda3/envs/cesal-edge/bin/python` and `~/miniconda3/envs/cesal-cloud/bin/python`); set them when your environment names differ. A built-in **? Help** button guides you through the panels. On first launch the **Database** indicator shows **Loading** while log data is imported. The HDFS log-browsing panel also needs a few minutes the first time each process serves it, while it builds an ordering cache in memory; the results, config and prediction panels respond immediately.
 
 ### Optional — LLM-based incident classification and controlled response
 

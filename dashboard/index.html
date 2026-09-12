@@ -821,6 +821,7 @@ select:focus{outline:none;border-color:var(--blue);}
       <div class="tabs-bar">
         <div class="tab active" data-tab="pipeline"  onclick="showTab('pipeline',this)">🔗 Pipeline</div>
         <div class="tab"        data-tab="results"   onclick="showTab('results',this)">📊 Results</div>
+        <div class="tab"        data-tab="incidents" onclick="showTab('incidents',this)">🚨 Incident Response</div>
         <div class="tab"        data-tab="system"    onclick="showTab('system',this)">⚙️ System</div>
       </div>
 
@@ -951,6 +952,58 @@ select:focus{outline:none;border-color:var(--blue);}
 
       </div><!-- /pane-results -->
 
+      <!-- ── TAB: Incident Response ────────────────── -->
+      <div class="tab-pane" id="pane-incidents">
+
+        <p style="font-size:11px;color:var(--muted);margin-bottom:14px;line-height:1.65">
+          Abnormal sequences from the edge queue Q<sub>E</sub> and cloud queue Q<sub>C</sub> are classified into
+          HDFS anomaly types by the LLM module, then mapped to a predefined response workflow (paper Table 1).
+          This view is read-only: it shows artifacts already produced by
+          <span style="font-family:monospace">python run.py respond</span>.
+        </p>
+
+        <div id="irSummary">
+          <div class="empty"><div class="ico">🚨</div><p>Loading incident queues…</p></div>
+        </div>
+
+        <div id="irBody" style="display:none">
+
+          <!-- Filters -->
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:18px 0 12px">
+            <div class="pill-group" id="irQueueGroup">
+              <button class="pill-btn active" onclick="irSetQueue('',this)">All queues</button>
+              <button class="pill-btn" onclick="irSetQueue('edge',this)">Edge Q_E</button>
+              <button class="pill-btn" onclick="irSetQueue('cloud',this)">Cloud Q_C</button>
+            </div>
+            <div class="pill-group" id="irGtGroup">
+              <button class="pill-btn active"   onclick="irSetGt('',this)">All</button>
+              <button class="pill-btn pill-anom" onclick="irSetGt('1',this)">True anomaly</button>
+              <button class="pill-btn pill-norm" onclick="irSetGt('0',this)">False positive</button>
+            </div>
+            <select id="irLabelSel" class="btn" onchange="irLoadList(0)" style="max-width:340px"></select>
+          </div>
+
+          <div class="log-tbl-wrap" style="max-height:420px">
+            <table class="log-tbl">
+              <thead><tr>
+                <th>Session</th><th>Queue</th><th>Truth</th><th>Events</th><th>Anomalous</th>
+                <th>Predicted type</th><th>Decision</th><th>Score</th><th>Workflow</th><th>Approval</th>
+              </tr></thead>
+              <tbody id="irRows"></tbody>
+            </table>
+          </div>
+
+          <div style="display:flex;align-items:center;gap:8px;justify-content:flex-end;margin-top:10px">
+            <button class="btn" id="irPrev" onclick="irLoadList(IR.page-1)">‹ Prev</button>
+            <span id="irPagerInfo" style="font-size:11px;color:var(--muted)"></span>
+            <button class="btn" id="irNext" onclick="irLoadList(IR.page+1)">Next ›</button>
+          </div>
+
+          <div id="irDetail" style="margin-top:18px"></div>
+        </div>
+
+      </div><!-- /pane-incidents -->
+
       <!-- ── TAB: System ───────────────────────────── -->
       <div class="tab-pane" id="pane-system">
 
@@ -1077,6 +1130,10 @@ function setDataset(ds, btn) {
   if (runBtn) runBtn.disabled = false;
 
   if (document.getElementById('pane-pipeline').classList.contains('active')) plLoad();
+
+  // Incident artifacts are per-dataset — force a reload on next view of the tab
+  IR.loaded = false;
+  if (document.getElementById('pane-incidents').classList.contains('active')) irLoad();
 }
 
 function onTolChange(v) {
@@ -1091,8 +1148,9 @@ function showTab(name, el) {
   if (el) el.classList.add('active');
   document.getElementById('pane-' + name).classList.add('active');
 
-  if (name === 'pipeline') plLoad();
-  if (name === 'system')   loadLogs();
+  if (name === 'pipeline')  plLoad();
+  if (name === 'system')    loadLogs();
+  if (name === 'incidents') irLoad();
   if (name === 'results' && S.results) {
     setTimeout(() => redrawTimelines(), 80);
   }
@@ -2088,6 +2146,197 @@ function closeRawPredict() {
 async function plLoadResults() {}
 function plExecPage(page) {}
 function plRenderExec(page) {}
+
+/* ── Incident Response tab ──────────────────────────── */
+const IR = { page:0, perPage:25, queue:'', gt:'', total:0, loaded:false };
+
+async function irLoad() {
+  if (IR.loaded) return;
+  const sum = document.getElementById('irSummary');
+  try {
+    const d = await fetch(`/api/incidents/summary?dataset=${S.dataset}`).then(r=>r.json());
+    if (!d.available) {
+      sum.innerHTML = `<div class="empty"><div class="ico">🚨</div><p>${esc(d.reason||'No incident data available.')}</p></div>`;
+      document.getElementById('irBody').style.display = 'none';
+      return;
+    }
+    IR.loaded = true;
+    irRenderSummary(d);
+    document.getElementById('irLabelSel').innerHTML =
+      '<option value="">All predicted types</option>' +
+      d.labels.map(l=>`<option value="${esc(l.label)}">${esc(l.label)} — ${l.count.toLocaleString()}</option>`).join('');
+    document.getElementById('irBody').style.display = '';
+    irLoadList(0);
+  } catch(e) {
+    sum.innerHTML = `<div style="color:var(--red);padding:12px;font-size:11px">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+function irRenderSummary(d) {
+  const c = d.counts;
+  const labelRows = d.labels.map(l=>`<tr>
+    <td>${esc(l.label)}</td>
+    <td>${l.count.toLocaleString()}</td>
+    <td>${(100*l.count/c.total).toFixed(1)}%</td>
+    <td>${esc(l.workflow||'—')}</td>
+    <td>${l.automated_response?'<span class="pill-ok">automated</span>':'<span class="pill-warn">human</span>'}</td>
+    <td>${l.approval_steps||0}</td><td>${l.escalation_steps||0}</td>
+  </tr>`).join('');
+
+  const evalRows = (d.evaluation||[]).map(e=>`<tr>
+    <td>${esc(e.label)}</td><td>${f4(e.precision)}</td><td>${f4(e.recall)}</td>
+    <td><strong>${f4(e.f1)}</strong></td><td>${e.support.toLocaleString()}</td>
+  </tr>`).join('');
+
+  const srcRows = Object.entries(d.decision_sources||{}).map(([k,v])=>`<tr>
+    <td style="font-family:monospace">${esc(k)}</td><td>${v.toLocaleString()}</td>
+    <td>${(100*v/c.total).toFixed(1)}%</td></tr>`).join('');
+
+  document.getElementById('irSummary').innerHTML = `
+    <div class="kpi-row">
+      <div class="kpi c-blue">  <div class="kl">Queued incidents</div>  <div class="kv">${fmtNum(c.total)}</div>
+        <div class="ks">${fmtNum(c.edge)} edge · ${fmtNum(c.cloud)} cloud</div></div>
+      <div class="kpi c-red">   <div class="kl">True anomalies</div>    <div class="kv">${fmtNum(c.abnormal)}</div>
+        <div class="ks">${fmtNum(c.false_positive)} detector false positives</div></div>
+      <div class="kpi c-amber"> <div class="kl">Human investigation</div><div class="kv">${fmtNum(c.human_investigation)}</div>
+        <div class="ks">unknown type → no automated action</div></div>
+      <div class="kpi c-green"> <div class="kl">Weighted F1</div>       <div class="kv">${d.weighted_f1!=null?pct(d.weighted_f1):'—'}</div>
+        <div class="ks">${esc(d.model)}</div></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start">
+      <div>
+        <div class="card-title">Predicted anomaly types → workflows</div>
+        <table class="tbl">
+          <thead><tr><th>Predicted type</th><th>Count</th><th>Share</th><th>Workflow</th><th>Mode</th><th>Appr.</th><th>Esc.</th></tr></thead>
+          <tbody>${labelRows}</tbody>
+        </table>
+      </div>
+      <div>
+        <div class="card-title">Classification quality (vs. ground-truth type)</div>
+        <table class="tbl">
+          <thead><tr><th>Type</th><th>Precision</th><th>Recall</th><th>F1</th><th>Support</th></tr></thead>
+          <tbody>${evalRows || '<tr><td colspan="5" style="color:var(--muted)">No evaluation file.</td></tr>'}</tbody>
+        </table>
+        <div class="card-title" style="margin-top:16px">Decision source</div>
+        <table class="tbl"><thead><tr><th>Source</th><th>Count</th><th>Share</th></tr></thead>
+          <tbody>${srcRows}</tbody></table>
+        <p style="font-size:10px;color:var(--muted);margin-top:8px;line-height:1.6">
+          ${fmtNum(d.unique_sequences)} unique template sequences classified · ${fmtNum(d.llm_calls)} LLM calls ·
+          <span style="font-family:monospace">${esc(d.files.incidents)}</span>
+        </p>
+      </div>
+    </div>`;
+}
+
+function irSetQueue(q, el) {
+  IR.queue = q;
+  document.querySelectorAll('#irQueueGroup .pill-btn').forEach(b=>b.classList.remove('active'));
+  el.classList.add('active');
+  irLoadList(0);
+}
+
+function irSetGt(g, el) {
+  IR.gt = g;
+  document.querySelectorAll('#irGtGroup .pill-btn').forEach(b=>b.classList.remove('active'));
+  el.classList.add('active');
+  irLoadList(0);
+}
+
+async function irLoadList(page) {
+  IR.page = Math.max(0, page);
+  const label = encodeURIComponent(document.getElementById('irLabelSel').value||'');
+  const url = `/api/incidents/list?dataset=${S.dataset}&queue=${IR.queue}&label=${label}`
+            + `&ground_truth=${IR.gt}&page=${IR.page}&per_page=${IR.perPage}`;
+  const body = document.getElementById('irRows');
+  body.innerHTML = '<tr><td colspan="10" style="color:var(--muted);padding:12px">Loading…</td></tr>';
+  try {
+    const d = await fetch(url).then(r=>r.json());
+    IR.total = d.total || 0;
+    if (!d.rows?.length) {
+      body.innerHTML = '<tr><td colspan="10" style="color:var(--muted);padding:12px">No incidents match these filters.</td></tr>';
+    } else {
+      body.innerHTML = d.rows.map(r=>`
+        <tr class="${r.ground_truth===1?'anom-tr':''}" style="cursor:pointer" onclick="irOpenDetail(${r.session_id})">
+          <td class="mono">${r.session_id}</td>
+          <td><span class="tag ${r.queue==='cloud'?'tag-cloud':'tag-edge'}">${esc(r.queue)}</span></td>
+          <td>${r.ground_truth===1?'<span class="pill-warn">anomaly</span>':'<span class="pill-no">normal</span>'}</td>
+          <td>${r.n_events}</td>
+          <td>${r.n_anomalous_events}${r.n_routed_events?` <span style="color:var(--muted)">(${r.n_routed_events} routed)</span>`:''}</td>
+          <td>${esc(r.pred_label)}</td>
+          <td style="font-family:monospace;font-size:10px">${esc(r.decision_source)}</td>
+          <td>${r.best_score!=null?r.best_score.toFixed(3):'—'}</td>
+          <td style="font-size:10px">${esc(r.workflow||'—')}</td>
+          <td>${r.approval_steps>0?`<span class="pill-warn">${r.approval_steps}</span>`:'<span class="pill-no">0</span>'}</td>
+        </tr>`).join('');
+    }
+    const maxPage = Math.max(0, Math.ceil(IR.total / IR.perPage) - 1);
+    document.getElementById('irPrev').disabled = IR.page === 0;
+    document.getElementById('irNext').disabled = IR.page >= maxPage;
+    document.getElementById('irPagerInfo').textContent =
+      `${IR.total.toLocaleString()} incidents · page ${IR.page+1} / ${maxPage+1}`;
+  } catch(e) {
+    body.innerHTML = `<tr><td colspan="10" style="color:var(--red);padding:12px">Error: ${esc(e.message)}</td></tr>`;
+  }
+}
+
+async function irOpenDetail(sessionId) {
+  const el = document.getElementById('irDetail');
+  el.innerHTML = '<div class="empty" style="padding:16px"><p>Loading incident…</p></div>';
+  try {
+    const d = await fetch(`/api/incidents/detail?dataset=${S.dataset}&session_id=${sessionId}`).then(r=>r.json());
+    if (!d.available) { el.innerHTML = `<div class="empty" style="padding:16px"><p>${esc(d.reason||'Not found.')}</p></div>`; return; }
+    const inc = d.incident, wf = d.workflow || {};
+
+    const steps = (wf.steps||[]).map((s,i)=>{
+      const tags = [s.requires_approval?'<span class="pill-warn">needs approval</span>':'',
+                    s.escalation?'<span class="pill-no">escalation</span>':''].filter(Boolean).join(' ');
+      return `<li style="margin-bottom:6px">${esc(s.action)} ${tags}</li>`;
+    }).join('');
+
+    const retr = (d.retrieved||[]).map(r=>`<tr>
+      <td>${esc(r.label)}</td><td>${Number(r.score).toFixed(4)}</td>
+      <td class="mono" style="max-width:420px">${esc(r.sequence)}</td></tr>`).join('');
+
+    el.innerHTML = `
+      <div class="card-title">Incident — session ${inc.session_id}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start">
+        <div>
+          <table class="tbl">
+            <tbody>
+              <tr><th style="text-align:left">Queue</th><td><span class="tag ${inc.queue==='cloud'?'tag-cloud':'tag-edge'}">${esc(inc.queue)}</span></td></tr>
+              <tr><th style="text-align:left">Ground truth</th><td>${inc.ground_truth===1?'true anomaly':'detector false positive'}</td></tr>
+              <tr><th style="text-align:left">Events</th><td>${inc.n_events} (${inc.n_anomalous_events} anomalous, ${inc.n_routed_events} routed to cloud)</td></tr>
+              <tr><th style="text-align:left">Edge energy (max)</th><td>${inc.edge_energy_max??'—'}</td></tr>
+              <tr><th style="text-align:left">Predicted type</th><td><strong>${esc(inc.pred_label)}</strong></td></tr>
+              <tr><th style="text-align:left">Decision source</th><td style="font-family:monospace;font-size:11px">${esc(inc.decision_source)}</td></tr>
+              <tr><th style="text-align:left">Retrieval score</th><td>${inc.best_score!=null?Number(inc.best_score).toFixed(4):'—'}</td></tr>
+            </tbody>
+          </table>
+          <div class="card-title" style="margin-top:16px">Template sequence</div>
+          <div class="log-tbl-wrap" style="max-height:120px;padding:8px">
+            <span style="font-family:monospace;font-size:11px;word-break:break-word">${esc(inc.template_sequence)}</span>
+          </div>
+          ${d.raw_output?`<div class="card-title" style="margin-top:16px">Raw LLM output</div>
+            <div class="log-tbl-wrap" style="max-height:100px;padding:8px">
+              <span style="font-family:monospace;font-size:11px;word-break:break-word">${esc(d.raw_output)}</span></div>`:''}
+        </div>
+        <div>
+          <div class="card-title">Response workflow — ${esc(wf.anomaly_type||'—')}
+            ${wf.automated?'<span class="pill-ok">automated</span>':'<span class="pill-warn">human investigation</span>'}</div>
+          <ol style="font-size:11px;line-height:1.7;padding-left:18px;margin-bottom:16px">${steps}</ol>
+          <div class="card-title">Retrieved evidence (top-k)</div>
+          <table class="tbl">
+            <thead><tr><th>Label</th><th>Score</th><th>Knowledge-base sequence</th></tr></thead>
+            <tbody>${retr || '<tr><td colspan="3" style="color:var(--muted)">No retrieval record.</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>`;
+    el.scrollIntoView({behavior:'smooth', block:'nearest'});
+  } catch(e) {
+    el.innerHTML = `<div style="color:var(--red);padding:12px;font-size:11px">Error: ${esc(e.message)}</div>`;
+  }
+}
 
 /* ── Modal ──────────────────────────────────────────── */
 async function openWinModal(dataset, split, windowIndex) {
