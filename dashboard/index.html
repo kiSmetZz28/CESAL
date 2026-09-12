@@ -790,14 +790,17 @@ select:focus{outline:none;border-color:var(--blue);}
         <div class="live-box">
           <div class="live-box-title">What's happening now</div>
           <div class="op-line" id="opLine">—</div>
+          <div id="stepProgWrap" style="display:none;margin-top:6px">
+            <div class="prog-bar-wrap"><div class="prog-bar-fill" id="stepProgFill" style="width:0%"></div></div>
+          </div>
           <div style="height:8px"></div>
-          <div class="live-box-title">Windows sent to cloud</div>
+          <div class="live-box-title">Events sent to cloud</div>
           <div id="routingLive" style="font-size:13px"><span style="color:var(--muted)">Calculated after edge scan…</span></div>
         </div>
         <div class="live-box">
-          <div class="live-box-title">Model calibration thresholds</div>
-          <div style="font-size:10px;color:var(--muted);margin-bottom:5px">All models run together — thresholds appear as each finishes</div>
-          <div id="threshLive" style="max-height:120px;overflow-y:auto"><span style="color:var(--muted);font-size:11px">Appears as each model reports its threshold…</span></div>
+          <div class="live-box-title" id="stepDetailTitle">Current step</div>
+          <div style="font-size:10px;color:var(--muted);margin-bottom:5px" id="stepDetailSub">What this step is working on, and what it found</div>
+          <div id="threshLive" style="max-height:132px;overflow-y:auto"><span style="color:var(--muted);font-size:11px">Details appear as each step runs…</span></div>
         </div>
         <div class="live-box" style="grid-column:1/-1">
           <div class="live-box-title">Detection scores (live)</div>
@@ -1196,13 +1199,24 @@ function connectStream() {
   S.es = es;
   es.onmessage = ev => {
     const line = JSON.parse(ev.data);
+
+    // Structured progress events drive the stage UI directly. They are machine
+    // data, not console output, so they are consumed and not printed.
+    if (line.startsWith(EV_PREFIX)) {
+      try { applyStepEvent(JSON.parse(line.slice(EV_PREFIX.length))); }
+      catch (e) { /* a malformed event must never break the stream */ }
+      return;
+    }
+
     const cls =
       line.includes('ERROR')    ? 'le' :
       line.includes('WARNING')  ? 'lw' :
+      /^\s*(─{4,}|═{4,})/.test(line) || /^\s*STEP \d+\/\d+/.test(line) ? 'ls' :
       /===.*===$/.test(line.trim()) ? 'ls' :
       line.includes('Accuracy') ? 'lm' : 'li';
     log(line, cls);
-    parseLiveLine(line);
+    // Fallback for runners that predate structured events (e.g. replayed logs).
+    if (!LP.structured) parseLiveLine(line);
   };
   es.addEventListener('done', () => {
     es.close(); S.es = null;
@@ -1493,17 +1507,23 @@ const LP = {
   thresholds:{}, metrics:[], routing:null, phase:0, _lastPrefix:null,
   totalEdgeModels:0, edgeModelsDone:0,
   totalCloudModels:0, cloudModelsDone:0,
+  // Structured-event state: set once the first "@@CESAL" event arrives, which
+  // switches off the legacy prose-matching fallback for the rest of the run.
+  structured:false, plan:[], stepRows:{}, curStep:null, expect:null,
 };
 
 function resetLiveProgress() {
   LP.thresholds={}; LP.metrics=[]; LP.routing=null; LP.phase=0; LP._lastPrefix=null;
   LP.totalEdgeModels=0; LP.edgeModelsDone=0;
   LP.totalCloudModels=0; LP.cloudModelsDone=0;
+  LP.structured=false; LP.plan=[]; LP.stepRows={}; LP.curStep=null; LP.expect=null;
   document.getElementById('liveCard').style.display = 'block';
   document.getElementById('opLine').textContent = 'Starting up…';
-  document.getElementById('routingLive').innerHTML = '<span style="color:var(--muted)">Calculated after edge scan…</span>';
-  document.getElementById('threshLive').innerHTML  = '<span style="color:var(--muted);font-size:11px">Appears as each model finishes…</span>';
-  document.getElementById('metricsLive').innerHTML = '<span style="color:var(--muted);font-size:11px">Results appear as each stage completes…</span>';
+  document.getElementById('stepProgWrap').style.display = 'none';
+  document.getElementById('stepDetailTitle').textContent = 'Current step';
+  document.getElementById('routingLive').innerHTML = '<span style="color:var(--muted)">Calculated after the edge scan…</span>';
+  document.getElementById('threshLive').innerHTML  = '<span style="color:var(--muted);font-size:11px">Details appear as each step runs…</span>';
+  document.getElementById('metricsLive').innerHTML = '<span style="color:var(--muted);font-size:11px">Results appear as each step completes…</span>';
   setFriendlyStatus('⚡','Starting the analysis pipeline…','Initialising models and loading log data.');
   setStage(0);
 }
@@ -1528,6 +1548,167 @@ function setFlowStep(active) {
   const map = {edge:'pb-edge',route:'pb-routing',cloud:'pb-cloud',result:'pb-result'};
   Object.values(map).forEach(id=>setStageState(id,''));
   if (active && map[active]) setStageState(map[active],'active');
+}
+
+/* ── Structured step events ───────────────────────────────
+   Emitted by cesal_core/utils/steps.py as "@@CESAL {json}" when the dashboard
+   spawns a runner. These replace the older practice of inferring pipeline state
+   by regex-matching English log prose, which silently broke whenever a log
+   message was reworded. parseLiveLine() below remains as the fallback for
+   output that carries no events. */
+const EV_PREFIX = '@@CESAL ';
+
+// Step id → position in the 4-stage track, and which flow-bar segment it lights.
+const STEP_POS  = {edge:1, route:2, cloud:3, hybrid:4};
+const STEP_FLOW = {edge:'edge', route:'route', cloud:'cloud', hybrid:'result'};
+
+// Plain-language explanation of each step, shown in the banner.
+const STEP_HELP = {
+  edge:   ['⚡','Edge is scanning the logs…',
+           'Compact Q-BAT models score every log window locally, on the device itself.'],
+  route:  ['🔀','Choosing what needs a second opinion…',
+           'Each window is measured against the edge decision threshold; only the least certain are escalated.'],
+  cloud:  ['☁️','Cloud is re-checking the escalated events…',
+           'The full BAT ensemble re-scores everything the edge sent up, and votes on each one.'],
+  hybrid: ['🧩','Merging the edge and cloud verdicts…',
+           'Cloud decisions replace the edge ones for every escalated event, then the whole run is scored.'],
+};
+
+function setStepDetails(id) {
+  const rows = LP.stepRows[id] || [];
+  const el = document.getElementById('threshLive');
+  if (!rows.length) {
+    el.innerHTML = '<span style="color:var(--muted);font-size:11px">Details appear as this step runs…</span>';
+    return;
+  }
+  el.innerHTML = rows.map(r => `<div class="thresh-row"><span class="thresh-name">${esc(r.k)}</span><span class="thresh-val">${esc(r.v)}</span></div>`).join('');
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+}
+
+function setStepProgress(done, total) {
+  const wrap = document.getElementById('stepProgWrap');
+  if (!total) { wrap.style.display = 'none'; return; }
+  wrap.style.display = 'block';
+  document.getElementById('stepProgFill').style.width = (done / total * 100).toFixed(1) + '%';
+}
+
+function applyStepEvent(e) {
+  LP.structured = true;
+  switch (e.t) {
+
+    case 'run_start':
+      LP.plan = e.steps || [];
+      LP.stepRows = {};
+      setFriendlyStatus('🚀', `Starting ${e.dataset || ''} analysis…`,
+        `${LP.plan.length} steps: ` + LP.plan.map(s => s.title).join(' → '));
+      break;
+
+    case 'step_start': {
+      LP.curStep = e.id;
+      LP.stepRows[e.id] = [];
+      setStepDetails(e.id);
+      setStepProgress(0, 0);
+      const pos = STEP_POS[e.id] || e.n;
+      setStage(pos);
+      setFlowStep(STEP_FLOW[e.id]);
+      document.getElementById('stepDetailTitle').textContent =
+        `Step ${e.n} of ${e.total} · ${e.title}`;
+      document.getElementById('opLine').textContent = e.title + '…';
+      const h = STEP_HELP[e.id];
+      if (h) setFriendlyStatus(h[0], h[1], h[2]);
+      break;
+    }
+
+    case 'step_detail':
+      (LP.stepRows[e.id] = LP.stepRows[e.id] || []).push({k: e.k, v: e.v});
+      setStepDetails(e.id);
+      break;
+
+    case 'step_expect':
+      LP.expect = {unit: e.unit, total: e.total};
+      setStepProgress(0, e.total);
+      document.getElementById('opLine').textContent =
+        `0 / ${e.total.toLocaleString()} ${e.unit}…`;
+      break;
+
+    case 'step_progress':
+      setStepProgress(e.done, e.total);
+      document.getElementById('opLine').textContent = e.total
+        ? `${e.done.toLocaleString()} / ${e.total.toLocaleString()} ${e.unit}…`
+        : `${e.done.toLocaleString()} ${e.unit}…`;
+      break;
+
+    case 'step_note':
+      document.getElementById('opLine').textContent = e.msg;
+      break;
+
+    case 'step_warn':
+      (LP.stepRows[e.id] = LP.stepRows[e.id] || []).push({k: '⚠ warning', v: e.msg});
+      setStepDetails(e.id);
+      break;
+
+    case 'step_done': {
+      const rows = LP.stepRows[e.id] = LP.stepRows[e.id] || [];
+      Object.entries(e.outcome || {}).forEach(([k, v]) => rows.push({k, v}));
+      rows.push({k: '✓ finished in', v: e.secs + 's'});
+      setStepDetails(e.id);
+      setStepProgress(0, 0);
+      // Routing panel reads its numbers straight from the step's outcome.
+      if (e.id === 'route' && e.outcome) {
+        // Values read like "80 (10.0%)" — take the leading count only, since
+        // stripping every non-digit would splice the percentage onto it.
+        const lead = v => {
+          const m = String(v || '').match(/^[\d,]+/);
+          return m ? parseInt(m[0].replace(/,/g, ''), 10) : NaN;
+        };
+        const routed = lead(e.outcome['routed to cloud']);
+        const total  = lead(e.outcome['events considered']);
+        if (!isNaN(routed) && !isNaN(total)) {
+          LP.routing = {routed, total};
+          renderLiveRouting();
+        }
+      }
+      document.getElementById('opLine').textContent = `${e.id} step complete ✓`;
+      break;
+    }
+
+    case 'step_skip': {
+      const rows = LP.stepRows[e.id] = LP.stepRows[e.id] || [];
+      rows.push({k: '– skipped', v: e.reason});
+      setStepDetails(e.id);
+      setFriendlyStatus('⏭️', `${e.title} was skipped`, e.reason);
+      break;
+    }
+
+    case 'step_fail': {
+      const rows = LP.stepRows[e.id] = LP.stepRows[e.id] || [];
+      rows.push({k: '✗ failed', v: e.error});
+      setStepDetails(e.id);
+      setFriendlyStatus('❌', `${e.id} step failed`, e.error);
+      break;
+    }
+
+    case 'metric':
+      LP.metrics.push({prefix: e.label, acc: e.accuracy / 100, prec: e.precision / 100,
+                       rec: e.recall / 100, f1: e.f_score / 100});
+      renderLiveMetrics();
+      break;
+
+    case 'run_done': {
+      setStage(4);
+      setFlowStep('result');
+      setStepProgress(0, 0);
+      const best = (e.metrics || []).slice(-1)[0];
+      setFriendlyStatus('✅', 'Analysis complete!',
+        best ? `${best.label}: ${best.f_score.toFixed(2)}% F-score · finished in ${e.secs}s`
+             : `All steps finished in ${e.secs}s.`);
+      document.getElementById('opLine').textContent = `Finished in ${e.secs}s`;
+      break;
+    }
+  }
 }
 
 function parseLiveLine(line) {
@@ -1609,7 +1790,9 @@ function parseLiveLine(line) {
   }
 
   /* ── All BAT cloud models launched in parallel ────────────────── */
-  const cloudStart = line.match(/Cloud expert:\s*(\d+)\s+windows,\s*(\d+)\s+BAT checkpoints/i);
+  // Two historical shapes: "N windows, M BAT checkpoints" and the later
+  // "M BAT checkpoints, K worker(s)". Both appear in saved logs under logs/.
+  const cloudStart = line.match(/Cloud expert:\s*(?:(\d+)\s+windows,\s*)?(\d+)\s+BAT checkpoints/i);
   if (cloudStart) {
     LP.totalCloudModels = parseInt(cloudStart[2]);
     LP.cloudModelsDone  = 0;
@@ -1654,7 +1837,7 @@ function parseLiveLine(line) {
 }
 
 function renderLiveThresholds(){const e=Object.entries(LP.thresholds);if(!e.length)return;document.getElementById('threshLive').innerHTML=e.map(([n,v])=>`<div class="thresh-row"><span class="thresh-name">${n}</span><span class="thresh-val">${v.toFixed(6)}</span></div>`).join('');}
-function renderLiveRouting(){if(!LP.routing)return;const{routed,total}=LP.routing,p=total>0?(routed/total*100).toFixed(1):'0.0';document.getElementById('routingLive').innerHTML=`<span style="font-size:20px;font-weight:700;color:var(--amber)">${routed.toLocaleString()}</span> <span style="color:var(--muted);font-size:11px">/ ${total.toLocaleString()} windows</span><div class="prog-bar-wrap"><div class="prog-bar-fill" style="width:${p}%"></div></div><div style="font-size:10px;color:var(--muted);margin-top:3px">${p}% routed to cloud</div>`;}
+function renderLiveRouting(){if(!LP.routing)return;const{routed,total}=LP.routing,p=total>0?(routed/total*100).toFixed(1):'0.0';document.getElementById('routingLive').innerHTML=`<span style="font-size:20px;font-weight:700;color:var(--amber)">${routed.toLocaleString()}</span> <span style="color:var(--muted);font-size:11px">/ ${total.toLocaleString()} events</span><div class="prog-bar-wrap"><div class="prog-bar-fill" style="width:${p}%"></div></div><div style="font-size:10px;color:var(--muted);margin-top:3px">${p}% escalated for cloud re-check</div>`;}
 function renderLiveMetrics(){if(!LP.metrics.length)return;document.getElementById('metricsLive').innerHTML=LP.metrics.map(m=>`<div class="live-metric-row"><span style="color:var(--muted);min-width:50px">${m.prefix}</span><span>Acc <strong style="color:var(--blue)">${pct(m.acc)}</strong></span><span>Prec <strong style="color:var(--green)">${pct(m.prec)}</strong></span><span>Rec <strong style="color:var(--amber)">${pct(m.rec)}</strong></span><span>F1 <strong style="color:var(--red)">${pct(m.f1)}</strong></span></div>`).join('');}
 
 /* ── Sliding context window renderer ───────────────────── */

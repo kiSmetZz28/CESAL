@@ -1,11 +1,26 @@
 import logging
+from typing import NamedTuple
 
 import numpy as np
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 
+from cesal_core.utils import steps
 
-def evaluate(gt: np.ndarray, pred: np.ndarray, prefix: str = "") -> float:
-    """Compute and log Accuracy / Precision / Recall / F-score.
+
+class Scores(NamedTuple):
+    """Detection scores as percentages (0-100)."""
+    accuracy: float
+    precision: float
+    recall: float
+    f_score: float
+
+
+def evaluate(gt: np.ndarray, pred: np.ndarray, prefix: str = "") -> Scores:
+    """Compute, log and register Accuracy / Precision / Recall / F-score.
+
+    When a run is active (see :mod:`cesal_core.utils.steps`) the scores are also
+    registered with it, so the end-of-run summary can show every scored stage
+    side by side without the caller passing them along.
 
     Parameters
     ----------
@@ -14,12 +29,12 @@ def evaluate(gt: np.ndarray, pred: np.ndarray, prefix: str = "") -> float:
     pred : np.ndarray
         Binary predictions, shape [N], values in {0, 1}.
     prefix : str
-        Optional label prepended to the log line, e.g. "Edge" or "Hybrid".
+        Optional label for the result, e.g. "Edge" or "Hybrid".
 
     Returns
     -------
-    float
-        F-score.
+    Scores
+        Accuracy / precision / recall / F-score, all as percentages.
     """
     gt   = gt.astype(int)
     pred = pred.astype(int)
@@ -28,9 +43,19 @@ def evaluate(gt: np.ndarray, pred: np.ndarray, prefix: str = "") -> float:
     precision, recall, f_score, _ = precision_recall_fscore_support(
         gt, pred, average="binary"
     )
+    scores = Scores(accuracy * 100, precision * 100, recall * 100, f_score * 100)
+
+    run = steps.current_run()
+    # Indent inside a run so the line sits within its step block. The wording is
+    # deliberately unchanged: dashboard/app.py's _parse_log_metrics and the
+    # front-end both regex-match it when replaying saved log files.
+    indent = "   " if run is not None else ""
     label = f"[{prefix}] " if prefix else ""
     logging.info(
-        "%sAccuracy: %.2f%%  Precision: %.2f%%  Recall: %.2f%%  F-score: %.2f%%",
-        label, accuracy * 100, precision * 100, recall * 100, f_score * 100,
+        "%s%sAccuracy: %.2f%%  Precision: %.2f%%  Recall: %.2f%%  F-score: %.2f%%",
+        indent, label, scores.accuracy, scores.precision, scores.recall, scores.f_score,
     )
-    return float(f_score)
+    if run is not None:
+        run.metric(prefix or "Result", *scores)
+
+    return scores

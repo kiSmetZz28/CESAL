@@ -38,7 +38,7 @@ class Preprocessor(object):
     #                      General data preprocessing                      #
     ########################################################################
 
-    def sequence(self, data, labels=None, verbose=False):
+    def sequence(self, data, labels=None, verbose=False, desc='Loading'):
         """Transform pandas DataFrame into DeepCASE sequences.
 
             Parameters
@@ -154,7 +154,7 @@ class Preprocessor(object):
         # Group by machines
         machine_grouped = data.groupby('machine')
         # Add verbosity
-        if verbose: machine_grouped = tqdm(machine_grouped, desc='Loading')
+        if verbose: machine_grouped = tqdm(machine_grouped, desc=desc)
 
         # Group by machine
         for machine, events_ in machine_grouped:
@@ -203,7 +203,7 @@ class Preprocessor(object):
     #                     Preprocess different formats                     #
     ########################################################################
 
-    def csv(self, path, nrows=None, labels=None, verbose=False):
+    def csv(self, path, nrows=None, labels=None, verbose=False, desc='Loading'):
         """Preprocess data from csv file.
 
             Note
@@ -245,10 +245,10 @@ class Preprocessor(object):
         data = pd.read_csv(path, nrows=nrows)
 
         # Transform to sequences and return
-        return self.sequence(data, labels=labels, verbose=verbose)
+        return self.sequence(data, labels=labels, verbose=verbose, desc=desc)
 
 
-    def text(self, path, nrows=None, labels=None, verbose=False):
+    def text(self, path, nrows=None, labels=None, verbose=False, desc='Loading'):
         """Preprocess data from text file.
 
             Note
@@ -313,7 +313,7 @@ class Preprocessor(object):
         })
 
         # Transform to sequences and return
-        return self.sequence(data, labels=labels, verbose=verbose)
+        return self.sequence(data, labels=labels, verbose=verbose, desc=desc)
 
 
 if __name__ == "__main__":

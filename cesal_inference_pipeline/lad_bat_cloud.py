@@ -10,6 +10,7 @@ import torch
 import yaml
 
 from cesal_core.models.EMAT import EMAT
+from cesal_core.utils import steps
 from cesal_core.utils.energy import compute_energy_batch
 from cesal_core.utils.voting import ensemble_method
 
@@ -76,7 +77,10 @@ def _run_one_bat(
     thresh = thresholds[model_name]
     preds  = (energy > thresh).astype(int)
 
-    logging.info("BAT model '%s' done.", model_name)
+    # One line per checkpoint would bury the run in 81 near-identical messages,
+    # so the detail stays at DEBUG and the step reports milestone progress.
+    logging.debug("BAT model '%s' done.", model_name)
+    steps.current().tick("models")
     return preds.reshape(-1, 1)
 
 
@@ -129,10 +133,12 @@ def run(windows: np.ndarray, config: dict) -> np.ndarray:
     search_keys  = ['num_epochs', 'k', 'e_layer_num', 'batch_size']
     combinations = list(product(*[config[k] for k in search_keys]))
 
-    logging.info(
-        "Cloud expert: %d BAT checkpoints, %d worker(s), device=%s",
-        len(combinations), max_workers, device,
-    )
+    step = steps.current()
+    step.detail("windows to verify", len(windows))
+    step.detail("BAT checkpoints", len(combinations))
+    step.detail("device", f"{device} ({max_workers} worker(s))")
+    step.detail("voting", voting)
+    step.expect("models", len(combinations))
 
     # Transfer input to device once — shared read-only across all models.
     x = torch.from_numpy(windows).float().to(device)
@@ -163,9 +169,19 @@ def run(windows: np.ndarray, config: dict) -> np.ndarray:
     if not all_preds:
         raise RuntimeError("No valid BAT checkpoints found for cloud inference.")
 
-    logging.info(
-        "Cloud expert: all %d/%d BAT models complete.",
-        len(all_preds), len(combinations),
-    )
+    if len(all_preds) < len(combinations):
+        step.warn(
+            f"{len(combinations) - len(all_preds)} of {len(combinations)} BAT checkpoints "
+            f"were skipped (missing file or threshold) — voting with {len(all_preds)}."
+        )
 
-    return ensemble_method(voting, np.concatenate(all_preds, axis=1))
+    verdict = ensemble_method(voting, np.concatenate(all_preds, axis=1))
+    n_flagged = int(verdict.sum())
+    step.outcome(**{
+        "models voted": f"{len(all_preds)}/{len(combinations)}",
+        "events re-checked": len(verdict),
+        "confirmed anomalous": f"{n_flagged:,} "
+                               f"({n_flagged / max(len(verdict), 1) * 100:.2f}%)",
+        "cleared as normal": len(verdict) - n_flagged,
+    })
+    return verdict

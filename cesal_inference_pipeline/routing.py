@@ -17,7 +17,7 @@ def load_scores(score_files: List[str]) -> np.ndarray:
     for path in score_files:
         scores = np.loadtxt(path, dtype=float).reshape(-1)
         arrays.append(scores)
-        logging.info("Loaded scores from %s", path)
+        logging.debug("Loaded scores from %s", path)
 
     stacked = np.vstack(arrays).T
     logging.info("Stacked scores shape: %s", stacked.shape)
@@ -33,7 +33,7 @@ def compute_inv_cov(train_scores: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     """
     cov_matrix = np.cov(train_scores, rowvar=False)
     inv_covmat = np.linalg.inv(cov_matrix)
-    logging.info("Covariance matrix computed from %d training samples", train_scores.shape[0])
+    logging.debug("Covariance matrix computed from %d training samples", train_scores.shape[0])
     return cov_matrix, inv_covmat
 
 
@@ -137,7 +137,7 @@ def select_indices_by_distance(
     num_select = max(int(len(all_distances) * tolerance), 0)
     selected_indices = sorted(idx for idx, _ in all_distances[:num_select])
 
-    logging.info(
+    logging.debug(
         "Total test samples: %d  |  tolerance: %.4f  |  selected: %d",
         len(all_distances), tolerance, len(selected_indices),
     )

@@ -193,6 +193,46 @@ python run.py infer os                # edge scan → routing → cloud re-check
 python run.py infer hdfs
 ```
 
+#### Reading the output
+
+Inference reports as four numbered steps. Each opens with a banner, lists the inputs it is working from, and closes with an indented block of **what it actually found** plus the time it took:
+
+```
+──────────────────────────────────────────────────────────────────
+ STEP 2/4 · Uncertainty routing
+──────────────────────────────────────────────────────────────────
+   distance .................... Mahalanobis
+   tolerance ................... 10% of events
+   covariance fitted on ........ 52,200 training events
+   events considered ........... 4,000
+   routed to cloud ............. 400 (10.0%)
+   kept at edge ................ 3,600
+   ✓ done in 1.3s
+```
+
+The run ends with a summary of every step, its state and its duration, followed by the detection scores:
+
+```
+══════════════════════════════════════════════════════════════════
+ RUN SUMMARY · infer · Openstack
+══════════════════════════════════════════════════════════════════
+   1. ✓ Edge Q-BAT scan .................... 41.0s
+   2. ✓ Uncertainty routing ................ 1.3s
+   3. ✓ Cloud BAT verification ............. 1m 41.6s
+   4. ✓ Hybrid merge & scoring ............. 0.4s
+   ────────────────────────────────────────────────────────────
+   Detection quality
+     Edge      P  99.06   R 100.00   F1  99.53
+     Hybrid    P  99.96   R 100.00   F1  99.98
+   ────────────────────────────────────────────────────────────
+   outputs ................................. outputs/os
+   total time .............................. 2m 24.3s
+```
+
+A step that does not run says so and gives the reason rather than disappearing — for example, `3. – Cloud BAT verification ... skipped` when the config has no `cloud` section or nothing was routed. Steps 3 and 4 execute in the `cesal-cloud` environment as a subprocess, but the numbering and the closing summary span both processes, so one run reads as one sequence.
+
+The terminal shows a readable digest: the 81 cloud checkpoints report as milestone counters (`21/81 models (25%)`) rather than 81 separate lines. The full per-model record is kept in the timestamped file under `logs/`, which logs at DEBUG.
+
 For other stages — `train`, `convert` — see [Advanced Options](#advanced-options).
 
 ### What you need to run CESAL
@@ -248,7 +288,9 @@ python dashboard/app.py                                       # PORT=8799 python
 
 `python dashboard/app.py` is exactly what `launch_dashboard.py` execs once its asset checks pass, so it serves the same UI — it simply never downloads or installs anything. Prefer it for day-to-day runs, because `launch_dashboard.py` re-runs the ExecuTorch **Python-bindings** install (a cmake build) on every launch whenever `from executorch.runtime import Runtime` fails in the active environment. Those bindings are optional: the edge stage falls back to the pre-built C++ `executor_runner` that ships in the ExecuTorch download, which is the path the pipeline uses by default.
 
-`EDGE_PYTHON` and `CLOUD_PYTHON` tell the dashboard which interpreters to spawn for the pipeline stages (defaults: `~/miniconda3/envs/cesal-edge/bin/python` and `~/miniconda3/envs/cesal-cloud/bin/python`); set them when your environment names differ. A built-in **? Help** button guides you through the panels. On first launch the **Database** indicator shows **Loading** while log data is imported. The HDFS log-browsing panel also needs a few minutes the first time each process serves it, while it builds an ordering cache in memory; the results, config and prediction panels respond immediately.
+`EDGE_PYTHON` and `CLOUD_PYTHON` tell the dashboard which interpreters to spawn for the pipeline stages (defaults: `~/miniconda3/envs/cesal-edge/bin/python` and `~/miniconda3/envs/cesal-cloud/bin/python`); set them when your environment names differ. A built-in **? Help** button guides you through the panels.
+
+While a run is in progress, **Live Execution Progress** tracks the same four steps the CLI prints. The stage track shows which step is active, **What's happening now** carries a progress bar for the work inside it (windows scored, models voted), and **Current step** lists that step's inputs and then its results — so each step ends with a visible outcome rather than scrolling away. A skipped step states its reason. The dashboard follows the run through the structured progress events the runners emit (`cesal_core/utils/steps.py`), not by pattern-matching log text, so the display cannot silently drift out of sync when a log message is reworded. On first launch the **Database** indicator shows **Loading** while log data is imported. The HDFS log-browsing panel also needs a few minutes the first time each process serves it, while it builds an ordering cache in memory; the results, config and prediction panels respond immediately.
 
 ### Optional — LLM-based incident classification and controlled response
 

@@ -1,8 +1,8 @@
 import concurrent.futures
 import logging
 import os
+import re
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
 from typing import List, NamedTuple, Optional, Tuple
@@ -13,12 +13,17 @@ import yaml
 from sklearn.mixture import GaussianMixture
 
 from cesal_core.data.loaders import get_loader_segment
+from cesal_core.utils import steps
 
 try:
     from executorch.runtime import Verification, Runtime
     _EXECUTORCH_AVAILABLE = True
 except ImportError:
     _EXECUTORCH_AVAILABLE = False
+
+# Per-window progress chatter emitted by the C++ executor_runner, e.g.
+#   [Q-BAT] window 17 — qbat_e6_k1_l3_b96
+_WINDOW_LINE = re.compile(r"^\[Q-BAT\]\s+window\s+\d+")
 
 # C++ executor_runner binary (fallback when Python bindings are unavailable)
 _RUNNER_NAME = "executor_runner.exe" if os.name == "nt" else "executor_runner"
@@ -156,7 +161,11 @@ def _run_via_runner(pte_path: str, windows: np.ndarray, model_name: str) -> np.n
         rel_data = os.path.join("dataset", os.path.basename(tmp_path))
 
         runner = Path("cmake-out") / _RUNNER_NAME
-        proc = subprocess.run(
+        # executor_runner prints one "[Q-BAT] window N — <model>" line per window,
+        # which for a full dataset is thousands of lines per model. Consume them
+        # as progress ticks instead of letting them flood the run; the raw lines
+        # are still written to the log file at DEBUG.
+        proc = subprocess.Popen(
             [
                 str(runner),
                 f"--model_path={rel_pte}",
@@ -164,13 +173,39 @@ def _run_via_runner(pte_path: str, windows: np.ndarray, model_name: str) -> np.n
                 f"--model_name={model_name}",
                 "--mode=test",
             ],
-            stdout=sys.stdout,
-            stderr=sys.stderr,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             cwd=str(_EXECUTORCH_DIR),
+            text=True,
+            errors="replace",
         )
+        step = steps.current()
+        tail: List[str] = []
+        assert proc.stdout is not None
+        try:
+            for raw in proc.stdout:
+                line = raw.rstrip()
+                if not line:
+                    continue
+                logging.debug("[%s] %s", model_name, line)
+                if _WINDOW_LINE.match(line):
+                    step.tick("window scans")
+                else:
+                    # Keep a short tail of non-progress output to explain a failure.
+                    tail.append(line)
+                    del tail[:-20]
+            proc.wait()
+        except BaseException:
+            # Without this, interrupting the run (Ctrl-C) leaves the native
+            # runners orphaned and pinning a CPU core each until they finish.
+            proc.kill()
+            proc.wait()
+            raise
         if proc.returncode != 0:
+            detail = ("\n  " + "\n  ".join(tail)) if tail else ""
             raise RuntimeError(
-                f"executor_runner exited with code {proc.returncode}"
+                f"executor_runner exited with code {proc.returncode} "
+                f"for model '{model_name}'.{detail}"
             )
 
         score_file = pred_dir / f"{model_name}_test_score.txt"
@@ -188,9 +223,8 @@ def _infer_model(pte_path: str, windows: np.ndarray, model_name: str) -> np.ndar
         _, method = _load_et_model(pte_path)
         return _run_et_model(method, windows)
     if _RUNNER_AVAILABLE:
-        logging.info(
-            "Python bindings unavailable — using C++ executor_runner for %s", model_name
-        )
+        # Reported once per run as a step detail rather than once per model.
+        logging.debug("Using C++ executor_runner for %s", model_name)
         return _run_via_runner(pte_path, windows, model_name)
     raise RuntimeError(
         "No ExecuTorch runtime found.\n"
@@ -221,10 +255,11 @@ def _run_one_edge_model(
         return None
 
     thresh = stored_thresholds[name]
-    logging.info("Edge agent: model '%s'  threshold=%.6f", name, thresh)
+    logging.debug("Edge agent: model '%s'  threshold=%.6f", name, thresh)
 
     test_energy = _infer_model(ckpt, test_windows, name)
     logging.debug("Edge agent: model '%s' done.", name)
+    steps.current().tick("models")
     return (test_energy.reshape(-1, 1), thresh)
 
 
@@ -270,10 +305,17 @@ def run(config: dict) -> EdgeResult:
     test_windows = np.concatenate(test_windows_list, axis=0)
     ground_truth = np.concatenate(label_list).astype(int)
 
-    logging.info(
-        "Edge agent: %d test windows, running %d Q-BAT models in parallel.",
-        len(test_windows), len(model_cfgs),
-    )
+    step = steps.current()
+    step.detail("test windows", len(test_windows))
+    step.detail("window size", win_size)
+    step.detail("Q-BAT models", f"{len(model_cfgs)} running in parallel")
+    step.detail("runtime", "ExecuTorch Python bindings" if _EXECUTORCH_AVAILABLE
+                else "ExecuTorch C++ executor_runner")
+    step.expect("models", len(model_cfgs))
+    # Declared last so the dashboard's progress bar tracks the fine-grained work
+    # (every model scores every window) rather than the 3-model counter.
+    if not _EXECUTORCH_AVAILABLE and _RUNNER_AVAILABLE:
+        step.expect("window scans", len(test_windows) * len(model_cfgs))
 
     # All models score the same read-only array concurrently.
     # ExecuTorch (C inference) releases the GIL, so threads run in true parallel.
@@ -295,10 +337,11 @@ def run(config: dict) -> EdgeResult:
             f"Check checkpoint paths and '{thresh_path}'."
         )
 
-    logging.info(
-        "Edge agent: all %d/%d Q-BAT models complete.",
-        len(valid), len(model_cfgs),
-    )
+    if len(valid) < len(model_cfgs):
+        step.warn(
+            f"{len(model_cfgs) - len(valid)} of {len(model_cfgs)} Q-BAT models were "
+            f"skipped (missing checkpoint or threshold) — scoring with {len(valid)}."
+        )
 
     test_energy_cols = [r[0] for r in valid]
     thresholds_list  = [r[1] for r in valid]
@@ -314,10 +357,15 @@ def run(config: dict) -> EdgeResult:
     predictions     = (per_model_preds.sum(axis=1) > n_models / 2).astype(int)
 
     # Ground truth is already per-timestep from DataLoader — no reshape needed.
-    logging.info(
-        "Edge agent: %d anomalous / %d timesteps predicted (GT anomalous: %d).",
-        int(predictions.sum()), len(predictions), int(ground_truth.sum()),
-    )
+    n_flagged = int(predictions.sum())
+    step.outcome(**{
+        "models scored": f"{len(valid)}/{len(model_cfgs)}",
+        "thresholds": ", ".join(f"{t:.4f}" for t in thresholds_list),
+        "events scanned": len(predictions),
+        "flagged anomalous": f"{n_flagged:,} "
+                             f"({n_flagged / max(len(predictions), 1) * 100:.2f}%)",
+        "ground-truth anomalous": int(ground_truth.sum()),
+    })
 
     return EdgeResult(
         predictions=predictions,

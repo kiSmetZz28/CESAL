@@ -52,14 +52,21 @@ def main() -> None:
 
     os.chdir(str(ROOT))
 
+    from cesal_core.utils import steps
     from cesal_core.utils.config import load_config, setup_logging
     from cesal_core.utils.metrics import evaluate
+    from cesal_core.utils.steps import StepReporter
     from cesal_inference_pipeline import lad_bat_cloud
 
     setup_logging("cloud")
     cfg      = load_config(args.config)
     dataset  = cfg["dataset"]
     out_base = cfg.get("output_dir", f"outputs/{dataset.lower()}")
+
+    # When spawned by the edge runner, continue that run's numbering and summary.
+    # Run standalone, this starts a fresh report in which steps 1-2 show as not run.
+    rep = StepReporter("infer", dataset=dataset, steps=steps.INFER_STEPS,
+                       adopt=os.environ.get("CESAL_STEP_HANDOFF", ""))
 
     def _load(fname: str) -> np.ndarray:
         path = os.path.join(out_base, fname)
@@ -77,7 +84,10 @@ def main() -> None:
 
     cloud_cfg = cfg.get("cloud")
     if not cloud_cfg:
-        logging.info("No 'cloud' section in config — nothing to do.")
+        reason = "No 'cloud' section in the config — nothing to re-check."
+        rep.skip("cloud", reason)
+        rep.skip("hybrid", reason)
+        rep.finish(outputs=out_base)
         return
 
     win_size = cfg.get("win_size", 100)
@@ -93,6 +103,12 @@ def main() -> None:
         n_full   = (n_lines // win_size) * win_size
         windows  = routed_lines[:n_full].reshape(-1, win_size, input_c)
         use_indices = routed_indices[:n_full]
+        if n_lines != n_full:
+            logging.warning(
+                "%d of %d routed events do not fill a complete %d-event window and "
+                "are not re-checked by the cloud; they keep their edge verdict.",
+                n_lines - n_full, n_lines, win_size,
+            )
     elif os.path.exists(windows_path):
         windows = np.load(windows_path)
         input_c = windows.shape[2]
@@ -103,45 +119,54 @@ def main() -> None:
         sys.exit(1)
 
     if len(windows) == 0:
-        logging.info("No routed lines — skipping cloud inference.")
+        reason = "No routed events reached the cloud, so there is nothing to re-check."
+        rep.skip("cloud", reason)
+        rep.skip("hybrid", reason)
+        rep.finish(outputs=out_base)
         return
 
     cloud_cfg.setdefault("dataset", dataset)
     cloud_cfg.setdefault("win_size", win_size)
     cloud_cfg.setdefault("input_c", input_c)
 
-    logging.info("=== Cloud BAT Inference ===")
-    # lad_bat_cloud returns one prediction per line [N_win * win_size]
-    cloud_preds = lad_bat_cloud.run(windows, cloud_cfg)
-    np.save(os.path.join(out_base, "cloud_preds.npy"), cloud_preds)
+    # ── Step 3: Cloud BAT verification ────────────────────────────────────
+    with rep.step("cloud"):
+        # lad_bat_cloud returns one prediction per line [N_win * win_size]
+        cloud_preds = lad_bat_cloud.run(windows, cloud_cfg)
+        np.save(os.path.join(out_base, "cloud_preds.npy"), cloud_preds)
 
-    logging.info("=== Stage 4: Hybrid Evaluation ===")
+    # ── Step 4: Hybrid merge & final scoring ──────────────────────────────
+    with rep.step("hybrid") as st:
+        per_line = os.path.exists(lines_path)
+        edge_flagged = int(edge_preds_raw.sum())
 
-    hybrid_preds = edge_preds_raw.copy()
-    if os.path.exists(lines_path):
-        # Per-line predictions mapped directly back via index.
-        hybrid_preds[use_indices] = cloud_preds
-    else:
-        # Legacy window format — stamp entire window with its prediction.
-        for k, win_idx in enumerate(routed_indices):
-            start = int(win_idx) * win_size
-            end   = min(start + win_size, len(hybrid_preds))
-            hybrid_preds[start:end] = cloud_preds[k * win_size:(k + 1) * win_size]
+        hybrid_preds = edge_preds_raw.copy()
+        if per_line:
+            # Per-line predictions mapped directly back via index.
+            hybrid_preds[use_indices] = cloud_preds
+        else:
+            # Legacy window format — stamp entire window with its prediction.
+            for k, win_idx in enumerate(routed_indices):
+                start = int(win_idx) * win_size
+                end   = min(start + win_size, len(hybrid_preds))
+                hybrid_preds[start:end] = cloud_preds[k * win_size:(k + 1) * win_size]
 
-    logging.info(
-        "Cloud preds: %d / %d routed %s anomalous.",
-        int(cloud_preds.sum()), len(routed_indices),
-        "lines" if os.path.exists(lines_path) else "windows",
-    )
-    logging.info(
-        "Hybrid raw preds: %d anomalous / %d total timesteps.",
-        int(hybrid_preds.sum()), len(hybrid_preds),
-    )
-    hybrid_adj = _point_adjust(ground_truth, hybrid_preds)
-    np.save(os.path.join(out_base, "hybrid_preds.npy"), hybrid_adj)
-    evaluate(ground_truth, hybrid_adj, prefix="Hybrid")
+        st.detail("merge unit", "line" if per_line else "window (legacy)")
+        st.detail("edge verdicts replaced", len(use_indices) if per_line else len(routed_indices))
 
-    logging.info("=== Cloud inference complete. Outputs in '%s' ===", out_base)
+        hybrid_flagged = int(hybrid_preds.sum())
+        hybrid_adj = _point_adjust(ground_truth, hybrid_preds)
+        np.save(os.path.join(out_base, "hybrid_preds.npy"), hybrid_adj)
+        evaluate(ground_truth, hybrid_adj, prefix="Hybrid")
+
+        st.outcome(**{
+            "flagged by edge alone": edge_flagged,
+            "flagged after cloud": hybrid_flagged,
+            "net change": f"{hybrid_flagged - edge_flagged:+,}",
+            "scored events": len(hybrid_adj),
+        })
+
+    rep.finish(outputs=out_base)
 
 
 if __name__ == "__main__":

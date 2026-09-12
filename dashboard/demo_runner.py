@@ -33,10 +33,12 @@ sys.path.insert(0, str(ROOT))
 
 from cesal_core.data.loaders import get_loader_segment
 from cesal_core.models.EMAT import EMAT
+from cesal_core.utils import steps
 from cesal_core.utils.config import load_config, setup_logging
 from cesal_core.utils.energy import compute_energy_batch
 from cesal_core.utils.io import mkdir
 from cesal_core.utils.metrics import evaluate
+from cesal_core.utils.steps import StepReporter
 from cesal_inference_pipeline.lad_bat_cloud import _load_thresholds, run as cloud_run
 from cesal_inference_pipeline.routing import compute_inv_cov, select_indices_by_distance
 
@@ -107,8 +109,8 @@ def _run_edge_bat(
     energy = np.concatenate(parts)
     del model
 
-    # Mirror lad_qbat_edge.py log format → frontend threshold display triggers
-    logging.info("Edge agent: model '%s'  threshold=%.6f", name, thresh)
+    logging.debug("Edge agent: model '%s'  threshold=%.6f", name, thresh)
+    steps.current().tick("models")
     return (energy.reshape(-1, 1), thresh)
 
 
@@ -149,6 +151,8 @@ def main() -> None:
     model_dir        = ROOT / cloud_cfg.get("model_save_path", "")
     cloud_thresholds = _load_thresholds(str(thresh_cloud_path))
 
+    rep = StepReporter("infer (demo)", dataset=dataset, steps=steps.INFER_STEPS)
+
     try:
         _cuda = torch.cuda.is_available()
     except Exception:
@@ -162,8 +166,8 @@ def main() -> None:
     edge_combos = [(min_ep, min_k, min_l, bsz) for bsz in sorted(cloud_cfg["batch_size"])[:3]]
 
     if args.skip_edge:
-        # ── Stage 1: SKIPPED — load existing edge outputs ─────────────────────
-        logging.info("=== Stage 1: Skipped (--skip-edge) — loading existing edge outputs ===")
+        # ── Step 1: SKIPPED — load existing edge outputs ──────────────────────
+        rep.skip("edge", f"--skip-edge: reusing the edge outputs already in {out_base}")
         for fname in ("energy_matrix.npy", "edge_preds.npy", "ground_truth.npy"):
             if not os.path.exists(os.path.join(out_base, fname)):
                 logging.error("--skip-edge requires %s but it was not found in %s", fname, out_base)
@@ -189,10 +193,11 @@ def main() -> None:
             mode="test", dataset=dataset,
         )
         test_windows = np.concatenate([x.numpy() for x, _ in test_loader], axis=0)
-        logging.info("Loaded edge outputs: %d lines, %d edge models.", len(ground_truth), energy_matrix.shape[1])
+        logging.info("   reused %s events from %d edge models",
+                     f"{len(ground_truth):,}", energy_matrix.shape[1])
     else:
-        # ── Stage 1: Edge scan ────────────────────────────────────────────────
-        logging.info("=== Stage 1: Edge Q-BAT Inference ===")
+        # ── Step 1: Edge scan ─────────────────────────────────────────────────
+        edge_step = rep.step("edge").start()
 
         test_loader = get_loader_segment(
             [3, 1, 3, batch_sz], data_path,
@@ -217,13 +222,15 @@ def main() -> None:
             line_idx = (idx[:, None] * win_size + np.arange(win_size)).reshape(-1)
             test_windows = test_windows[idx]
             ground_truth = ground_truth[line_idx]
-            logging.info("Demo mode: using %d / %d test windows (evenly sampled).",
-                         demo_max, n_windows)
+            edge_step.detail("demo sampling",
+                             f"{demo_max:,} of {n_windows:,} windows (evenly spaced)")
 
         x_tensor = torch.from_numpy(test_windows).float().to(device)
         n_edge   = len(edge_combos)
-        logging.info("Edge agent: %d test windows, running %d Q-BAT models in parallel.",
-                     len(test_windows), n_edge)
+        edge_step.detail("test windows", len(test_windows))
+        edge_step.detail("window size", win_size)
+        edge_step.detail("edge-proxy models", f"{n_edge} BAT running in parallel")
+        edge_step.expect("models", n_edge)
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=n_edge) as executor:
             futures = [executor.submit(_run_edge_bat, combo, dataset, win_size, input_c,
@@ -235,7 +242,11 @@ def main() -> None:
         if not valid:
             logging.error("No edge BAT models ran successfully. Check checkpoints in %s.", model_dir)
             sys.exit(1)
-        logging.info("Edge agent: all %d/%d Q-BAT models complete.", len(valid), n_edge)
+        if len(valid) < n_edge:
+            edge_step.warn(
+                f"{n_edge - len(valid)} of {n_edge} edge-proxy models were skipped "
+                f"(missing checkpoint or threshold) — scoring with {len(valid)}."
+            )
 
         energy_cols   = [r[0] for r in valid]
         thresh_arr    = np.array([r[1] for r in valid])
@@ -249,6 +260,25 @@ def main() -> None:
         np.save(os.path.join(out_base, "ground_truth.npy"),   ground_truth)
         np.save(os.path.join(out_base, "energy_matrix.npy"),  energy_matrix)
         evaluate(ground_truth, edge_adj, prefix="Edge")
+
+        n_flagged = int(predictions.sum())
+        edge_step.outcome(**{
+            "models scored": f"{len(valid)}/{n_edge}",
+            "thresholds": ", ".join(f"{t:.4f}" for t in thresh_arr),
+            "events scanned": len(predictions),
+            "flagged anomalous": f"{n_flagged:,} "
+                                 f"({n_flagged / max(len(predictions), 1) * 100:.2f}%)",
+            "ground-truth anomalous": int(ground_truth.sum()),
+        })
+        edge_step.done()
+
+    # ── Step 2: Mahalanobis routing ───────────────────────────────────────────
+    # Opened before the covariance fit so that work is reported inside the step.
+    tolerance     = cfg.get("routing_tolerance", 0.1)
+    distance_type = cfg.get("routing_distance", "ma")
+    route_step = rep.step("route").start()
+    route_step.detail("distance", "Mahalanobis" if distance_type == "ma" else "Euclidean")
+    route_step.detail("tolerance", f"{tolerance * 100:.0f}% of events")
 
     # Compute training energy for routing covariance (uses normal distribution only).
     # Try each edge combo as ensemble_param until one is accepted by the data loader.
@@ -278,14 +308,11 @@ def main() -> None:
         except (ValueError, KeyError):
             continue
     if train_energy_matrix is None:
-        logging.warning("Could not load training data for covariance — falling back to test energy.")
+        route_step.warn("Could not load training data for the covariance — "
+                        "falling back to test-set energy.")
         train_energy_matrix = energy_matrix
-
-    # ── Stage 2: Mahalanobis Routing ─────────────────────────────────────────
-    logging.info("=== Stage 2: Mahalanobis Routing ===")
-
-    tolerance     = cfg.get("routing_tolerance", 0.1)
-    distance_type = cfg.get("routing_distance", "ma")
+    else:
+        route_step.detail("covariance fitted on", f"{len(train_energy_matrix):,} training events")
 
     routed_indices: list = []
     if energy_matrix.shape[1] >= 2:
@@ -299,23 +326,31 @@ def main() -> None:
                 tolerance=tolerance,
             )
         except np.linalg.LinAlgError:
-            logging.warning("Singular covariance matrix — routing all predicted anomalies.")
+            route_step.warn("Singular covariance matrix — routing all predicted anomalies instead.")
             routed_indices = list(np.where(predictions == 1)[0])
     else:
+        route_step.note("Only one edge model — falling back to a single-score margin.")
         margin  = energy_matrix[:, 0] - thresh_arr[0]
         n_route = max(1, int(len(margin) * tolerance))
         routed_indices = sorted(np.argsort(margin)[-n_route:].tolist())
 
-    logging.info(
-        "Routing: %d / %d lines selected to cloud (tolerance=%.0f%%).",
-        len(routed_indices), len(ground_truth), tolerance * 100,
-    )
     routed_idx_arr = np.array(routed_indices, dtype=int)
     np.save(os.path.join(out_base, "routed_indices.npy"), routed_idx_arr)
 
+    n_total = len(ground_truth)
+    route_step.outcome(**{
+        "events considered": n_total,
+        "routed to cloud": f"{len(routed_indices):,} "
+                           f"({len(routed_indices) / max(n_total, 1) * 100:.1f}%)",
+        "kept at edge": n_total - len(routed_indices),
+    })
+    route_step.done()
+
     if not routed_indices:
-        logging.info("No lines routed to cloud — edge results are final.")
-        logging.info("=== Inference complete. Outputs in '%s' ===", out_base)
+        reason = "No events were routed to the cloud, so the edge verdicts are final."
+        rep.skip("cloud", reason)
+        rep.skip("hybrid", reason)
+        rep.finish(outputs=out_base)
         return
 
     # Build windows from routed lines for cloud inference.
@@ -323,42 +358,57 @@ def main() -> None:
     routed_lines = test_lines[routed_idx_arr]
     n_full       = (len(routed_lines) // win_size) * win_size
     if n_full == 0:
-        logging.info("Not enough routed lines to fill a window — edge results are final.")
-        logging.info("=== Inference complete. Outputs in '%s' ===", out_base)
+        reason = (f"Only {len(routed_lines):,} events were routed — too few to fill one "
+                  f"{win_size}-event window, so the edge verdicts are final.")
+        rep.skip("cloud", reason)
+        rep.skip("hybrid", reason)
+        rep.finish(outputs=out_base)
         return
+    if len(routed_lines) != n_full:
+        logging.warning(
+            "%d of %d routed events do not fill a complete %d-event window and are "
+            "not re-checked by the cloud; they keep their edge verdict.",
+            len(routed_lines) - n_full, len(routed_lines), win_size,
+        )
     routed_windows = routed_lines[:n_full].reshape(-1, win_size, input_c)
     use_indices    = routed_idx_arr[:n_full]
     np.save(os.path.join(out_base, "routed_lines.npy"), routed_lines)
 
-    # ── Stage 3: Cloud BAT Ensemble ───────────────────────────────────────────
-    logging.info("=== Stage 3: Cloud BAT Ensemble ===")
-
+    # ── Step 3: Cloud BAT verification ────────────────────────────────────────
     cloud_cfg.setdefault("dataset", dataset)
     cloud_cfg.setdefault("win_size", win_size)
     cloud_cfg.setdefault("input_c", input_c)
     cloud_cfg.setdefault("max_parallel_models", os.cpu_count() or 8)
 
-    cloud_preds = cloud_run(routed_windows, cloud_cfg)
-    np.save(os.path.join(out_base, "cloud_preds.npy"), cloud_preds)
+    with rep.step("cloud"):
+        cloud_preds = cloud_run(routed_windows, cloud_cfg)
+        np.save(os.path.join(out_base, "cloud_preds.npy"), cloud_preds)
 
-    # ── Stage 4: Hybrid Evaluation ────────────────────────────────────────────
-    logging.info("=== Stage 4: Hybrid Evaluation ===")
-    logging.info(
-        "Cloud preds: %d / %d routed lines anomalous.",
-        int(cloud_preds.sum()), len(cloud_preds),
-    )
+    # ── Step 4: Hybrid merge & scoring ────────────────────────────────────────
+    with rep.step("hybrid") as st:
+        if 'predictions' not in dir():
+            per_model  = (energy_matrix > thresh_arr).astype(int)
+            predictions = (per_model.sum(axis=1) > energy_matrix.shape[1] / 2).astype(int)
+        edge_flagged = int(predictions.sum())
+        hybrid_raw = predictions.copy()
+        hybrid_raw[use_indices] = cloud_preds
 
-    if 'predictions' not in dir():
-        per_model  = (energy_matrix > thresh_arr).astype(int)
-        predictions = (per_model.sum(axis=1) > energy_matrix.shape[1] / 2).astype(int)
-    hybrid_raw = predictions.copy()
-    hybrid_raw[use_indices] = cloud_preds
+        st.detail("merge unit", "line")
+        st.detail("edge verdicts replaced", len(use_indices))
 
-    hybrid_adj = _point_adjust(ground_truth, hybrid_raw)
-    np.save(os.path.join(out_base, "hybrid_preds.npy"), hybrid_adj)
-    evaluate(ground_truth, hybrid_adj, prefix="Hybrid")
+        hybrid_flagged = int(hybrid_raw.sum())
+        hybrid_adj = _point_adjust(ground_truth, hybrid_raw)
+        np.save(os.path.join(out_base, "hybrid_preds.npy"), hybrid_adj)
+        evaluate(ground_truth, hybrid_adj, prefix="Hybrid")
 
-    logging.info("=== Inference complete. Outputs in '%s' ===", out_base)
+        st.outcome(**{
+            "flagged by edge alone": edge_flagged,
+            "flagged after cloud": hybrid_flagged,
+            "net change": f"{hybrid_flagged - edge_flagged:+,}",
+            "scored events": len(hybrid_adj),
+        })
+
+    rep.finish(outputs=out_base)
 
 
 if __name__ == "__main__":

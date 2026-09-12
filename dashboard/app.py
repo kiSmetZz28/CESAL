@@ -1164,7 +1164,11 @@ async def run(req: RunRequest):
         _log_buf.clear()
 
     cmd = _build_cmd(req)
-    env = {**os.environ, "PYTHONUNBUFFERED": "1", "FORCE_COLOR": "0"}
+    # CESAL_EVENTS makes the runners emit structured "@@CESAL {json}" progress
+    # events (cesal_core/utils/steps.py) alongside their human-readable output,
+    # so the front-end tracks steps from real data rather than by matching prose.
+    env = {**os.environ, "PYTHONUNBUFFERED": "1", "FORCE_COLOR": "0",
+           "CESAL_EVENTS": "1"}
     _proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
@@ -1506,21 +1510,32 @@ def _build_infer_cmd(ds: str, tolerance: float, distance: str) -> list[str]:
     has_cloud = _cfg_has_cloud(ds)
 
     if has_cloud and EDGE_PYTHON != CLOUD_PYTHON:
+        # Steps 1-2 and steps 3-4 run in different conda envs. CESAL_STEP_HANDOFF
+        # carries the first process's step records to the second, so the two
+        # halves report as one numbered run with a single closing summary
+        # (see cesal_core/utils/steps.py).
+        handoff = f"{_output_dir_for(ds)}/.run_steps.json"
         script = (
             f'set -euo pipefail\n'
-            f'echo "--- Phase 1/2: Edge inference  (env: cesal-edge) ---"\n'
+            f'export CESAL_STEP_HANDOFF={handoff}\n'
             f'{EDGE_PYTHON} -m cesal_inference_pipeline.run --config {edge_cfg}\n'
-            f'echo "--- Phase 2/2: Cloud inference (env: cesal-cloud) ---"\n'
             f'{CLOUD_PYTHON} dashboard/cloud_runner.py --config {cloud_cfg}\n'
         )
     else:
         # No cloud section, or same env — run everything in the edge env
         script = (
             f'set -euo pipefail\n'
-            f'echo "--- Edge inference (env: cesal-edge) ---"\n'
             f'{EDGE_PYTHON} -m cesal_inference_pipeline.run --config {cloud_cfg}\n'
         )
     return ["bash", "-c", script]
+
+
+def _output_dir_for(ds: str) -> str:
+    """Output directory declared by a dataset's inference config."""
+    base = ROOT / "configs" / "inference" / f"{ds}.yaml"
+    with open(base) as f:
+        cfg = yaml.safe_load(f) or {}
+    return cfg.get("output_dir", f"outputs/{str(cfg.get('dataset', ds)).lower()}")
 
 
 def _write_infer_cfg(ds: str, tolerance: float, distance: str,
