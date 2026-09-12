@@ -1,0 +1,153 @@
+# CESAL — ACSAC 2026 artifact metadata
+#
+# NOTE: ACSAC requires the metadata.toml produced by the official packaging tool
+# (https://github.com/jelenamirkovic/artmeta). This file pre-answers every question that
+# tool asks, so running `python artmeta.py` and pasting these values takes a few minutes.
+# Regenerate with the tool before submitting rather than shipping this file verbatim.
+
+badge = "f"
+# "a" = Available only, "f" = Functional, "r" = Reproduced.
+# "f" is the realistic target: a full HDFS run needs a CUDA GPU and roughly a day of
+# compute, and the LLM stage needs gated Hugging Face models. A scaled-down path that
+# finishes in ~2 minutes is provided (see claim4 below) so reviewers can exercise the
+# whole pipeline quickly.
+
+artifact_url = "https://github.com/kiSmetZz28/CESAL"
+readme = "https://github.com/kiSmetZz28/CESAL/blob/main/README.md"
+license_url = "https://github.com/kiSmetZz28/CESAL/blob/main/LICENSE"
+install_script = "https://github.com/kiSmetZz28/CESAL/blob/main/install.sh"
+
+cd = "b"   # both code and data: source code plus the HDFS/OpenStack log splits and the
+           # open-set knowledge base bundled under data/
+
+citation = """
+@inproceedings{shi2026cesal,
+  author    = {Shi, Qinxuan and Shao, Sicong},
+  title     = {Cloud--Edge Security Analytics for Log-Based Incident Detection,
+               Classification, and Controlled Response},
+  booktitle = {Annual Computer Security Applications Conference (ACSAC)},
+  year      = {2026}
+}
+"""
+
+# ── Infrastructure ────────────────────────────────────────────────────────────
+# CESAL is not deployed on public research infrastructure. Justification below.
+infrastructure_constraints = """
+The cloud-side BAT ensemble (81 EM-AT models) and the LLM incident-classification stage
+require a local CUDA GPU; development and all reported numbers used an NVIDIA RTX 2000 Ada
+(16 GB). The edge resource measurements in Table 6 require physical Raspberry Pi 3B+/4B/5
+hardware and cannot be reproduced on shared infrastructure. Everything except Table 6 runs
+on any single CUDA GPU machine with >= 16 GB VRAM; the edge stage alone runs CPU-only.
+"""
+infrastructure_access = """
+No special access is needed: clone the public repository and run install.sh. Pre-trained
+checkpoints are fetched from Google Drive by `python run.py download`. The four LLM
+backbones are pulled from Hugging Face; Meta-Llama-3.1-8B-Instruct and gemma-2-9b-it are
+gated and require accepting their licenses plus `hf auth login`.
+"""
+
+# ── Environment ───────────────────────────────────────────────────────────────
+hw = """
+Minimum to exercise the artifact: x86-64 CPU, 16 GB RAM, ~40 GB free disk.
+To re-run the cloud and LLM stages: one CUDA GPU with >= 16 GB VRAM (verified on an
+NVIDIA RTX 2000 Ada). The edge stage and the unit tests are CPU-only.
+
+Reference testbed used for the published results (paper Section 4.1): a Talon HPC cluster node
+(2 x 18-core Intel Xeon Gold 6140, 8 x NVIDIA Tesla V100, 1.5 TB RAM, RHEL 9.2) for BAT training
+and cloud-side verification; a Dell PowerEdge R650 (36-core Xeon Platinum, Mellanox ConnectX-6
+100 Gb NIC, 256 GB RAM, Ubuntu 24.04.2) for log collection and storage; two Intel Core i7-14700
+servers (28 cores/56 threads, NVIDIA RTX 2000 Ada, 32 GB RAM; Windows 11 and Ubuntu 24.04.2) for
+data processing, EM-AT analysis, Q-BAT preparation and model conversion; and an edge cluster of
+Raspberry Pi 5 (Cortex-A76, 8 GB), 4B (Cortex-A72, 8 GB) and 3B+ (Cortex-A53, 1 GB), all
+Ubuntu 20.04.5 LTS.
+
+Table 6 (edge resource consumption) requires the physical Raspberry Pi devices.
+Disk budget: BAT checkpoints ~3.5 GB per dataset, ExecuTorch runtime ~1.4 GB,
+raw HDFS logs ~1.6 GB, optional dashboard SQLite database ~5.4 GB.
+"""
+sw = """
+Ubuntu/Linux with conda. Two environments are created by install.sh:
+  cesal-edge  — Python 3.10, PyTorch 2.6 (CPU), ExecuTorch 0.5.0; runs the edge stage,
+                the dashboard and the pipeline orchestration.
+  cesal-cloud — Python 3.10, PyTorch 2.4.0+cu124, transformers 4.47.1, accelerate 1.2.1;
+                runs the BAT cloud ensemble and the LLM incident classifier.
+Exact pinned package lists: environment/edge/requirements.txt, environment/cloud/requirements.txt.
+"""
+gui = "y"
+# An optional FastAPI dashboard (`python dashboard/app.py`, http://localhost:8765) browses
+# the parsed logs, runs the pipeline, and shows detection plus incident-response results.
+# It is not required for any claim: every claim script below is command-line only.
+
+use = "https://github.com/kiSmetZz28/CESAL/blob/main/INSTALL.md"
+destructive = """
+Nothing destructive. The artifact only writes under outputs/, checkpoints/, logs/ and the
+log-data directory named by $CESAL_LOG_ROOT. Re-running inference overwrites the .npy
+prediction files under outputs/<dataset>/; copy that directory first if you want to keep
+a previous run.
+"""
+
+# ── Claims ────────────────────────────────────────────────────────────────────
+claim1 = """
+Log-based incident detection (paper Section 4.2, Table 3): Q-BAT edge-only reaches F1 99.53
+on HDFS and 99.03 on OpenStack; CESAL, routing 10% of samples to the cloud, reaches F1 99.98
+on HDFS and 99.95 on OpenStack.
+"""
+script1 = "https://github.com/kiSmetZz28/CESAL/blob/main/artifact/claims/claim1_detection.sh"
+expected1 = """
+Prints Accuracy/Precision/Recall/F-score for the edge stage and for the collaborative
+(hybrid) stage on the chosen dataset, and compares them with the Table 3 values.
+Expected within about +/-0.5 F1: HDFS edge 99.53, HDFS CESAL 99.98, OpenStack edge 99.03,
+OpenStack CESAL 99.95.
+
+IMPORTANT — evaluation protocol: these are point-adjusted scores. Following the Anomaly
+Transformer convention this code inherits, training_pipeline/solver.py applies point
+adjustment (lines 394-412) before computing metrics: once any line inside a ground-truth
+anomaly segment is detected, the whole segment counts as detected. Both test sets are
+assembled as all-normal lines followed by all-abnormal lines
+(cesal_core/data/loaders.py:45-53), so each contains exactly one anomaly segment. The
+script therefore also prints raw, un-adjusted scores so both numbers are visible.
+"""
+
+claim2 = """
+Open-set incident classification on HDFS (paper Section 4.6, Table 7): four RAG-enhanced LLM
+backbones classify abnormal log sequences into 10 known anomaly types or "Other anomaly
+type". Qwen2.5-14B-Instruct, the default backbone, reaches macro-average F1 83.03.
+"""
+script2 = "https://github.com/kiSmetZz28/CESAL/blob/main/artifact/claims/claim2_classification.sh"
+expected2 = """
+Writes per-model and per-class metrics under outputs/hdfs/llm/ and prints the macro average
+per backbone. Expected macro F1: Llama-3.1-8B-Instruct 81.19, Gemma-2-9B-IT 81.71,
+Qwen2.5-7B-Instruct 81.52, Qwen2.5-14B-Instruct 83.03. Reference per-class values ship in
+outputs/hdfs/llm/table7_reference_metrics.csv for direct comparison. Needs a CUDA GPU;
+two of the four backbones are gated on Hugging Face.
+"""
+
+claim3 = """
+Controlled response workflows (paper Section 3.7, Table 1): each predicted anomaly type maps
+to a predefined response workflow, high-impact steps are gated behind administrator
+approval, and sequences classified as unknown trigger no automated mitigation but are
+preserved and flagged for human investigation.
+"""
+script3 = "https://github.com/kiSmetZz28/CESAL/blob/main/artifact/claims/claim3_response.sh"
+expected3 = """
+Prints the Table 1 workflow for a known anomaly type (4 steps, 1 requiring administrator
+approval) and for "Other anomaly type", which maps to "Unknown Anomaly Types" with
+automated=False and 3 steps. With detection outputs present it also connects detection to
+response, producing one incident record per detected session in
+outputs/hdfs/llm/queues/ (19,403 incidents on the shipped HDFS outputs: 16,725 true
+anomalies and 2,678 detector false positives, 113 routed to human investigation).
+"""
+
+claim4 = """
+Scaled-down end-to-end run: the complete four-stage pipeline (edge Q-BAT scan, Mahalanobis
+routing, cloud BAT verification over all 81 checkpoints, hybrid evaluation) executes on a
+300-window subsample so reviewers can exercise every stage quickly.
+"""
+script4 = "https://github.com/kiSmetZz28/CESAL/blob/main/artifact/claims/claim4_scaled_down.sh"
+expected4 = """
+Completes in roughly 2 minutes on CPU (measured: 1m55s) and writes the full set of
+prediction arrays to the chosen output directory: edge_preds.npy, edge_preds_raw.npy,
+ground_truth.npy, energy_matrix.npy, routed_indices.npy, routed_lines.npy, cloud_preds.npy
+and hybrid_preds.npy. Intended as the kick-the-tires check; the subsample is far too small
+to reproduce the Table 3 figures, which claim1 covers.
+"""

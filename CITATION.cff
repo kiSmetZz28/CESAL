@@ -1,0 +1,44 @@
+cff-version: 1.2.0
+message: "If you use CESAL, please cite the paper below."
+title: "CESAL: Cloud–Edge Security Analytics for Log-Based Incident Detection, Classification, and Controlled Response"
+abstract: >-
+  CESAL is a security-aware cloud–edge framework for log-based incident detection,
+  classification, and controlled response. Q-BAT, a quantized EM-AT ensemble, performs
+  lightweight edge-side inference; a Mahalanobis distance-based routing policy escalates
+  uncertain samples to BAT, a high-capacity cloud-side ensemble. Detected abnormal
+  sequences are classified into known or unknown HDFS anomaly types by a RAG-enhanced LLM
+  and mapped to predefined controlled response workflows.
+type: software
+license: MIT
+repository-code: "https://github.com/kiSmetZz28/CESAL"
+authors:
+  - family-names: Shi
+    given-names: Qinxuan
+    email: qinxuan.shi@und.edu
+    affiliation: University of North Dakota
+  - family-names: Shao
+    given-names: Sicong
+    email: sicong.shao@und.edu
+    affiliation: University of North Dakota
+keywords:
+  - system security
+  - cloud security
+  - log anomaly detection
+  - incident classification
+  - cloud-edge collaboration
+preferred-citation:
+  type: conference-paper
+  title: "Cloud–Edge Security Analytics for Log-Based Incident Detection, Classification, and Controlled Response"
+  year: 2026
+  # TODO: confirm the exact proceedings title, publisher and page numbers from the
+  # ACSAC 2026 camera-ready instructions before the Oct 22 camera-ready deadline.
+  collection-title: "Annual Computer Security Applications Conference (ACSAC)"
+  authors:
+    - family-names: Shi
+      given-names: Qinxuan
+      email: qinxuan.shi@und.edu
+      affiliation: University of North Dakota
+    - family-names: Shao
+      given-names: Sicong
+      email: sicong.shao@und.edu
+      affiliation: University of North Dakota
