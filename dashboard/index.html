@@ -373,7 +373,9 @@ select:focus{outline:none;border-color:var(--blue);}
 .wf-tl li.esc  .wf-tl-tag{color:var(--red);}
 .wf-tl li.man  .wf-tl-tag{color:var(--amber);}
 .wf-modal-foot{display:flex;gap:8px;justify-content:flex-end;
-  border-top:1px solid var(--border);padding-top:14px;margin-top:16px;}
+  border-top:1px solid var(--border);padding-top:14px;margin-top:18px;}
+.wf-tl-empty{margin-top:18px;padding:12px 14px;border-radius:8px;background:#fffbeb;
+  border:1px solid #fde68a;color:#92400e;font-size:11px;line-height:1.7;}
 
 /* Numbered steps, with the gated ones marked in the margin. */
 .wf-steps{list-style:none;margin:0 0 10px;padding:0;counter-reset:wfstep;}
@@ -2851,8 +2853,6 @@ function openWfModal(i) {
   const l = (window.IR_LABELS||[])[i];
   if (!l) return;
   const steps = l.steps||[];
-  const stat = (k,v,c)=>`<div class="modal-meta"><div class="mm-key">${k}</div>
-    <div class="mm-val"${c?` style="color:${c}"`:''}>${v}</div></div>`;
   document.getElementById('wfModalBody').innerHTML = `
     <div class="wf-modal-hd">
       <span class="wf-ic${l.automated_response?'':' manual'}">${wfIcon(l.label)}</span>
@@ -2860,24 +2860,15 @@ function openWfModal(i) {
         <div class="wf-modal-name">${esc(l.label)}
           ${l.automated_response?'<span class="pill-ok">automated</span>'
                                 :'<span class="pill-warn">human investigation</span>'}</div>
-        <div class="wf-modal-sub">Predefined response workflow · paper Table 1</div>
+        <div class="wf-modal-sub">Predefined response workflow · paper Table 1
+          · ${l.count.toLocaleString()} incidents</div>
       </div>
     </div>
-    <div class="modal-meta-grid" style="margin-top:14px">
-      ${stat('Incidents', l.count.toLocaleString())}
-      ${stat('Edge / cloud', `${(l.count_edge??0).toLocaleString()} / ${(l.count_cloud??0).toLocaleString()}`)}
-      ${stat('True anomalies', (l.count_true??0).toLocaleString(), 'var(--red)')}
-      ${stat('Detector false pos.', (l.count_fp??0).toLocaleString(), 'var(--muted)')}
-      ${stat('Steps', steps.length)}
-      ${stat('Approval-gated', l.approval_steps||0, l.approval_steps?'var(--amber)':'')}
-      ${stat('Escalation', l.escalation_steps||0, l.escalation_steps?'var(--red)':'')}
-    </div>
-    <div class="modal-section">
-      <div class="modal-section-title">Workflow steps — the Table 1 row, word for word</div>
-      ${steps.length ? `<ol class="wf-tl">${wfTimelineHtml(steps, l.automated_response)}</ol>`
-        : `<div style="color:var(--muted);font-size:11px">This server build did not send the
-             workflow steps. Restart the dashboard to pick up the response module.</div>`}
-    </div>
+    ${steps.length ? `<ol class="wf-tl" style="margin-top:18px">
+        ${wfTimelineHtml(steps, l.automated_response)}</ol>`
+      : `<div class="wf-tl-empty">The dashboard server was started before the response
+           module was added, so it sent no workflow steps. Restart it with
+           <span style="font-family:monospace">python dashboard/app.py</span> to see them.</div>`}
     <div class="wf-modal-foot">
       <button class="btn" onclick="closeWfModal()">Close</button>
       <button class="btn btn-primary" onclick="closeWfModal();irFilterByLabel(${i})">

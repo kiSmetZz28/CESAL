@@ -1042,13 +1042,8 @@ async def incidents_summary(dataset: str = "hdfs"):
             # and not only that something was selected.
             **{k: v for k, v in _workflow_payload(r["pred_label"]).items()
                if k in ("description", "steps")},
-            # Per-type breakdown, so the workflow view can say which incidents
-            # selected it without a second request.
-            "count_edge": 0, "count_cloud": 0, "count_true": 0, "count_fp": 0,
         })
         entry["count"] += 1
-        entry["count_cloud" if r["queue"] == "cloud" else "count_edge"] += 1
-        entry["count_true" if r["ground_truth"] == 1 else "count_fp"] += 1
 
     return {
         "available": True,
@@ -1063,7 +1058,10 @@ async def incidents_summary(dataset: str = "hdfs"):
             "human_investigation": sum(not r["automated_response"] for r in inc),
             "with_approval_step": sum((r.get("approval_steps") or 0) > 0 for r in inc),
         },
-        "labels": sorted(labels.values(), key=lambda x: -x["count"]),
+        # Known types by volume; the unknown type last, since it is the open-set
+        # fallback rather than one of the predefined categories.
+        "labels": sorted(labels.values(),
+                         key=lambda x: (not x["automated_response"], -x["count"])),
         "unique_sequences": len(cls) or len({r["template_sequence"] for r in inc}),
         "llm_calls": sum(1 for r in cls.values() if r.get("raw_output")),
         "evaluation": data["evaluation"],
