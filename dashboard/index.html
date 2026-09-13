@@ -731,7 +731,7 @@ select:focus{outline:none;border-color:var(--blue);}
       <div style="font-size:11px;color:var(--muted);line-height:1.5">
         Scroll down to the <strong>Pipeline</strong> table and
         <strong>click any raw log row</strong> to predict using its context
-        window through the full pipeline.
+        window through the detection pipeline.
       </div>
 
       <!-- Mode B: Full Test Set Analysis ─────────────────────────────── -->
@@ -740,14 +740,24 @@ select:focus{outline:none;border-color:var(--blue);}
           Full Test Set Analysis
         </div>
         <div style="font-size:11px;color:var(--muted);margin-bottom:8px;line-height:1.5">
-          Runs the test set end-to-end through all pipeline stages
-          and reports aggregate metrics (accuracy, precision, recall, F1).
+          Runs the whole test set and reports aggregate metrics
+          (accuracy, precision, recall, F1).
         </div>
+        <label id="respondOptRow" style="display:flex;gap:7px;align-items:flex-start;
+               font-size:11px;color:var(--text);margin:2px 0 9px;cursor:pointer">
+          <input type="checkbox" id="withRespond" style="margin-top:2px" onchange="onRespondToggle(true)">
+          <span>
+            Also classify each incident and choose its response
+            <span id="respondNote" style="display:block;color:var(--muted);font-size:10px;
+                  line-height:1.45;margin-top:2px">checking…</span>
+          </span>
+        </label>
         <button class="btn btn-run" id="runBtn" onclick="runPipeline()">▶  Start Full Test Set Analysis</button>
         <div style="height:8px"></div>
         <button class="btn btn-danger" id="stopBtn" onclick="stopPipeline()" disabled style="width:100%">■  Stop</button>
-        <div style="font-size:10px;color:var(--muted);margin-top:8px;line-height:1.7;text-align:center">
-          Edge → Selective Routing → Cloud
+        <div style="font-size:10px;color:var(--muted);margin-top:8px;line-height:1.7;text-align:center"
+             id="runFlowCaption">
+          Edge → Selective Routing → Cloud → Result
         </div>
       </div>
     </div>
@@ -1153,6 +1163,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   refreshDbStatus();
   await initDemoMode();        // resolve correct dataset before loading pipeline data
   loadConfigSummary(S.dataset);
+  refreshRespondOption();      // can the response stage be chained onto a run?
   initWelcome();
   plLoad();                    // called exactly once with the correct dataset
 });
@@ -1171,6 +1182,36 @@ async function initDemoMode() {
 }
 
 /* ── Dataset selector ───────────────────────────────── */
+async function refreshRespondOption() {
+  const box = document.getElementById('withRespond');
+  const note = document.getElementById('respondNote');
+  const cap  = document.getElementById('runFlowCaption');
+  if (!box) return;
+  try {
+    const d = await fetch(`/api/response-readiness?dataset=${S.dataset}`).then(r => r.json());
+    box.disabled = !d.supported;
+    if (!d.supported) { box.checked = false; note.textContent = d.reason; }
+    else {
+      note.textContent = d.note;
+      if (!box.dataset.touched) box.checked = (d.cached_sequences || 0) > 0;
+    }
+    document.getElementById('respondOptRow').style.opacity = d.supported ? '1' : '.55';
+  } catch (e) {
+    box.disabled = true; note.textContent = 'Could not check whether this can run.';
+  }
+  onRespondToggle();
+}
+
+function onRespondToggle(userAction) {
+  const box = document.getElementById('withRespond');
+  if (userAction && box) box.dataset.touched = '1';   // stop auto-defaulting
+  const on = !!box?.checked;
+  const cap = document.getElementById('runFlowCaption');
+  if (cap) cap.textContent = on
+    ? 'Edge → Routing → Cloud → Result → Queue → Classify → Workflow'
+    : 'Edge → Selective Routing → Cloud → Result';
+}
+
 function setDataset(ds, btn) {
   S.dataset = ds;
   document.querySelectorAll('.ds-btn').forEach(b => b.classList.remove('active'));
@@ -1181,6 +1222,7 @@ function setDataset(ds, btn) {
   closeRawPredict();
   loadConfigSummary(ds);
   updatePipelineBanner();
+  refreshRespondOption();
 
   const notice = document.getElementById('demoDatasetNotice');
   if (notice) notice.style.display = 'none';
@@ -1220,13 +1262,15 @@ async function runPipeline() {
   S.stopRequested = false;
   clearConsole();
   resetLiveProgress();
-  log(`[Dashboard] Starting inference on dataset ${S.dataset}…`, 'li');
+  log(`[Dashboard] Starting ${document.getElementById('withRespond')?.checked ? 'detection + incident response' : 'detection'} on dataset ${S.dataset}…`, 'li');
 
+  const withRespond = !!document.getElementById('withRespond')?.checked;
   const payload = {
     command: 'infer',
     dataset: S.dataset,
     routing_tolerance: parseFloat(document.getElementById('tolSlider').value) / 100,
     routing_distance: document.getElementById('distSel').value,
+    with_response: withRespond,
   };
 
   try {
@@ -1569,7 +1613,7 @@ const LP = {
   totalCloudModels:0, cloudModelsDone:0,
   // Structured-event state: set once the first "@@CESAL" event arrives, which
   // switches off the legacy prose-matching fallback for the rest of the run.
-  structured:false, plan:[], stepInfo:{}, curStep:null, expect:null, trackIds:null, finished:false,
+  structured:false, plan:[], stepInfo:{}, curStep:null, expect:null, trackIds:null, finished:false, runPrefix:null,
 };
 
 function resetLiveProgress() {
@@ -1577,6 +1621,7 @@ function resetLiveProgress() {
   LP.totalEdgeModels=0; LP.edgeModelsDone=0;
   LP.totalCloudModels=0; LP.cloudModelsDone=0;
   LP.structured=false; LP.plan=[]; LP.stepInfo={}; LP.curStep=null; LP.expect=null; LP.finished=false;
+  LP.runPrefix=null;
   LP.trackIds=null;
   document.getElementById('liveCard').style.display = 'block';
   document.getElementById('opLine').textContent = 'Starting up…';
@@ -1598,7 +1643,7 @@ function setStage(n) {
   // that was skipped or failed is not painted as though it had succeeded.
   if (LP.trackIds && LP.trackIds.length) {
     LP.trackIds.forEach((sid, i) => {
-      const el = document.getElementById('stg-' + sid); if (!el) return;
+      const el = document.getElementById('stg-' + domId(sid)); if (!el) return;
       const state = (LP.stepInfo[sid] || {}).state || (i + 1 < n ? 'done' : 'pending');
       el.className = 'stage-step';
       if (state === 'running')      el.classList.add('active');
@@ -1671,8 +1716,8 @@ function renderStageTrack(plan) {
   show('routingBlock', ids.has('route'));
   show('scoresBox', ids.has('hybrid') || ids.has('ensemble') || ids.has('score'));
   track.innerHTML = plan.map(s =>
-    `<div class="stage-step" id="stg-${s.id}">` +
-    `<span class="s-icon">${STEP_ICON[s.id] || '⚙️'}</span>${esc(s.title)}</div>`
+    `<div class="stage-step" id="stg-${domId(s.id)}">` +
+    `<span class="s-icon">${STEP_ICON[bare(s.id)] || '⚙️'}</span>${esc(s.title)}</div>`
   ).join('');
 }
 
@@ -1720,6 +1765,14 @@ function renderStepRow(r) {
          `<span class="sr-v">${esc(r.v)}</span></div>`;
 }
 
+// Both the infer and respond plans contain a step called "classify", so plan
+// entries are namespaced by run. Events carry the bare id; map it back.
+function sid(id) { return LP.runPrefix ? `${LP.runPrefix}:${id}` : id; }
+// Run names contain spaces and brackets ("infer (demo)"), which are not legal in
+// an HTML id — slugify before putting one in the DOM.
+function domId(id) { return String(id).replace(/[^A-Za-z0-9_-]+/g, '-'); }
+function bare(id) { return String(id).includes(':') ? id.split(':').pop() : id; }
+
 function stepInfo(id) {
   return (LP.stepInfo[id] = LP.stepInfo[id] || {state: 'pending', rows: [], secs: null});
 }
@@ -1739,29 +1792,34 @@ function applyStepEvent(e) {
   LP.structured = true;
   switch (e.t) {
 
-    case 'run_start':
-      LP.plan = e.steps || [];
+    case 'run_start': {
+      const incoming = (e.steps || []).map(st => ({...st, id: `${e.run}:${st.id}`}));
+      const chained = LP.plan.length > 0;      // a second run within one click
+      LP.plan = chained ? LP.plan.concat(incoming) : incoming;
+      LP.runPrefix = e.run;
+      LP.finished = false;
       // The track is built from the plan the runner declared, so a training or
       // conversion run shows its own steps rather than the inference labels.
       renderStageTrack(LP.plan);
-      LP.stepInfo = {};
+      if (!chained) LP.stepInfo = {};
       setStepDetails();
       setFriendlyStatus('🚀', `Starting ${e.dataset || ''} ${e.run || 'run'}…`,
         (e.about || '').trim().split('\n')[0] ||
         (`${LP.plan.length} steps: ` + LP.plan.map(s => s.title).join(' → ')));
       break;
+    }
 
     case 'step_start': {
       LP.curStep = e.id;
-      const si = stepInfo(e.id);
+      const si = stepInfo(sid(e.id));
       si.state = 'running'; si.rows = []; si.secs = null;
       setStepDetails();
       setStepProgress(0, 0);
-      const pos = STEP_POS[e.id] || e.n;
+      const pos = LP.plan.findIndex(p => p.id === sid(e.id)) + 1 || e.n;
       setStage(pos);
       setFlowStep(STEP_FLOW[e.id]);
       document.getElementById('stepDetailTitle').textContent =
-        `Steps · ${e.n} of ${e.total}`;
+        `Steps · ${LP.plan.findIndex(p => p.id === sid(e.id)) + 1 || e.n} of ${LP.plan.length || e.total}`;
       document.getElementById('opLine').textContent = e.title + '…';
       // Prefer the runner's own plain-language line; STEP_HELP is the fallback
       // for older runners that do not send one.
@@ -1772,7 +1830,7 @@ function applyStepEvent(e) {
     }
 
     case 'step_detail':
-      stepInfo(e.id).rows.push({k: e.k, v: e.v, kind: 'in'});
+      stepInfo(sid(e.id)).rows.push({k: e.k, v: e.v, kind: 'in'});
       setStepDetails();
       break;
 
@@ -1794,14 +1852,14 @@ function applyStepEvent(e) {
     // updated with its duration when it closes, so the panel shows both what
     // is running now and what each earlier part cost.
     case 'step_phase': {
-      stepInfo(e.id).rows.push({k: '▸ ' + e.name, v: '…', phase: e.name, kind: 'phase'});
+      stepInfo(sid(e.id)).rows.push({k: '▸ ' + e.name, v: '…', phase: e.name, kind: 'phase'});
       setStepDetails();
       document.getElementById('opLine').textContent = e.name + '…';
       break;
     }
 
     case 'step_phase_done': {
-      const rows = stepInfo(e.id).rows;
+      const rows = stepInfo(sid(e.id)).rows;
       for (let i = rows.length - 1; i >= 0; i--) {
         if (rows[i].phase === e.name) { rows[i].v = e.secs + 's'; break; }
       }
@@ -1814,12 +1872,12 @@ function applyStepEvent(e) {
       break;
 
     case 'step_warn':
-      stepInfo(e.id).rows.push({k: '⚠ ' + e.msg, v: '', kind: 'warn'});
+      stepInfo(sid(e.id)).rows.push({k: '⚠ ' + e.msg, v: '', kind: 'warn'});
       setStepDetails();
       break;
 
     case 'step_done': {
-      const si = stepInfo(e.id);
+      const si = stepInfo(sid(e.id));
       si.state = 'done'; si.secs = e.secs;
       Object.entries(e.outcome || {}).forEach(([k, v]) => si.rows.push({k, v, kind: 'out'}));
       setStepDetails();
@@ -1844,7 +1902,7 @@ function applyStepEvent(e) {
     }
 
     case 'step_skip': {
-      const si = stepInfo(e.id);
+      const si = stepInfo(sid(e.id));
       si.state = 'skipped';
       si.rows.push({k: e.reason, v: '', kind: 'skip'});
       setStepDetails();
@@ -1853,7 +1911,7 @@ function applyStepEvent(e) {
     }
 
     case 'step_fail': {
-      const si = stepInfo(e.id);
+      const si = stepInfo(sid(e.id));
       si.state = 'failed'; si.secs = e.secs;
       Object.entries(e.outcome || {}).forEach(([k, v]) => si.rows.push({k, v, kind: 'out'}));
       si.rows.push({k: '✗ ' + e.error, v: '', kind: 'warn'});

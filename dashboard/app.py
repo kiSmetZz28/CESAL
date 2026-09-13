@@ -332,6 +332,9 @@ class RunRequest(BaseModel):
     voting: str = "majority"
     routing_tolerance: float = 0.1
     routing_distance: str = "ma"
+    # Chain incident classification + response onto an inference run so one
+    # click covers the whole framework. HDFS only, and skipped in demo mode.
+    with_response: bool = False
 
 
 # ── Single-session prediction ─────────────────────────────────────────────────
@@ -1127,6 +1130,36 @@ async def info():
 
 
 # ── Process control ───────────────────────────────────────────────────────────
+@app.get("/api/response-readiness")
+async def response_readiness(dataset: str = "hdfs"):
+    """Can the response stage be chained onto a run, and will it be quick?
+
+    Classification is cached per unique sequence, so a run that finds a full
+    cache finishes in seconds while a cold one needs a GPU and hours.
+    """
+    if dataset.lower() != "hdfs":
+        return {"supported": False,
+                "reason": "Incident response is defined for HDFS only."}
+    if DEMO_MODE:
+        return {"supported": False,
+                "reason": "Disabled in demo mode — classification needs a local GPU."}
+    qdir, _ = _incident_paths(dataset)
+    cached = sorted(qdir.glob("classified_*.csv")) if qdir.is_dir() else []
+    n = 0
+    if cached:
+        try:
+            with open(cached[-1], newline="", encoding="utf-8") as f:
+                n = max(sum(1 for _ in f) - 1, 0)
+        except OSError:
+            n = 0
+    return {"supported": True, "cached_sequences": n,
+            "cache_file": cached[-1].name if cached else None,
+            "note": (f"{n:,} sequences already classified — this will finish in seconds."
+                     if n else
+                     "No classifications cached yet — the first run loads a language "
+                     "model and may take hours on this machine.")}
+
+
 @app.get("/api/status")
 async def status():
     running = _proc is not None and _proc.returncode is None
@@ -1502,13 +1535,32 @@ def _build_cmd(req: RunRequest) -> list[str]:
         return [EDGE_PYTHON, "quantization/qbat_export.py",
                 "--config", f"configs/training/{ds}.yaml", "--all"]
     if req.command == "infer":
-        return _build_infer_cmd(ds, req.routing_tolerance, req.routing_distance)
+        return _build_infer_cmd(ds, req.routing_tolerance, req.routing_distance,
+                                with_response=req.with_response)
     if req.command == "download":
         return [CLOUD_PYTHON, "tools/download_checkpoints.py", "--dataset", ds]
     raise HTTPException(400, f"Unknown command: {req.command}")
 
 
-def _build_infer_cmd(ds: str, tolerance: float, distance: str) -> list[str]:
+def _respond_script(ds: str) -> str:
+    """Shell lines that turn detections into classified, actioned incidents.
+
+    Runs only for HDFS (the classifier's label set is HDFS-specific) and never
+    in demo mode, where there is no GPU. The two modules share a step handoff so
+    they report as one numbered sequence.
+    """
+    if ds.lower() != "hdfs" or DEMO_MODE:
+        return ""
+    handoff = ROOT / "outputs" / "hdfs" / "llm" / "queues" / ".run_steps.json"
+    return (
+        f'export CESAL_STEP_HANDOFF={handoff}\n'
+        f'{CLOUD_PYTHON} -m incident_response.queues --config configs/llm/hdfs.yaml\n'
+        f'{CLOUD_PYTHON} -m incident_response.process_queues --config configs/llm/hdfs.yaml\n'
+    )
+
+
+def _build_infer_cmd(ds: str, tolerance: float, distance: str,
+                     with_response: bool = False) -> list[str]:
     """Build a two-phase inference command (edge env → cloud env)."""
     # Edge-only config: cloud section stripped so run.py stops after routing
     edge_cfg  = _write_infer_cfg(ds, tolerance, distance, strip_cloud=True)
@@ -1535,6 +1587,8 @@ def _build_infer_cmd(ds: str, tolerance: float, distance: str) -> list[str]:
             f'set -euo pipefail\n'
             f'{EDGE_PYTHON} -m cesal_inference_pipeline.run --config {cloud_cfg}\n'
         )
+    if with_response:
+        script += _respond_script(ds)
     return ["bash", "-c", script]
 
 
