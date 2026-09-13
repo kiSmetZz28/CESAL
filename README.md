@@ -26,13 +26,13 @@ An **edge-first, cloud-assisted** pipeline, in four stages:
 
 ### Models
 
-**EM-AT — the base learner.** An Anomaly Transformer trained on normal sequences only. Its Anomaly Attention scores each sequence by the divergence between a _series association_ (global dependencies) and a _prior association_ (local adjacency), combined with reconstruction error. EM-AT adds **EM-GMM automated thresholding** — a Gaussian mixture fitted to the score distribution sets the cut-off from the estimated normal proportion, so no per-device tuning is needed. Code: [cesal_core/models/](cesal_core/models/), [cesal_core/utils/energy.py](cesal_core/utils/energy.py).
+**EM-AT — the base learner.** Its Anomaly Attention scores each sequence by the divergence between a _series association_ (global dependencies) and a _prior association_ (local adjacency), combined with reconstruction error. EM-AT adds **EM-GMM-based automated thresholding** — a Gaussian mixture fitted to the score distribution sets the cut-off from the estimated normal proportion, so no per-device tuning is needed.
 
-**BAT — the cloud detector.** A single EM-AT is sensitive to its training sample and hyperparameters, especially for rare anomalies. BAT bags **81** EM-AT learners, each on a bootstrap subset with a different configuration (epochs, loss weight, encoder depth, batch size), each with its own EM-GMM threshold, combined by majority vote. Code: [training_pipeline/](training_pipeline/), [cesal_inference_pipeline/lad_bat_cloud.py](cesal_inference_pipeline/lad_bat_cloud.py).
+**BAT — the cloud detector.** A single EM-AT is sensitive to its training sample and hyperparameters, especially for rare anomalies. BAT ensembles **81** EM-AT learners, each on a bootstrap subset with a different configuration (epochs, loss weight, encoder depth, batch size), each with its own EM-GMM threshold, combined by majority vote.
 
-**Q-BAT — the edge detector.** BAT is too heavy for edge hardware. Q-BAT keeps **3** learners and quantizes them with TorchAO (8-bit activations, 4-bit weights), exporting each as an ExecuTorch `.pte` program — ensemble robustness at a size a Raspberry Pi can run. Code: [quantization/qbat_export.py](quantization/qbat_export.py), [cesal_inference_pipeline/lad_qbat_edge.py](cesal_inference_pipeline/lad_qbat_edge.py).
+**Q-BAT — the edge detector.** For efficient edge-side inference, Q-BAT keeps **3** learners and quantizes them with TorchAO (8-bit activations, 4-bit weights), exporting each as an ExecuTorch program — ensemble robustness at a size a Raspberry Pi can run.
 
-**LLM classifier.** Qwen2.5-14B-Instruct by default. Retrieved reference sequences plus open-set decision rules label each detected sequence as one of 10 known HDFS anomaly types or unknown, which then selects a response workflow. Code: [incident_response/](incident_response/).
+**LLM classifier.** Qwen2.5-14B-Instruct by default. Retrieved reference sequences plus open-set decision rules label each detected sequence as one of 10 known HDFS anomaly types or unknown, which then selects a response workflow.
 
 ### Framework Overview
 
@@ -456,12 +456,12 @@ Numbers from the paper (Section 4), which also reports baselines, the BAT ensemb
 
 What the published numbers were measured on. **Running CESAL needs far less** — see [What you need to run CESAL](#what-you-need-to-run-cesal).
 
-| Platform                      | Hardware profile                                                                     | OS                    | Role                               |
-| ----------------------------- | ------------------------------------------------------------------------------------ | --------------------- | ---------------------------------- |
-| **Talon cluster node**        | 2 × 18-core Xeon Gold 6140; 8 × NVIDIA Tesla V100; 1.5 TB memory                     | RHEL 9.2              | BAT training, cloud verification   |
-| **Dell PowerEdge R650**       | 36-core Xeon Platinum; Mellanox ConnectX-6 100 Gb NIC; 256 GB memory                 | Ubuntu 24.04.2        | Log collection and storage         |
-| **2 × i7-14700 servers**      | 28 cores / 56 threads; NVIDIA RTX 2000 Ada Generation; 32 GB memory                  | Windows 11 / Ubuntu 24.04.2 | Processing, Q-BAT prep, conversion |
-| **Raspberry Pi 5 / 4B / 3B+** | Cortex-A76 / A72 / A53, 4 cores; 8 / 8 / 1 GB memory                                 | Ubuntu 20.04.5        | Edge deployment measurements       |
+| Platform                      | Hardware profile                                                     | OS                          | Role                               |
+| ----------------------------- | -------------------------------------------------------------------- | --------------------------- | ---------------------------------- |
+| **Talon cluster node**        | 2 × 18-core Xeon Gold 6140; 8 × NVIDIA Tesla V100; 1.5 TB memory     | RHEL 9.2                    | BAT training, cloud verification   |
+| **Dell PowerEdge R650**       | 36-core Xeon Platinum; Mellanox ConnectX-6 100 Gb NIC; 256 GB memory | Ubuntu 24.04.2              | Log collection and storage         |
+| **2 × i7-14700 servers**      | 28 cores / 56 threads; NVIDIA RTX 2000 Ada Generation; 32 GB memory  | Windows 11 / Ubuntu 24.04.2 | Processing, Q-BAT prep, conversion |
+| **Raspberry Pi 5 / 4B / 3B+** | Cortex-A76 / A72 / A53, 4 cores; 8 / 8 / 1 GB memory                 | Ubuntu 20.04.5              | Edge deployment measurements       |
 
 ### Log-based incident detection (Table 3)
 
