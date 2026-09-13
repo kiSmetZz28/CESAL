@@ -1007,6 +1007,8 @@ def _workflow_payload(label: str) -> dict:
     return {
         "anomaly_type": wf.anomaly_type,
         "automated": wf.automated,
+        # The Table 1 row verbatim, alongside its ';'-separated steps.
+        "description": wf.description,
         "steps": [{"action": s.action, "requires_approval": s.requires_approval,
                    "escalation": s.escalation} for s in wf.steps],
     }

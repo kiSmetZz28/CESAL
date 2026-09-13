@@ -95,13 +95,21 @@ class Workflow:
     anomaly_type: str
     steps: Tuple[WorkflowStep, ...]
     automated: bool   # False for unknown anomalies: preserved and flagged for human investigation
+    description: str = ""   # the Table 1 row, verbatim
 
 
 def _parse_steps(text: str) -> Tuple[WorkflowStep, ...]:
+    """Split a Table 1 row into its ';'-separated steps, word for word.
+
+    Only surrounding whitespace is removed: the clause keeps the paper's own
+    capitalisation, and the final one keeps its full stop, so what the dashboard
+    and CLI print is the wording in Table 1 rather than a reworded paraphrase.
+    """
     steps = []
-    for clause in text.rstrip(".").split(";"):
+    for clause in text.split(";"):
         action = clause.strip()
-        action = action[0].upper() + action[1:]
+        if not action:
+            continue
         steps.append(WorkflowStep(
             action=action,
             requires_approval="approval" in action.lower(),
@@ -111,7 +119,8 @@ def _parse_steps(text: str) -> Tuple[WorkflowStep, ...]:
 
 
 WORKFLOWS: Dict[str, Workflow] = {
-    name: Workflow(anomaly_type=name, steps=_parse_steps(text), automated=name != UNKNOWN_WORKFLOW_NAME)
+    name: Workflow(anomaly_type=name, steps=_parse_steps(text),
+                   automated=name != UNKNOWN_WORKFLOW_NAME, description=text)
     for name, text in _TABLE_1.items()
 }
 assert set(WORKFLOWS) == set(KNOWN_LABELS) | {UNKNOWN_WORKFLOW_NAME}
@@ -127,6 +136,10 @@ def select_workflow(predicted_label: str) -> Workflow:
 def format_workflow(workflow: Workflow) -> str:
     lines = [f"Workflow: {workflow.anomaly_type}"
              + ("" if workflow.automated else "  (no automated mitigation — human investigation)")]
+    if workflow.description:
+        # Print the Table 1 row as the paper words it, before the step breakdown.
+        lines.append(f"  Table 1: {workflow.description}")
+        lines.append("")
     for i, step in enumerate(workflow.steps, 1):
         tags = [t for t, on in (("requires administrator approval", step.requires_approval),
                                 ("escalation", step.escalation)) if on]

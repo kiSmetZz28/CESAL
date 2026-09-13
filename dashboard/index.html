@@ -2749,6 +2749,12 @@ async function irOpenDetail(sessionId) {
         <div>
           <div class="card-title">Response workflow — ${esc(wf.anomaly_type||'—')}
             ${wf.automated?'<span class="pill-ok">automated</span>':'<span class="pill-warn">human investigation</span>'}</div>
+          ${wf.description?`<div style="font-size:11px;color:var(--muted);line-height:1.6;
+             background:var(--bg);border:1px solid var(--border);border-radius:6px;
+             padding:8px 10px;margin-bottom:10px">
+             <span style="font-size:9.5px;font-weight:700;text-transform:uppercase;
+                   letter-spacing:.06em;display:block;margin-bottom:3px">Paper Table 1, verbatim</span>
+             ${esc(wf.description)}</div>`:''}
           <ol style="font-size:11px;line-height:1.7;padding-left:18px;margin-bottom:16px">${steps}</ol>
           <div class="card-title">Retrieved evidence (top-k)</div>
           <table class="tbl">
@@ -2810,7 +2816,7 @@ const TOUR_STEPS = [
     desc: 'Pick the system logs to analyse. <strong>HDFS</strong> and <strong>OpenStack</strong> are both live in this demo.',
     target: '.ds-grid', pad: 10, pos: 'right' },
   { title: '② Start the Analysis',
-    desc: 'Click <strong style="color:#16a34a">▶ Start Full Test Set Analysis</strong> to run the test set through the detection pipeline — Edge, Routing, and Cloud — and see aggregate metrics (accuracy, precision, recall, F1). Classification and response run separately, via <code>run.py respond</code>.',
+    desc: 'Click <strong style="color:#16a34a">▶ Start Full Test Set Analysis</strong> to run the test set through the pipeline and see aggregate metrics (accuracy, precision, recall, F1). Leave <strong>Also classify each incident and choose its response</strong> ticked and the same click continues into incident response — eight steps in total, Edge through Workflow.',
     target: '#runBtn', pad: 8, pos: 'right' },
   { title: '③ Watch the Pipeline Tab',
     desc: 'Switch here to see raw log messages, parsed sessions, and live stage-by-stage progress.',
