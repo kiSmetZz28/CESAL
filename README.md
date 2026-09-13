@@ -193,52 +193,6 @@ python run.py infer os                # edge scan → routing → cloud re-check
 python run.py infer hdfs
 ```
 
-#### Reading the output
-
-Every stage — `infer`, `train`, `convert`, `classify`, `respond` — reports as numbered steps. Each names the sub-steps running inside it, and closes with **what it found** and how long it took:
-
-```
-──────────────────────────────────────────────────────────────────
- STEP 2/4 · Uncertainty routing
-──────────────────────────────────────────────────────────────────
-   Windows the device was least sure about are picked out for a second opinion.
-   distance .................... Mahalanobis
-   tolerance ................... 10% of events
-   ├─ learning how the scores normally spread
-   covariance fitted on ........ 52,200 training events
-   ├─ measuring how certain each window was
-   ├─ collecting the events to send to the cloud
-   events considered ........... 4,000
-   routed to cloud ............. 400 (10.0%)
-   kept at edge ................ 3,600
-   ✓ done in 1.3s
-```
-
-Each step is introduced in plain language, so the output is followable without knowing the system. The run ends with a summary of every step, its state and its duration, followed by the scores:
-
-```
-══════════════════════════════════════════════════════════════════
- RUN SUMMARY · infer · Openstack
-══════════════════════════════════════════════════════════════════
-   1. ✓ Edge Q-BAT scan .................... 41.0s
-   2. ✓ Uncertainty routing ................ 1.3s
-   3. ✓ Cloud BAT verification ............. 1m 41.6s
-   4. ✓ Hybrid merge & scoring ............. 0.4s
-   ────────────────────────────────────────────────────────────
-   Scores
-     Edge      P  99.06   R 100.00   F1  99.53
-     Hybrid    P  99.96   R 100.00   F1  99.98
-   ────────────────────────────────────────────────────────────
-   outputs ................................. outputs/os
-   total time .............................. 2m 24.3s
-```
-
-A step that does not run says so with its reason (`3. – Cloud BAT verification ... skipped`) rather than disappearing. Steps 3 and 4 run in `cesal-cloud` as a subprocess, but the numbering and summary span both processes, so one run reads as one sequence.
-
-Long-running work draws a progress bar with a time estimate; the terminal stays a digest (81 cloud checkpoints report as `21/81 models (25%)`, not 81 lines) while the full per-model record goes to the timestamped DEBUG log under `logs/`.
-
-Every `run.py` command reports this way — `download`, `train`, `eval`, `convert`, `infer`, `classify` and `respond`. For `train`, `eval` and `convert`, see [Advanced Options](#advanced-options).
-
 ### What you need to run CESAL
 
 Far less than the paper's testbed ([Hardware setup](#hardware-setup-section-41) records what the published numbers were measured on).

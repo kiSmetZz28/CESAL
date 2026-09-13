@@ -322,14 +322,52 @@ select:focus{outline:none;border-color:var(--blue);}
 .prog-bar-fill{height:100%;border-radius:4px;background:var(--blue);transition:width .4s;}
 
 /* ── Response workflows (paper Table 1) ─────────────────── */
-.wf-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:10px;}
-.wf-card{border:1px solid var(--border);border-radius:8px;padding:10px 12px;background:var(--bg);}
-.wf-hd{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:6px;}
-.wf-name{font-size:12px;font-weight:700;color:var(--text);}
+.wf-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px;}
+
+/* A card is a filter control: clicking it narrows the incident list below. */
+.wf-card{display:flex;flex-direction:column;background:var(--bg);cursor:pointer;
+  border:1px solid var(--border);border-left:3px solid var(--green);border-radius:10px;
+  padding:12px 14px;transition:border-color .15s,box-shadow .15s,background .15s;}
+.wf-card.manual{border-left-color:var(--amber);}
+.wf-card:hover{background:var(--card);box-shadow:0 4px 14px rgba(15,23,42,.09);}
+.wf-card:focus-visible{outline:2px solid var(--blue);outline-offset:2px;}
+.wf-card.active{background:var(--card);border-color:var(--blue);box-shadow:0 0 0 1px var(--blue);}
+.wf-card.active{border-left-color:var(--green);}      /* keep the automation accent */
+.wf-card.active.manual{border-left-color:var(--amber);}
+.wf-hd{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;}
+.wf-name{font-size:12.5px;font-weight:700;color:var(--text);line-height:1.4;}
 .wf-n{font-size:10px;color:var(--muted);margin-left:auto;white-space:nowrap;}
-.wf-steps{margin:0;padding-left:17px;font-size:11px;line-height:1.65;color:var(--muted);}
-.wf-steps li{margin-bottom:3px;}
+.wf-meta{font-size:10px;color:var(--muted);margin:5px 0 9px;
+  display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.wf-cta{margin-top:auto;padding-top:9px;border-top:1px dashed var(--border);
+  font-size:10.5px;font-weight:600;color:var(--blue);}
+.wf-card:hover .wf-cta{text-decoration:underline;}
+
+/* Numbered steps, with the gated ones marked in the margin. */
+.wf-steps{list-style:none;margin:0 0 10px;padding:0;counter-reset:wfstep;}
+.wf-steps li{position:relative;counter-increment:wfstep;padding-left:23px;margin-bottom:6px;
+  font-size:11px;line-height:1.6;color:var(--muted);}
 .wf-steps li:last-child{margin-bottom:0;}
+.wf-steps li::before{content:counter(wfstep);position:absolute;left:0;top:1px;
+  width:16px;height:16px;border-radius:50%;background:var(--card);
+  border:1px solid var(--border);color:var(--muted);
+  font-size:9px;font-weight:700;line-height:14px;text-align:center;}
+.wf-steps li.gate::before{background:#fff7ed;border-color:#fed7aa;color:var(--amber);}
+.wf-steps li.esc::before {background:#fef2f2;border-color:#fecaca;color:var(--red);}
+
+/* The workflow is the point of the detail view, so it gets a panel of its own. */
+.wf-hero{border:1px solid var(--border);border-left:3px solid var(--green);
+  border-radius:10px;padding:14px 16px;background:var(--bg);}
+.wf-hero.manual{border-left-color:var(--amber);}
+.wf-hero-eyebrow{display:block;font-size:9.5px;font-weight:700;text-transform:uppercase;
+  letter-spacing:.07em;color:var(--muted);margin-bottom:5px;}
+.wf-hero-name{font-size:15px;font-weight:700;color:var(--text);line-height:1.35;margin-bottom:7px;}
+.wf-hero-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  font-size:10.5px;color:var(--muted);padding-bottom:11px;margin-bottom:12px;
+  border-bottom:1px solid var(--border);}
+.wf-hero .wf-steps li{font-size:12px;line-height:1.65;color:var(--text);margin-bottom:9px;}
+.wf-hero .wf-steps li::before{width:18px;height:18px;line-height:16px;font-size:10px;}
+.wf-hero .wf-steps{margin-bottom:0;}
 .wf-ico{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;
   border:1px solid var(--border);border-radius:50%;font-size:9px;font-weight:700;line-height:1;
   color:var(--muted);cursor:help;margin-left:5px;vertical-align:middle;user-select:none;}
@@ -2637,21 +2675,26 @@ function irRenderSummary(d) {
   </tr>`).join('');
 
   // The response half of the framework: what each selected workflow actually
-  // prescribes, in the paper's own words, with its gated steps marked.
-  const wfCards = d.labels.map(l=>{
-    const steps = (l.steps||[]).map(st=>{
-      const tag = st.requires_approval ? ' <span class="pill-warn">needs approval</span>'
-                : st.escalation        ? ' <span class="pill-no">escalation</span>' : '';
-      return `<li>${esc(st.action)}${tag}</li>`;
-    }).join('');
-    return `<div class="wf-card">
+  // prescribes, in the paper's own words. Each card filters the list below.
+  const wfCards = d.labels.map((l,i)=>{
+    const bits = [`${(l.steps||[]).length} steps`];
+    if (l.approval_steps)   bits.push(`${l.approval_steps} approval-gated`);
+    if (l.escalation_steps) bits.push(`${l.escalation_steps} escalation`);
+    const n = l.count.toLocaleString();
+    return `<div class="wf-card${l.automated_response?'':' manual'}" data-wf-card="${i}"
+         role="button" tabindex="0" onclick="irFilterByLabel(${i})"
+         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();irFilterByLabel(${i})}">
       <div class="wf-hd">
         <span class="wf-name">${esc(l.label)}</span>
+        <span class="wf-n">${n} incidents</span>
+      </div>
+      <div class="wf-meta">
         ${l.automated_response?'<span class="pill-ok">automated</span>'
                               :'<span class="pill-warn">human investigation</span>'}
-        <span class="wf-n">${l.count.toLocaleString()} incidents</span>
+        <span>${bits.join(' · ')}</span>
       </div>
-      ${steps?`<ol class="wf-steps">${steps}</ol>`:''}
+      <ol class="wf-steps">${wfStepsHtml(l.steps)}</ol>
+      <div class="wf-cta">View ${n} incidents →</div>
     </div>`;
   }).join('');
 
@@ -2695,19 +2738,45 @@ function irRenderSummary(d) {
 
     <div class="card-title" style="margin-top:18px">Selected response workflows
       <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0">
-        — predefined per anomaly type (paper Table 1), word for word</span></div>
+        — predefined per anomaly type (paper Table 1), word for word · click a card to list its incidents</span></div>
     <div class="wf-grid">${wfCards}</div>`;
 }
 
 // ── Workflow hover tooltip ────────────────────────────────────────────────
 // The compact type table has no room for the workflow text, so the ⓘ next to
 // each predicted type reveals the Table 1 row it selects, word for word.
-function wfTipHtml(l) {
-  const steps = (l.steps||[]).map(st=>{
+// Steps are the ';'-separated clauses of the Table 1 row; approval-gated and
+// escalating ones are marked so the controlled part of the response is visible.
+function wfStepsHtml(steps) {
+  return (steps||[]).map(st=>{
+    const cls = st.requires_approval ? 'gate' : st.escalation ? 'esc' : '';
     const tag = st.requires_approval ? ' <span class="pill-warn">needs approval</span>'
               : st.escalation        ? ' <span class="pill-no">escalation</span>' : '';
-    return `<li>${esc(st.action)}${tag}</li>`;
+    return `<li class="${cls}">${esc(st.action)}${tag}</li>`;
   }).join('');
+}
+
+// Clicking a workflow card filters the incident list to that anomaly type;
+// clicking the active card clears the filter again.
+function irFilterByLabel(i) {
+  const l = (window.IR_LABELS||[])[i];
+  if (!l) return;
+  const sel = document.getElementById('irLabelSel');
+  sel.value = sel.value === l.label ? '' : l.label;
+  irLoadList(0);
+  sel.scrollIntoView({behavior:'smooth', block:'center'});
+}
+
+function irSyncCards() {
+  const v = (document.getElementById('irLabelSel')||{}).value || '';
+  document.querySelectorAll('[data-wf-card]').forEach(c=>{
+    const l = (window.IR_LABELS||[])[+c.dataset.wfCard];
+    c.classList.toggle('active', !!l && l.label === v);
+  });
+}
+
+function wfTipHtml(l) {
+  const steps = wfStepsHtml(l.steps);
   return `<div class="wf-tip-name">${esc(l.label)}
       ${l.automated_response?'<span class="pill-ok">automated</span>'
                             :'<span class="pill-warn">human investigation</span>'}</div>
@@ -2783,6 +2852,7 @@ function irResponseCell(r) {
 
 async function irLoadList(page) {
   IR.page = Math.max(0, page);
+  irSyncCards();          // keep the workflow cards in step with the type filter
   const label = encodeURIComponent(document.getElementById('irLabelSel').value||'');
   const url = `/api/incidents/list?dataset=${S.dataset}&queue=${IR.queue}&label=${label}`
             + `&ground_truth=${IR.gt}&page=${IR.page}&per_page=${IR.perPage}`;
@@ -2810,7 +2880,7 @@ async function irLoadList(page) {
     document.getElementById('irPagerInfo').textContent =
       `${IR.total.toLocaleString()} incidents · page ${IR.page+1} / ${maxPage+1}`;
   } catch(e) {
-    body.innerHTML = `<tr><td colspan="10" style="color:var(--red);padding:12px">Error: ${esc(e.message)}</td></tr>`;
+    body.innerHTML = `<tr><td colspan="6" style="color:var(--red);padding:12px">Error: ${esc(e.message)}</td></tr>`;
   }
 }
 
@@ -2822,15 +2892,11 @@ async function irOpenDetail(sessionId) {
     if (!d.available) { el.innerHTML = `<div class="empty" style="padding:16px"><p>${esc(d.reason||'Not found.')}</p></div>`; return; }
     const inc = d.incident, wf = d.workflow || {};
 
-    const steps = (wf.steps||[]).map((s,i)=>{
-      const tags = [s.requires_approval?'<span class="pill-warn">needs approval</span>':'',
-                    s.escalation?'<span class="pill-no">escalation</span>':''].filter(Boolean).join(' ');
-      return `<li style="margin-bottom:6px">${esc(s.action)} ${tags}</li>`;
-    }).join('');
-
-    const retr = (d.retrieved||[]).map(r=>`<tr>
-      <td>${esc(r.label)}</td><td>${Number(r.score).toFixed(4)}</td>
-      <td class="mono" style="max-width:420px">${esc(r.sequence)}</td></tr>`).join('');
+    const wfBits = [`${(wf.steps||[]).length} steps`];
+    const nAppr = (wf.steps||[]).filter(x=>x.requires_approval).length;
+    const nEsc  = (wf.steps||[]).filter(x=>x.escalation).length;
+    if (nAppr) wfBits.push(`${nAppr} approval-gated`);
+    if (nEsc)  wfBits.push(`${nEsc} escalation`);
 
     el.innerHTML = `
       <div class="card-title">Incident — session ${inc.session_id}</div>
@@ -2843,8 +2909,6 @@ async function irOpenDetail(sessionId) {
               <tr><th style="text-align:left">Events</th><td>${inc.n_events} (${inc.n_anomalous_events} anomalous, ${inc.n_routed_events} routed to cloud)</td></tr>
               <tr><th style="text-align:left">Edge energy (max)</th><td>${inc.edge_energy_max??'—'}</td></tr>
               <tr><th style="text-align:left">Predicted type</th><td><strong>${esc(inc.pred_label)}</strong></td></tr>
-              <tr><th style="text-align:left">Decision source</th><td style="font-family:monospace;font-size:11px">${esc(inc.decision_source)}</td></tr>
-              <tr><th style="text-align:left">Retrieval score</th><td>${inc.best_score!=null?Number(inc.best_score).toFixed(4):'—'}</td></tr>
             </tbody>
           </table>
           <div class="card-title" style="margin-top:16px">Template sequence</div>
@@ -2855,21 +2919,15 @@ async function irOpenDetail(sessionId) {
             <div class="log-tbl-wrap" style="max-height:100px;padding:8px">
               <span style="font-family:monospace;font-size:11px;word-break:break-word">${esc(d.raw_output)}</span></div>`:''}
         </div>
-        <div>
-          <div class="card-title">Response workflow — ${esc(wf.anomaly_type||'—')}
-            ${wf.automated?'<span class="pill-ok">automated</span>':'<span class="pill-warn">human investigation</span>'}</div>
-          ${wf.description?`<div style="font-size:11px;color:var(--muted);line-height:1.6;
-             background:var(--bg);border:1px solid var(--border);border-radius:6px;
-             padding:8px 10px;margin-bottom:10px">
-             <span style="font-size:9.5px;font-weight:700;text-transform:uppercase;
-                   letter-spacing:.06em;display:block;margin-bottom:3px">Paper Table 1, verbatim</span>
-             ${esc(wf.description)}</div>`:''}
-          <ol style="font-size:11px;line-height:1.7;padding-left:18px;margin-bottom:16px">${steps}</ol>
-          <div class="card-title">Retrieved evidence (top-k)</div>
-          <table class="tbl">
-            <thead><tr><th>Label</th><th>Score</th><th>Knowledge-base sequence</th></tr></thead>
-            <tbody>${retr || '<tr><td colspan="3" style="color:var(--muted)">No retrieval record.</td></tr>'}</tbody>
-          </table>
+        <div class="wf-hero${wf.automated?'':' manual'}">
+          <span class="wf-hero-eyebrow">Selected response workflow · paper Table 1, word for word</span>
+          <div class="wf-hero-name">${esc(wf.anomaly_type||'—')}</div>
+          <div class="wf-hero-meta">
+            ${wf.automated?'<span class="pill-ok">automated</span>'
+                          :'<span class="pill-warn">human investigation</span>'}
+            <span>${wfBits.join(' · ')}</span>
+          </div>
+          <ol class="wf-steps">${wfStepsHtml(wf.steps)}</ol>
         </div>
       </div>`;
     el.scrollIntoView({behavior:'smooth', block:'nearest'});

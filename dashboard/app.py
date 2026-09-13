@@ -1100,23 +1100,9 @@ async def incidents_detail(dataset: str = "hdfs", session_id: int = 0):
         raise HTTPException(404, f"No queued incident with session_id {session_id}")
 
     cls = data["classified"].get(row["template_sequence"], {})
-
-    def _parse(field: str) -> list:
-        try:
-            return json.loads(cls.get(field) or "[]")
-        except ValueError:
-            return []
-
-    retrieved = [
-        {"label": lab, "score": score, "sequence": seq}
-        for lab, score, seq in zip(_parse("retrieved_labels"), _parse("retrieved_scores"),
-                                   _parse("retrieved_sequences"))
-    ]
     return {
         "available": True,
         "incident": row,
-        "candidate_labels": _parse("candidate_labels"),
-        "retrieved": retrieved,
         "raw_output": cls.get("raw_output", ""),
         "workflow": _workflow_payload(row["pred_label"]),
     }
