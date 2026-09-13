@@ -266,12 +266,14 @@ select:focus{outline:none;border-color:var(--blue);}
 .stage-step{flex:1;text-align:center;padding:7px 4px;border-bottom:2px solid var(--border);font-size:11px;color:var(--muted);transition:color .2s,border-color .2s;}
 .stage-step.active{color:var(--blue);border-color:var(--blue);font-weight:700;}
 .stage-step.done{color:var(--green);border-color:var(--green);}
+.stage-step.skipped{color:var(--muted);border-color:var(--border);opacity:.65;}
+.stage-step.failed{color:var(--red);border-color:var(--red);font-weight:700;}
 .stage-step .s-icon{font-size:14px;display:block;margin-bottom:2px;}
 .live-banner{display:flex;align-items:center;gap:10px;background:rgba(37,99,235,.07);border:1px solid rgba(37,99,235,.2);border-radius:8px;padding:10px 14px;margin-bottom:12px;}
 .lb-ico{font-size:20px;flex-shrink:0;}
 .lb-main{font-size:13px;font-weight:700;}
 .lb-sub{font-size:11px;color:var(--muted);margin-top:2px;line-height:1.5;}
-.live-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.live-grid{display:grid;grid-template-columns:1fr 1.3fr;gap:10px;align-items:start;}
 @media(max-width:700px){.live-grid{grid-template-columns:1fr;}}
 .live-box{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;}
 .live-box-title{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;}
@@ -279,7 +281,41 @@ select:focus{outline:none;border-color:var(--blue);}
 .thresh-row:last-child{border-bottom:none;}
 .thresh-name{font-family:monospace;color:var(--muted);font-size:10px;}
 .thresh-val{color:var(--amber);font-weight:700;}
-.live-metric-row{display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid rgba(51,65,85,.4);font-size:11px;}
+
+/* ── Step list: every step, its sub-steps and what it found ────────────── */
+.steps-wrap{max-height:520px;overflow-y:auto;padding-right:2px;}
+.step-card{border:1px solid var(--border);border-radius:6px;margin-bottom:6px;overflow:hidden;}
+.step-card:last-child{margin-bottom:0;}
+.step-card.sc-active{border-color:var(--blue);box-shadow:0 0 0 1px rgba(37,99,235,.18);}
+.step-hd{display:flex;align-items:center;gap:8px;padding:6px 9px;background:rgba(148,163,184,.07);}
+.step-card.sc-active .step-hd{background:rgba(37,99,235,.09);}
+.step-card.sc-done  .step-hd{background:rgba(22,163,74,.07);}
+.step-card.sc-fail  .step-hd{background:rgba(220,38,38,.08);}
+.step-n{font-size:10px;font-weight:700;color:var(--muted);min-width:14px;}
+.step-ttl{font-size:11.5px;font-weight:700;flex:1;}
+.step-card.sc-active .step-ttl{color:var(--blue);}
+.step-card.sc-done  .step-ttl{color:var(--green);}
+.step-card.sc-fail  .step-ttl{color:var(--red);}
+.step-dur{font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums;}
+.step-body{padding:5px 9px 7px;}
+/* One row per fact. The label wraps, the value never splits from it. */
+.sr{display:flex;gap:8px;align-items:baseline;padding:2px 0;font-size:11px;line-height:1.45;}
+.sr-k{color:var(--muted);flex:1;min-width:0;overflow-wrap:anywhere;}
+.sr-v{font-weight:700;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;}
+/* Row kinds — a sub-step, an input, a result and a warning must not look alike. */
+.sr-phase .sr-k{color:var(--blue);font-weight:600;}
+.sr-phase .sr-v{color:var(--muted);font-weight:400;}
+.sr-out{background:rgba(22,163,74,.06);border-radius:3px;padding:2px 5px;margin:1px -5px;}
+.sr-out .sr-k{color:var(--text);}
+.sr-out .sr-v{color:var(--green);}
+.sr-in  .sr-v{color:var(--amber);}
+.sr-warn{background:rgba(217,119,6,.10);border-radius:3px;padding:3px 5px;margin:2px -5px;}
+.sr-warn .sr-k{color:var(--amber);font-weight:600;}
+.sr-warn .sr-v{display:none;}
+.sr-skip .sr-k{color:var(--muted);font-style:italic;}
+.sr-skip .sr-v{display:none;}
+.step-outhd{font-size:9.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:6px 0 2px;}
+.live-metric-row{display:grid;grid-template-columns:80px repeat(4,minmax(0,1fr));gap:10px;align-items:center;padding:4px 0;border-bottom:1px solid rgba(51,65,85,.4);font-size:11px;max-width:620px;}
 .live-metric-row:last-child{border-bottom:none;}
 .op-line{font-size:11px;color:var(--blue);min-height:16px;font-family:monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .prog-bar-wrap{background:var(--border);border-radius:4px;height:5px;margin-top:5px;overflow:hidden;}
@@ -788,21 +824,23 @@ select:focus{outline:none;border-color:var(--blue);}
       </div>
       <div class="live-grid">
         <div class="live-box">
-          <div class="live-box-title">What's happening now</div>
+          <div class="live-box-title" id="nowTitle">What's happening now</div>
           <div class="op-line" id="opLine">—</div>
           <div id="stepProgWrap" style="display:none;margin-top:6px">
             <div class="prog-bar-wrap"><div class="prog-bar-fill" id="stepProgFill" style="width:0%"></div></div>
           </div>
-          <div style="height:8px"></div>
-          <div class="live-box-title">Events sent to cloud</div>
-          <div id="routingLive" style="font-size:13px"><span style="color:var(--muted)">Calculated after edge scan…</span></div>
+          <div id="routingBlock">
+            <div style="height:8px"></div>
+            <div class="live-box-title">Events sent to cloud</div>
+            <div id="routingLive" style="font-size:13px"><span style="color:var(--muted)">Calculated after edge scan…</span></div>
+          </div>
         </div>
         <div class="live-box">
-          <div class="live-box-title" id="stepDetailTitle">Current step</div>
-          <div style="font-size:10px;color:var(--muted);margin-bottom:5px" id="stepDetailSub">What this step is working on, and what it found</div>
-          <div id="threshLive" style="max-height:132px;overflow-y:auto"><span style="color:var(--muted);font-size:11px">Details appear as each step runs…</span></div>
+          <div class="live-box-title" id="stepDetailTitle">Steps</div>
+          <div style="font-size:10px;color:var(--muted);margin-bottom:6px" id="stepDetailSub">What each step worked on, and what it found</div>
+          <div class="steps-wrap" id="threshLive"><span style="color:var(--muted);font-size:11px">Steps appear as the run starts…</span></div>
         </div>
-        <div class="live-box" style="grid-column:1/-1">
+        <div class="live-box" id="scoresBox" style="grid-column:1/-1">
           <div class="live-box-title">Detection scores (live)</div>
           <div style="font-size:10px;color:var(--muted);margin-bottom:6px">F-score is the most important — closer to 100% means better anomaly detection</div>
           <div id="metricsLive"><span style="color:var(--muted);font-size:11px">Results appear as each stage completes…</span></div>
@@ -1509,19 +1547,23 @@ const LP = {
   totalCloudModels:0, cloudModelsDone:0,
   // Structured-event state: set once the first "@@CESAL" event arrives, which
   // switches off the legacy prose-matching fallback for the rest of the run.
-  structured:false, plan:[], stepRows:{}, curStep:null, expect:null, trackIds:null,
+  structured:false, plan:[], stepInfo:{}, curStep:null, expect:null, trackIds:null, finished:false,
 };
 
 function resetLiveProgress() {
   LP.thresholds={}; LP.metrics=[]; LP.routing=null; LP.phase=0; LP._lastPrefix=null;
   LP.totalEdgeModels=0; LP.edgeModelsDone=0;
   LP.totalCloudModels=0; LP.cloudModelsDone=0;
-  LP.structured=false; LP.plan=[]; LP.stepRows={}; LP.curStep=null; LP.expect=null;
+  LP.structured=false; LP.plan=[]; LP.stepInfo={}; LP.curStep=null; LP.expect=null; LP.finished=false;
   LP.trackIds=null;
   document.getElementById('liveCard').style.display = 'block';
   document.getElementById('opLine').textContent = 'Starting up…';
+  document.getElementById('nowTitle').textContent = "What's happening now";
   document.getElementById('stepProgWrap').style.display = 'none';
-  document.getElementById('stepDetailTitle').textContent = 'Current step';
+  document.getElementById('stepDetailTitle').textContent = 'Steps';
+  ['routingBlock','scoresBox'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.style.display = '';
+  });
   document.getElementById('routingLive').innerHTML = '<span style="color:var(--muted)">Calculated after the edge scan…</span>';
   document.getElementById('threshLive').innerHTML  = '<span style="color:var(--muted);font-size:11px">Details appear as each step runs…</span>';
   document.getElementById('metricsLive').innerHTML = '<span style="color:var(--muted);font-size:11px">Results appear as each step completes…</span>';
@@ -1530,12 +1572,21 @@ function resetLiveProgress() {
 }
 
 function setStage(n) {
-  // Ids come from the running plan once one is declared; otherwise the static
-  // inference track that the page ships with.
-  const ids = (LP.trackIds && LP.trackIds.length)
-    ? LP.trackIds.map(id => 'stg-' + id)
-    : ['stg-edge','stg-routing','stg-cloud','stg-done'];
-  ids.forEach((id,i)=>{
+  // With a declared plan each segment shows that step's real state, so a step
+  // that was skipped or failed is not painted as though it had succeeded.
+  if (LP.trackIds && LP.trackIds.length) {
+    LP.trackIds.forEach((sid, i) => {
+      const el = document.getElementById('stg-' + sid); if (!el) return;
+      const state = (LP.stepInfo[sid] || {}).state || (i + 1 < n ? 'done' : 'pending');
+      el.className = 'stage-step';
+      if (state === 'running')      el.classList.add('active');
+      else if (state === 'done')    el.classList.add('done');
+      else if (state === 'skipped') el.classList.add('skipped');
+      else if (state === 'failed')  el.classList.add('failed');
+    });
+    return;
+  }
+  ['stg-edge','stg-routing','stg-cloud','stg-done'].forEach((id,i)=>{
     const el=document.getElementById(id); if(!el)return;
     el.className='stage-step';
     if(i+1<n)  el.classList.add('done');
@@ -1590,20 +1641,65 @@ function renderStageTrack(plan) {
   const track = document.querySelector('.stage-track');
   if (!track || !plan.length) return;
   LP.trackIds = plan.map(s => s.id);
+  const ids = new Set(LP.trackIds);
+  const show = (id, on) => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = on ? '' : 'none';
+  };
+  show('routingBlock', ids.has('route'));
+  show('scoresBox', ids.has('hybrid') || ids.has('ensemble') || ids.has('score'));
   track.innerHTML = plan.map(s =>
     `<div class="stage-step" id="stg-${s.id}">` +
     `<span class="s-icon">${STEP_ICON[s.id] || '⚙️'}</span>${esc(s.title)}</div>`
   ).join('');
 }
 
-function setStepDetails(id) {
-  const rows = LP.stepRows[id] || [];
+// Renders every step in the plan — not only the running one — so a finished run
+// still shows what each step did and what it found.
+const STATE_MARK = {done:'✓', running:'▶', failed:'✗', skipped:'–', pending:'·'};
+
+function setStepDetails() {
   const el = document.getElementById('threshLive');
-  if (!rows.length) {
-    el.innerHTML = '<span style="color:var(--muted);font-size:11px">Details appear as this step runs…</span>';
+  if (!LP.plan.length) {
+    el.innerHTML = '<span style="color:var(--muted);font-size:11px">Steps appear as the run starts…</span>';
     return;
   }
-  el.innerHTML = rows.map(r => `<div class="thresh-row"><span class="thresh-name">${esc(r.k)}</span><span class="thresh-val">${esc(r.v)}</span></div>`).join('');
+  el.innerHTML = LP.plan.map((s, i) => {
+    const info = LP.stepInfo[s.id] || {state: 'pending', rows: []};
+    const cls = {done:'sc-done', running:'sc-active', failed:'sc-fail'}[info.state] || '';
+    // A finished step keeps only its results; the running one shows everything,
+    // so the panel does not grow into an unreadable wall as the run proceeds.
+    const rows = info.state === 'done'
+      ? info.rows.filter(r => r.kind === 'out' || r.kind === 'warn')
+      : info.rows;
+    const body = rows.length
+      ? `<div class="step-body">${rows.map(renderStepRow).join('')}</div>` : '';
+    const dur = info.secs != null ? `${info.secs}s`
+              : info.state === 'running' ? 'running…'
+              : info.state === 'skipped' ? 'skipped' : '';
+    return `<div class="step-card ${cls}">
+      <div class="step-hd">
+        <span class="step-n">${STATE_MARK[info.state] || '·'} ${i + 1}</span>
+        <span class="step-ttl">${esc(s.title)}</span>
+        <span class="step-dur">${esc(dur)}</span>
+      </div>${body}</div>`;
+  }).join('');
+
+  setStage(LP.plan.length);
+  if (!LP.finished) {
+    const active = el.querySelector('.sc-active');
+    if (active) active.scrollIntoView({block: 'nearest'});
+  }
+}
+
+function renderStepRow(r) {
+  return `<div class="sr sr-${r.kind || 'in'}">` +
+         `<span class="sr-k">${esc(r.k)}</span>` +
+         `<span class="sr-v">${esc(r.v)}</span></div>`;
+}
+
+function stepInfo(id) {
+  return (LP.stepInfo[id] = LP.stepInfo[id] || {state: 'pending', rows: [], secs: null});
 }
 
 function esc(s) {
@@ -1623,10 +1719,11 @@ function applyStepEvent(e) {
 
     case 'run_start':
       LP.plan = e.steps || [];
-      LP.stepRows = {};
       // The track is built from the plan the runner declared, so a training or
       // conversion run shows its own steps rather than the inference labels.
       renderStageTrack(LP.plan);
+      LP.stepInfo = {};
+      setStepDetails();
       setFriendlyStatus('🚀', `Starting ${e.dataset || ''} ${e.run || 'run'}…`,
         (e.about || '').trim().split('\n')[0] ||
         (`${LP.plan.length} steps: ` + LP.plan.map(s => s.title).join(' → ')));
@@ -1634,14 +1731,15 @@ function applyStepEvent(e) {
 
     case 'step_start': {
       LP.curStep = e.id;
-      LP.stepRows[e.id] = [];
-      setStepDetails(e.id);
+      const si = stepInfo(e.id);
+      si.state = 'running'; si.rows = []; si.secs = null;
+      setStepDetails();
       setStepProgress(0, 0);
       const pos = STEP_POS[e.id] || e.n;
       setStage(pos);
       setFlowStep(STEP_FLOW[e.id]);
       document.getElementById('stepDetailTitle').textContent =
-        `Step ${e.n} of ${e.total} · ${e.title}`;
+        `Steps · ${e.n} of ${e.total}`;
       document.getElementById('opLine').textContent = e.title + '…';
       // Prefer the runner's own plain-language line; STEP_HELP is the fallback
       // for older runners that do not send one.
@@ -1652,8 +1750,8 @@ function applyStepEvent(e) {
     }
 
     case 'step_detail':
-      (LP.stepRows[e.id] = LP.stepRows[e.id] || []).push({k: e.k, v: e.v});
-      setStepDetails(e.id);
+      stepInfo(e.id).rows.push({k: e.k, v: e.v, kind: 'in'});
+      setStepDetails();
       break;
 
     case 'step_expect':
@@ -1674,19 +1772,18 @@ function applyStepEvent(e) {
     // updated with its duration when it closes, so the panel shows both what
     // is running now and what each earlier part cost.
     case 'step_phase': {
-      const rows = LP.stepRows[e.id] = LP.stepRows[e.id] || [];
-      rows.push({k: '▸ ' + e.name, v: 'running…', phase: e.name});
-      setStepDetails(e.id);
+      stepInfo(e.id).rows.push({k: '▸ ' + e.name, v: '…', phase: e.name, kind: 'phase'});
+      setStepDetails();
       document.getElementById('opLine').textContent = e.name + '…';
       break;
     }
 
     case 'step_phase_done': {
-      const rows = LP.stepRows[e.id] || [];
+      const rows = stepInfo(e.id).rows;
       for (let i = rows.length - 1; i >= 0; i--) {
         if (rows[i].phase === e.name) { rows[i].v = e.secs + 's'; break; }
       }
-      setStepDetails(e.id);
+      setStepDetails();
       break;
     }
 
@@ -1695,15 +1792,15 @@ function applyStepEvent(e) {
       break;
 
     case 'step_warn':
-      (LP.stepRows[e.id] = LP.stepRows[e.id] || []).push({k: '⚠ warning', v: e.msg});
-      setStepDetails(e.id);
+      stepInfo(e.id).rows.push({k: '⚠ ' + e.msg, v: '', kind: 'warn'});
+      setStepDetails();
       break;
 
     case 'step_done': {
-      const rows = LP.stepRows[e.id] = LP.stepRows[e.id] || [];
-      Object.entries(e.outcome || {}).forEach(([k, v]) => rows.push({k, v}));
-      rows.push({k: '✓ finished in', v: e.secs + 's'});
-      setStepDetails(e.id);
+      const si = stepInfo(e.id);
+      si.state = 'done'; si.secs = e.secs;
+      Object.entries(e.outcome || {}).forEach(([k, v]) => si.rows.push({k, v, kind: 'out'}));
+      setStepDetails();
       setStepProgress(0, 0);
       // Routing panel reads its numbers straight from the step's outcome.
       if (e.id === 'route' && e.outcome) {
@@ -1725,18 +1822,21 @@ function applyStepEvent(e) {
     }
 
     case 'step_skip': {
-      const rows = LP.stepRows[e.id] = LP.stepRows[e.id] || [];
-      rows.push({k: '– skipped', v: e.reason});
-      setStepDetails(e.id);
+      const si = stepInfo(e.id);
+      si.state = 'skipped';
+      si.rows.push({k: e.reason, v: '', kind: 'skip'});
+      setStepDetails();
       setFriendlyStatus('⏭️', `${e.title} was skipped`, e.reason);
       break;
     }
 
     case 'step_fail': {
-      const rows = LP.stepRows[e.id] = LP.stepRows[e.id] || [];
-      rows.push({k: '✗ failed', v: e.error});
-      setStepDetails(e.id);
-      setFriendlyStatus('❌', `${e.id} step failed`, e.error);
+      const si = stepInfo(e.id);
+      si.state = 'failed'; si.secs = e.secs;
+      Object.entries(e.outcome || {}).forEach(([k, v]) => si.rows.push({k, v, kind: 'out'}));
+      si.rows.push({k: '✗ ' + e.error, v: '', kind: 'warn'});
+      setStepDetails();
+      setFriendlyStatus('❌', `${e.title || e.id} failed`, e.error);
       break;
     }
 
@@ -1756,6 +1856,12 @@ function applyStepEvent(e) {
         best ? `${best.label}: ${best.f_score.toFixed(2)}% F-score · took ${e.secs}s`
              : `All ${LP.plan.length || ''} steps finished in ${e.secs}s.`);
       document.getElementById('opLine').textContent = `Finished in ${e.secs}s`;
+      document.getElementById('nowTitle').textContent = 'Run finished';
+      document.getElementById('stepDetailTitle').textContent =
+        `Steps · all ${LP.plan.length} complete`;
+      LP.finished = true;
+      setStepDetails();
+      document.getElementById('threshLive').scrollTop = 0;
       break;
     }
   }
