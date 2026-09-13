@@ -45,7 +45,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 __all__ = [
     "StepReporter", "Step", "INFER_STEPS", "TRAIN_STEPS", "CONVERT_STEPS",
-    "CLASSIFY_STEPS", "RESPOND_STEPS",
+    "EVAL_STEPS", "DOWNLOAD_STEPS", "CLASSIFY_STEPS", "RESPOND_STEPS",
     "current", "current_run",
     "bars_suppressed", "clear_bar", "redraw_bar", "fmt_count", "fmt_secs",
 ]
@@ -78,6 +78,21 @@ CONVERT_STEPS: List[Tuple[str, str, str]] = [
      "Check which trained models are on disk and ready to be shrunk."),
     ("convert", "Shrink models for the device",
      "Each model is compressed and repackaged so it can run on small edge hardware."),
+]
+
+EVAL_STEPS: List[Tuple[str, str, str]] = [
+    ("score",    "Score each model on its own",
+     "Every trained model is run over the test logs to see how well it does alone."),
+    ("ensemble", "Combine them into an ensemble",
+     "Models are added one at a time to show what the group gains over any single one."),
+]
+
+# `run.py download` — fetch the checkpoints and runtime the pipeline needs.
+DOWNLOAD_STEPS: List[Tuple[str, str, str]] = [
+    ("check", "Check what is already here",
+     "Look at what has been downloaded before so nothing is fetched twice."),
+    ("fetch", "Download the missing pieces",
+     "Pull the trained models, and the runtime the edge device needs to run them."),
 ]
 
 # `run.py classify` — benchmark the LLM incident classifier (paper Table 7).

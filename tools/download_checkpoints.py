@@ -29,9 +29,24 @@ Usage
 """
 
 import argparse
+import logging
 import sys
 from pathlib import Path
 from typing import List, Optional
+
+# Run directly as a script (as run.py does), so put the project root on the path.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from cesal_core.utils import steps
+from cesal_core.utils.config import setup_logging
+from cesal_core.utils.steps import StepReporter
+
+_ABOUT = """
+Fetching the trained models CESAL needs before it can analyse anything.
+These are the detectors produced by training — the full-size ones the cloud
+uses, and the shrunk ones the edge device runs. They are downloaded once and
+reused; anything already on disk is left alone.
+"""
 
 # CESAL Google Drive subfolder IDs, per checkpoint type and dataset
 _DRIVE_FOLDER_IDS = {
@@ -100,27 +115,70 @@ def download(ckpt_type: Optional[str], dataset: Optional[str]) -> None:
     types = [ckpt_type] if ckpt_type else list(_VALID_TYPES)
     datasets = [dataset] if dataset else list(_VALID_DATASETS)
 
-    print(f"Types    : {types}")
-    print(f"Datasets : {datasets}")
-    print(f"Output   : {_CHECKPOINTS_DIR}\n")
+    rep = StepReporter("download", steps=steps.DOWNLOAD_STEPS, about=_ABOUT)
 
-    for step, t in enumerate(types, 1):
-        label = "BAT" if t == "bat" else "Q-BAT"
-        ext = ".pth" if t == "bat" else ".pte"
-        print(f"Step {step}/{len(types)}  Downloading {label} checkpoints...")
-        for ds in datasets:
-            folder_id = _DRIVE_FOLDER_IDS[t].get(ds)
-            if not folder_id:
-                print(f"  [{t}/{ds}] WARNING: no Drive folder ID configured — skipping.")
-                continue
-            out_dir = _CHECKPOINTS_DIR / t / ds
-            print(f"  [{t}/{ds}] Downloading folder → {out_dir}")
-            _download_folder(folder_id, out_dir)
+    # ── Step 1: see what is already on disk ───────────────────────────────
+    targets = []
+    with rep.step("check") as st:
+        st.detail("checkpoint types", ", ".join(types))
+        st.detail("datasets", ", ".join(datasets))
+        st.detail("destination", str(_CHECKPOINTS_DIR))
+
+        already = 0
+        for t in types:
+            ext = ".pth" if t == "bat" else ".pte"
+            for ds in datasets:
+                folder = _CHECKPOINTS_DIR / t / ds
+                have = len(list(folder.glob(f"*{ext}"))) if folder.exists() else 0
+                already += have
+                if not _DRIVE_FOLDER_IDS[t].get(ds):
+                    st.warn(f"No download location is configured for {t}/{ds} — skipping it.")
+                    continue
+                targets.append((t, ds, ext, folder))
+                logging.info("   %-10s %s — %s already present", f"{t}/{ds}", ext,
+                             f"{have:,}" if have else "none")
+
+        st.outcome(**{
+            "collections to fetch": len(targets),
+            "files already present": already,
+        })
+
+    if not targets:
+        rep.skip("fetch", "Nothing to download — no configured location for the "
+                          "requested checkpoints.")
+        rep.finish(outputs=str(_CHECKPOINTS_DIR))
+        return
+
+    # ── Step 2: fetch them ────────────────────────────────────────────────
+    with rep.step("fetch") as st:
+        st.expect("collections", len(targets))
+        installed = 0
+        for t, ds, ext, out_dir in targets:
+            label = "BAT" if t == "bat" else "Q-BAT"
+            st.progress_note(f"{label} · {ds}")
+            st.phase(f"downloading {label} checkpoints for {ds}")
+            _download_folder(_DRIVE_FOLDER_IDS[t][ds], out_dir)
             n = sum(1 for f in out_dir.glob(f"*{ext}") if f.is_file())
-            print(f"            {n} {ext} file(s) installed.")
+            installed += n
+            logging.info("   %-10s %s %s file(s) now installed", f"{t}/{ds}",
+                         f"{n:,}", ext)
+            st.tick("collections")
 
-    print()
-    _verify(types, datasets)
+        st.outcome(**{
+            "collections fetched": len(targets),
+            "checkpoint files on disk": installed,
+            "total size": f"{_dir_size_mb(_CHECKPOINTS_DIR):,.0f} MB",
+        })
+
+    rep.finish(outputs=str(_CHECKPOINTS_DIR))
+
+
+def _dir_size_mb(path: Path) -> float:
+    """Total size of everything under `path`, in MB."""
+    try:
+        return sum(f.stat().st_size for f in path.rglob("*") if f.is_file()) / (1024 * 1024)
+    except OSError:
+        return 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -173,6 +231,7 @@ def _parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    setup_logging("download")
     args = _parse_args()
     types = [args.ckpt_type] if args.ckpt_type else list(_VALID_TYPES)
     datasets = [args.dataset] if args.dataset else list(_VALID_DATASETS)

@@ -237,7 +237,7 @@ A step that does not run says so with its reason (`3. – Cloud BAT verification
 
 Long-running work draws a progress bar with a time estimate; the terminal stays a digest (81 cloud checkpoints report as `21/81 models (25%)`, not 81 lines) while the full per-model record goes to the timestamped DEBUG log under `logs/`.
 
-For `train` and `convert`, see [Advanced Options](#advanced-options).
+Every `run.py` command reports this way — `download`, `train`, `eval`, `convert`, `infer`, `classify` and `respond`. For `train`, `eval` and `convert`, see [Advanced Options](#advanced-options).
 
 ### What you need to run CESAL
 
@@ -340,6 +340,25 @@ The LAD test data has no block IDs or timestamps, so records are keyed by sessio
 ---
 
 ## Advanced Options
+
+### Evaluate the ensemble
+
+```bash
+conda activate cesal-cloud
+python run.py eval os            # per-model scores, then incremental ensemble
+python run.py eval os majority   # a single voting method instead of all three
+```
+
+Scores each checkpoint alone, then adds them one at a time — weakest first — reporting F1 at a few ensemble sizes so the gain from ensembling is visible without 81 lines per voting method:
+
+```
+   ├─ how the ensemble grows
+   majority       F1 by ensemble size — 1:96.30  5:98.02  10:99.11  20:99.40  40:99.55  81:99.99
+   best voting method .......... consensus (F1 99.91)
+   gain over best single model .. +1.37 F1
+```
+
+> **Note.** `eval` recalibrates every model's EM-GMM threshold and **overwrites the bundled `outputs/<dataset>/thresholds_cloud.yaml` in place**, which changes what later `infer` runs do. The step says so as it happens. Back the file up first if you want to keep the shipped thresholds.
 
 ### Cloud-side re-check only
 

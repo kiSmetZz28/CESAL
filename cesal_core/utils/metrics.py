@@ -15,7 +15,8 @@ class Scores(NamedTuple):
     f_score: float
 
 
-def evaluate(gt: np.ndarray, pred: np.ndarray, prefix: str = "") -> Scores:
+def evaluate(gt: np.ndarray, pred: np.ndarray, prefix: str = "",
+             register: bool = True, level: int = logging.INFO) -> Scores:
     """Compute, log and register Accuracy / Precision / Recall / F-score.
 
     When a run is active (see :mod:`cesal_core.utils.steps`) the scores are also
@@ -30,6 +31,13 @@ def evaluate(gt: np.ndarray, pred: np.ndarray, prefix: str = "") -> Scores:
         Binary predictions, shape [N], values in {0, 1}.
     prefix : str
         Optional label for the result, e.g. "Edge" or "Hybrid".
+    register : bool
+        Add the scores to the run summary. Set False for intermediate results —
+        the ensemble sweep scores hundreds of partial ensembles, and every one
+        of those in the summary would bury the handful that matter.
+    level : int
+        Level to log the score line at; DEBUG keeps an intermediate result in
+        the log file without printing it.
 
     Returns
     -------
@@ -51,11 +59,12 @@ def evaluate(gt: np.ndarray, pred: np.ndarray, prefix: str = "") -> Scores:
     # front-end both regex-match it when replaying saved log files.
     indent = "   " if run is not None else ""
     label = f"[{prefix}] " if prefix else ""
-    logging.info(
+    logging.log(
+        level,
         "%s%sAccuracy: %.2f%%  Precision: %.2f%%  Recall: %.2f%%  F-score: %.2f%%",
         indent, label, scores.accuracy, scores.precision, scores.recall, scores.f_score,
     )
-    if run is not None:
+    if run is not None and register:
         run.metric(prefix or "Result", *scores)
 
     return scores

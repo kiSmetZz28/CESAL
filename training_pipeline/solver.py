@@ -12,6 +12,7 @@ from cesal_core.data.loaders import get_loader_segment
 from cesal_core.models.EMAT import EMAT
 from cesal_core.utils.energy import my_kl_loss
 from cesal_core.utils.metrics import evaluate as _evaluate
+from cesal_core.utils import steps as _steps
 from cesal_core.utils.steps import fmt_secs as _fmt_secs
 
 
@@ -33,9 +34,9 @@ def _log_cluster_percentages(em_pred: np.ndarray):
     total = len(em_pred)
     label_pct = {label: (count / total) * 100 for label, count in zip(unique, counts)}
     sorted_pct = sorted(label_pct.items(), key=lambda x: x[1], reverse=True)
-    logging.info("Label counts: %s", dict(zip(unique, counts)))
+    logging.debug("Label counts: %s", dict(zip(unique, counts)))
     for label, pct in sorted_pct:
-        logging.info("  Label %d: %.6f%%", label, pct)
+        logging.debug("  Label %d: %.6f%%", label, pct)
     return sorted_pct
 
 
@@ -271,7 +272,7 @@ class Solver:
         self.model.eval()
         temperature = 50
 
-        logging.info("-----------------------Predicting model %s-----------------------", fileparam)
+        logging.debug("---------------------Predicting model %s---------------------", fileparam)
 
         criterion = nn.MSELoss(reduction='none')
 
@@ -346,11 +347,11 @@ class Solver:
         em_pred = _fit_gmm(combined_energy.reshape(-1, 1), 7, 'tied', 100, 'k-means++', 10)
         sorted_pct = _log_cluster_percentages(em_pred)
         normal_ratio = sorted_pct[0][1]
-        logging.info("Normal data ratio: %s", normal_ratio)
-        logging.info("Abnormal data ratio: %s", 100 - normal_ratio)
+        logging.debug("Normal data ratio: %s", normal_ratio)
+        logging.debug("Abnormal data ratio: %s", 100 - normal_ratio)
 
         thresh = float(np.percentile(combined_energy, normal_ratio))
-        logging.info("Threshold: %g", thresh)
+        logging.debug("Threshold: %g", thresh)
         self._update_threshold_config(thresh)
 
         # (3) Compute energy on the test set
@@ -393,8 +394,8 @@ class Solver:
         pred = (test_energy > thresh).astype(int)
         gt = test_labels.astype(int)
 
-        logging.info("pred:   %s", pred.shape)
-        logging.info("gt:     %s", gt.shape)
+        logging.debug("pred:   %s", pred.shape)
+        logging.debug("gt:     %s", gt.shape)
 
         anomaly_state = False
         for i in range(len(gt)):
@@ -419,13 +420,13 @@ class Solver:
 
         pred = np.array(pred)
         gt = np.array(gt)
-        logging.info("pred:   %s", pred.shape)
-        logging.info("gt:     %s", gt.shape)
+        logging.debug("pred:   %s", pred.shape)
+        logging.debug("gt:     %s", gt.shape)
 
         return pred, gt
 
     def test(self) -> None:
-        logging.info("======================TEST MODE======================")
+        logging.debug("======================TEST MODE======================")
         pred, gt = self.singlemodelpred()
         _evaluate(gt, pred)
 
@@ -469,6 +470,10 @@ class Solver:
         try:
             with open(cfg_path, 'w') as f:
                 yaml.safe_dump(cfg_data, f, sort_keys=False)
-            logging.info("Saved threshold %g for model '%s' into '%s'.", thresh, model_name, cfg_path)
+            # One line per model would be 81 during a full sweep; the eval step
+            # reports the count and the file it rewrote instead.
+            logging.debug("Saved threshold %g for model '%s' into '%s'.", thresh, model_name, cfg_path)
+            _steps.current().tick("thresholds written")
+            _steps.current().detail("rewriting thresholds in", cfg_path)
         except Exception as exc:
             logging.warning("Failed to write threshold config '%s': %s", cfg_path, exc)

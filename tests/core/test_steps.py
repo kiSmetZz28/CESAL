@@ -328,3 +328,43 @@ def test_every_plan_has_unique_step_ids():
                  steps.CLASSIFY_STEPS, steps.RESPOND_STEPS):
         ids = [e[0] for e in plan]
         assert len(ids) == len(set(ids)), ids
+
+
+# ── intermediate results stay out of the summary ──────────────────────────────
+
+def test_intermediate_scores_are_not_registered():
+    """The ensemble sweep scores hundreds of partial ensembles; only the final
+    results belong in the run summary."""
+    import numpy as np
+    from cesal_core.utils.metrics import evaluate
+
+    gt, pred = np.array([0, 1, 1, 0]), np.array([0, 1, 0, 0])
+    rep = StepReporter("eval", steps=steps.EVAL_STEPS)
+    with rep.step("ensemble"):
+        for _ in range(50):
+            evaluate(gt, pred, register=False)
+        evaluate(gt, pred, prefix="majority")
+    assert [m["label"] for m in rep._metrics] == ["majority"]
+
+
+def test_evaluate_returns_percentages_not_fractions():
+    """A caller that multiplies by 100 again would report an F1 of 9628."""
+    import numpy as np
+    from cesal_core.utils.metrics import evaluate
+
+    scores = evaluate(np.array([0, 1, 1, 1]), np.array([0, 1, 1, 1]))
+    assert scores.f_score == pytest.approx(100.0)
+    assert scores.accuracy == pytest.approx(100.0)
+
+
+def test_every_run_py_command_has_a_step_plan():
+    """Each pipeline stage the CLI exposes should report the same way."""
+    plans = {
+        "download": steps.DOWNLOAD_STEPS, "train": steps.TRAIN_STEPS,
+        "eval": steps.EVAL_STEPS, "convert": steps.CONVERT_STEPS,
+        "infer": steps.INFER_STEPS, "classify": steps.CLASSIFY_STEPS,
+        "respond": steps.RESPOND_STEPS,
+    }
+    for command, plan in plans.items():
+        assert len(plan) >= 2, f"{command} needs at least two steps"
+        assert all(len(e) == 3 and e[2] for e in plan), f"{command} is missing an explanation"
