@@ -892,6 +892,17 @@ async def _startup():
     st = await _db.get_status()
     if not st.get("win_os_test") or not st.get("raw_os"):
         _trigger_ingest()
+    # Warm the pipeline line ordering so the first request never pays for it.
+    # (It is fast now that raw_logs carries idx_rl_ds_blk_ln; before that index
+    # the HDFS build issued ~500 counts that each scanned half the table.)
+    async def _warm_interesting():
+        for _ds in ("hdfs", "os"):
+            try:
+                await asyncio.to_thread(_build_interesting_lines, _ds)
+            except Exception as exc:
+                logging.debug("Could not pre-build line ordering for %s: %s", _ds, exc)
+    asyncio.create_task(_warm_interesting())
+
     # Fit StandardScaler for all datasets (needed for single-session prediction)
     for _ds in ("os", "hdfs"):
         asyncio.create_task(asyncio.to_thread(_sync_fit_scaler, _ds))
@@ -1125,10 +1136,28 @@ async def index():
     )
 
 
+async def _pick_default_dataset() -> str:
+    """Which dataset the dashboard should open on.
+
+    HDFS is the paper's primary dataset and the only one with incident
+    classification and response, so it is preferred — but only once its raw
+    logs have been ingested, since every panel that reads them would otherwise
+    be empty. Falls back to OpenStack, which is small and always ready.
+    """
+    try:
+        st = await _db.get_status()
+    except Exception:
+        return "os"
+    if st.get("raw_hdfs") and (ROOT / "outputs" / "hdfs" / "ground_truth.npy").exists():
+        return "hdfs"
+    return "os"
+
+
 @app.get("/api/info")
 async def info():
     """Return dashboard mode metadata (used by the frontend to detect demo mode)."""
-    return {"demo_mode": DEMO_MODE}
+    return {"demo_mode": DEMO_MODE,
+            "default_dataset": await _pick_default_dataset()}
 
 
 # ── Process control ───────────────────────────────────────────────────────────

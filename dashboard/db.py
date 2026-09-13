@@ -62,6 +62,12 @@ def init_db() -> None:
                 ON raw_logs(dataset);
             CREATE INDEX IF NOT EXISTS idx_rl_blk
                 ON raw_logs(block_id) WHERE block_id IS NOT NULL;
+            -- Counting how many entries of a block precede a line is the inner
+            -- loop of the pipeline line ordering. Without the line_number column
+            -- here SQLite falls back to idx_rl_key and scans a huge line_number
+            -- range instead of the block's few dozen rows.
+            CREATE INDEX IF NOT EXISTS idx_rl_ds_blk_ln
+                ON raw_logs(dataset, block_id, line_number);
             CREATE INDEX IF NOT EXISTS idx_rl_lbl
                 ON raw_logs(dataset, label);
             CREATE INDEX IF NOT EXISTS idx_rl_lbl_ln

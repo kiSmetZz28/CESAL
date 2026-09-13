@@ -294,6 +294,8 @@ python dashboard/app.py                                       # PORT=8799 python
 
 `EDGE_PYTHON` and `CLOUD_PYTHON` name the interpreters the dashboard spawns per stage (defaults: `~/miniconda3/envs/cesal-edge/bin/python` and `~/miniconda3/envs/cesal-cloud/bin/python`); set them if your environment names differ. A built-in **? Help** button walks through the panels.
 
+The dashboard opens on **HDFS** whenever its logs have been ingested — it is the paper's primary dataset and the only one with incident classification and response — and falls back to OpenStack otherwise. Either can be selected at any time.
+
 The pipeline banner across the top covers the whole framework — **Raw Logs → Parse → Sessions → Edge → Routing → Cloud → Result → Classify → Respond** — and each stage jumps to the tab that shows it.
 
 **Start Full Test Set Analysis** runs the whole framework in one click. With *"Also classify each incident and choose its response"* ticked it chains detection into incident response, and the live panel reports all eight steps as a single run — `Edge → Routing → Cloud → Result → Queue → Classify → Workflow → Score`. The option is enabled for **HDFS only** (the anomaly types and retrieval knowledge base come from the HDFS open-set benchmark) and is off in demo mode, where there is no GPU. It ticks itself when classifications are already cached — the run then finishes in seconds — and stays off when a cold run would need to load a language model first; either way the checkbox says which case you are in.

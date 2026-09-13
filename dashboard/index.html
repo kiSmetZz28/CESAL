@@ -1171,12 +1171,19 @@ document.addEventListener('DOMContentLoaded', async () => {
 async function initDemoMode() {
   try {
     const d = await fetch('/api/info').then(r => r.json());
-    if (!d.demo_mode) return;
+    // The server picks the opening dataset from what is actually ready: HDFS
+    // when its logs are ingested, since it is the paper's primary dataset and
+    // the only one with incident classification and response.
+    if (d.default_dataset && d.default_dataset !== S.dataset) {
+      S.dataset = d.default_dataset;
+      document.querySelectorAll('.ds-btn').forEach(b => b.classList.remove('active'));
+      const btn = document.getElementById(`ds-${S.dataset}`);
+      if (btn) btn.classList.add('active');
+    }
+    if (!d.demo_mode) { updatePipelineBanner(); return; }
     S.demoMode = true;
     const notice = document.getElementById('demoNotice');
     if (notice) notice.style.display = 'block';
-    // Default dataset (OpenStack) and active button state are already set in the
-    // initial state / HTML — no override needed for demo mode.
     updatePipelineBanner();
   } catch {}
 }
