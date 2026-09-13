@@ -937,7 +937,7 @@ _INCIDENT_NUMERIC = (
 _INCIDENT_LIST_FIELDS = (
     "session_id", "queue", "ground_truth", "n_events", "n_anomalous_events",
     "n_routed_events", "pred_label", "decision_source", "best_score",
-    "workflow", "approval_steps", "escalation_steps",
+    "workflow", "approval_steps", "escalation_steps", "automated_response",
 )
 
 
@@ -1039,6 +1039,10 @@ async def incidents_summary(dataset: str = "hdfs"):
             "automated_response": r["automated_response"],
             "approval_steps": r.get("approval_steps", 0),
             "escalation_steps": r.get("escalation_steps", 0),
+            # The selected response itself, so the UI can show what will be done
+            # and not only that something was selected.
+            **{k: v for k, v in _workflow_payload(r["pred_label"]).items()
+               if k in ("description", "steps")},
         })
         entry["count"] += 1
 

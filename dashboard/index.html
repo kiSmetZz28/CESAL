@@ -321,6 +321,16 @@ select:focus{outline:none;border-color:var(--blue);}
 .prog-bar-wrap{background:var(--border);border-radius:4px;height:5px;margin-top:5px;overflow:hidden;}
 .prog-bar-fill{height:100%;border-radius:4px;background:var(--blue);transition:width .4s;}
 
+/* ── Response workflows (paper Table 1) ─────────────────── */
+.wf-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:10px;}
+.wf-card{border:1px solid var(--border);border-radius:8px;padding:10px 12px;background:var(--bg);}
+.wf-hd{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:6px;}
+.wf-name{font-size:12px;font-weight:700;color:var(--text);}
+.wf-n{font-size:10px;color:var(--muted);margin-left:auto;white-space:nowrap;}
+.wf-steps{margin:0;padding-left:17px;font-size:11px;line-height:1.65;color:var(--muted);}
+.wf-steps li{margin-bottom:3px;}
+.wf-steps li:last-child{margin-bottom:0;}
+
 /* ── Quick results sidebar ─────────────────────────────── */
 .qs-row{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px;}
 .qs-row:last-child{border-bottom:none;}
@@ -1052,7 +1062,7 @@ select:focus{outline:none;border-color:var(--blue);}
             <table class="log-tbl">
               <thead><tr>
                 <th>Session</th><th>Queue</th><th>Truth</th><th>Events</th><th>Anomalous</th>
-                <th>Predicted type</th><th>Decision</th><th>Score</th><th>Workflow</th><th>Approval</th>
+                <th>Predicted type</th><th>Decision</th><th>Score</th><th>Response</th>
               </tr></thead>
               <tbody id="irRows"></tbody>
             </table>
@@ -2609,11 +2619,28 @@ function irRenderSummary(d) {
   const labelRows = d.labels.map(l=>`<tr>
     <td>${esc(l.label)}</td>
     <td>${l.count.toLocaleString()}</td>
-    <td>${(100*l.count/c.total).toFixed(1)}%</td>
-    <td>${esc(l.workflow||'—')}</td>
     <td>${l.automated_response?'<span class="pill-ok">automated</span>':'<span class="pill-warn">human</span>'}</td>
     <td>${l.approval_steps||0}</td><td>${l.escalation_steps||0}</td>
   </tr>`).join('');
+
+  // The response half of the framework: what each selected workflow actually
+  // prescribes, in the paper's own words, with its gated steps marked.
+  const wfCards = d.labels.map(l=>{
+    const steps = (l.steps||[]).map(st=>{
+      const tag = st.requires_approval ? ' <span class="pill-warn">needs approval</span>'
+                : st.escalation        ? ' <span class="pill-no">escalation</span>' : '';
+      return `<li>${esc(st.action)}${tag}</li>`;
+    }).join('');
+    return `<div class="wf-card">
+      <div class="wf-hd">
+        <span class="wf-name">${esc(l.label)}</span>
+        ${l.automated_response?'<span class="pill-ok">automated</span>'
+                              :'<span class="pill-warn">human investigation</span>'}
+        <span class="wf-n">${l.count.toLocaleString()} incidents</span>
+      </div>
+      ${steps?`<ol class="wf-steps">${steps}</ol>`:''}
+    </div>`;
+  }).join('');
 
   const evalRows = (d.evaluation||[]).map(e=>`<tr>
     <td>${esc(e.label)}</td><td>${f4(e.precision)}</td><td>${f4(e.recall)}</td>
@@ -2636,7 +2663,7 @@ function irRenderSummary(d) {
       <div>
         <div class="card-title">Predicted anomaly types → workflows</div>
         <table class="tbl">
-          <thead><tr><th>Predicted type</th><th>Count</th><th>Share</th><th>Workflow</th><th>Mode</th><th>Appr.</th><th>Esc.</th></tr></thead>
+          <thead><tr><th>Predicted type</th><th>Count</th><th>Mode</th><th>Appr.</th><th>Esc.</th></tr></thead>
           <tbody>${labelRows}</tbody>
         </table>
       </div>
@@ -2651,7 +2678,12 @@ function irRenderSummary(d) {
           <span style="font-family:monospace">${esc(d.files.incidents)}</span>
         </p>
       </div>
-    </div>`;
+    </div>
+
+    <div class="card-title" style="margin-top:18px">Selected response workflows
+      <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0">
+        — predefined per anomaly type (paper Table 1), word for word</span></div>
+    <div class="wf-grid">${wfCards}</div>`;
 }
 
 function irSetQueue(q, el) {
@@ -2668,18 +2700,32 @@ function irSetGt(g, el) {
   irLoadList(0);
 }
 
+// The response a row selected: its mode, and any gates on it. The workflow name
+// is omitted because Ω(â) names it after the anomaly type, so it would just
+// repeat the Predicted type column.
+function irResponseCell(r) {
+  const bits = [r.automated_response
+    ? '<span class="pill-ok">automated</span>'
+    : '<span class="pill-warn">human</span>'];
+  if (r.approval_steps > 0)
+    bits.push(`<span class="pill-warn">${r.approval_steps} approval</span>`);
+  if (r.escalation_steps > 0)
+    bits.push(`<span class="pill-no">${r.escalation_steps} escalation</span>`);
+  return bits.join(' ');
+}
+
 async function irLoadList(page) {
   IR.page = Math.max(0, page);
   const label = encodeURIComponent(document.getElementById('irLabelSel').value||'');
   const url = `/api/incidents/list?dataset=${S.dataset}&queue=${IR.queue}&label=${label}`
             + `&ground_truth=${IR.gt}&page=${IR.page}&per_page=${IR.perPage}`;
   const body = document.getElementById('irRows');
-  body.innerHTML = '<tr><td colspan="10" style="color:var(--muted);padding:12px">Loading…</td></tr>';
+  body.innerHTML = '<tr><td colspan="9" style="color:var(--muted);padding:12px">Loading…</td></tr>';
   try {
     const d = await fetch(url).then(r=>r.json());
     IR.total = d.total || 0;
     if (!d.rows?.length) {
-      body.innerHTML = '<tr><td colspan="10" style="color:var(--muted);padding:12px">No incidents match these filters.</td></tr>';
+      body.innerHTML = '<tr><td colspan="9" style="color:var(--muted);padding:12px">No incidents match these filters.</td></tr>';
     } else {
       body.innerHTML = d.rows.map(r=>`
         <tr class="${r.ground_truth===1?'anom-tr':''}" style="cursor:pointer" onclick="irOpenDetail(${r.session_id})">
@@ -2691,8 +2737,7 @@ async function irLoadList(page) {
           <td>${esc(r.pred_label)}</td>
           <td style="font-family:monospace;font-size:10px">${esc(r.decision_source)}</td>
           <td>${r.best_score!=null?r.best_score.toFixed(3):'—'}</td>
-          <td style="font-size:10px">${esc(r.workflow||'—')}</td>
-          <td>${r.approval_steps>0?`<span class="pill-warn">${r.approval_steps}</span>`:'<span class="pill-no">0</span>'}</td>
+          <td style="font-size:10px;white-space:nowrap">${irResponseCell(r)}</td>
         </tr>`).join('');
     }
     const maxPage = Math.max(0, Math.ceil(IR.total / IR.perPage) - 1);
