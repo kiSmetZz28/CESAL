@@ -17,15 +17,19 @@ _detect_cloud_python() which checks (in order):
 import argparse
 import logging
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Optional
 
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
 import numpy as np
+import yaml
 
+from cesal_core.data.loaders import get_loader_segment
 from cesal_core.utils import steps
 from cesal_core.utils.config import load_config, setup_logging
 from cesal_core.utils.io import mkdir
@@ -80,32 +84,106 @@ def _point_adjust(gt: np.ndarray, pred: np.ndarray) -> np.ndarray:
     return pred
 
 
-def run_inference(inference_config_path: str) -> None:
+def _load_edge_result(cfg: dict, source_dir: str) -> lad_qbat_edge.EdgeResult:
+    """Rebuild an EdgeResult from a previous run's saved arrays.
+
+    The edge scan does not depend on the routing ratio, so a ratio sweep can
+    reuse it instead of re-scoring every window with Q-BAT — by far the most
+    expensive stage. Only the test windows are re-read (parsing, no inference),
+    because the routed feature vectors are cut from them.
+    """
+    import yaml as _yaml
+
+    energy = np.load(os.path.join(source_dir, 'energy_matrix.npy'))
+    preds  = np.load(os.path.join(source_dir, 'edge_preds_raw.npy'))
+    gt     = np.load(os.path.join(source_dir, 'ground_truth.npy'))
+
+    thresh_path = cfg.get('threshold_output',
+                          str(Path('outputs') / cfg['dataset'].lower() / 'thresholds_edge.yaml'))
+    stored = {e['name']: float(e['threshold'])
+              for e in (_yaml.safe_load(open(thresh_path)) or {}).get('models', [])}
+    thresholds = np.array([stored[m['name']] for m in cfg.get('edge_models', [])
+                           if m['name'] in stored], dtype=float)
+
+    loader = get_loader_segment(
+        [cfg.get('num_epochs', 3), cfg.get('k', 3),
+         cfg.get('e_layer_num', 3), cfg['batch_size']],
+        cfg['data_path'], batch_size=cfg['batch_size'], win_size=cfg['win_size'],
+        step=cfg['win_size'], mode='test', dataset=cfg['dataset'],
+    )
+    windows = np.concatenate([x.numpy() for x, _ in loader], axis=0)
+
+    return lad_qbat_edge.EdgeResult(
+        predictions=preds, ground_truth=gt, energy_matrix=energy,
+        train_energy_matrix=energy, thresholds=thresholds, test_windows=windows,
+    )
+
+
+def run_inference(
+    inference_config_path: str,
+    ratio: Optional[float] = None,
+    distance: Optional[str] = None,
+    output_dir: Optional[str] = None,
+    reuse_edge_from: Optional[str] = None,
+) -> None:
     """Run the full inference pipeline for one dataset.
 
     Parameters
     ----------
     inference_config_path : str
         Path to per-dataset inference YAML (configs/inference/*.yaml).
+    ratio : float, optional
+        Fraction of events escalated to the cloud; overrides the config's
+        ``routing_tolerance``. This is the paper's routing ratio.
+    distance : {'ma', 'eu'}, optional
+        Overrides the config's ``routing_distance``.
+    output_dir : str, optional
+        Overrides the config's ``output_dir`` — used to keep each ratio of a
+        sweep in its own directory.
+    reuse_edge_from : str, optional
+        Directory of a previous run whose edge outputs should be reused
+        instead of re-running the Q-BAT scan.
     """
     cfg      = load_config(inference_config_path)
     dataset  = cfg['dataset']
+    if ratio is not None:
+        cfg['routing_tolerance'] = ratio
+    if distance is not None:
+        cfg['routing_distance'] = distance
+    if output_dir is not None:
+        cfg['output_dir'] = output_dir
     out_base = cfg.get('output_dir', str(Path('outputs') / dataset.lower()))
     mkdir(out_base)
+
+    # The cloud stage runs as a subprocess and reads the config itself, so the
+    # overrides have to reach it on disk; this also records exactly what ran.
+    effective_cfg_path = os.path.join(out_base, 'effective_config.yaml')
+    with open(effective_cfg_path, 'w') as f:
+        yaml.safe_dump(cfg, f, sort_keys=False)
 
     rep = StepReporter("infer", dataset=dataset, steps=steps.INFER_STEPS)
 
     # ── Step 1: Edge Q-BAT inference ──────────────────────────────────────
-    with rep.step("edge") as st:
-        st.detail("config", inference_config_path)
-        result = lad_qbat_edge.run(cfg)
+    if reuse_edge_from:
+        rep.skip("edge", f"Reusing the edge scan already computed in {reuse_edge_from} "
+                         f"— it does not depend on the routing ratio.")
+        result = _load_edge_result(cfg, reuse_edge_from)
+        for name in ('edge_preds.npy', 'edge_preds_raw.npy', 'ground_truth.npy',
+                     'energy_matrix.npy'):
+            src = os.path.join(reuse_edge_from, name)
+            if os.path.exists(src) and os.path.abspath(reuse_edge_from) != os.path.abspath(out_base):
+                shutil.copyfile(src, os.path.join(out_base, name))
+    else:
+        with rep.step("edge") as st:
+            st.detail("config", inference_config_path)
+            result = lad_qbat_edge.run(cfg)
 
-        edge_preds_adj = _point_adjust(result.ground_truth, result.predictions)
-        np.save(os.path.join(out_base, 'edge_preds.npy'),     edge_preds_adj)
-        np.save(os.path.join(out_base, 'edge_preds_raw.npy'), result.predictions)
-        np.save(os.path.join(out_base, 'ground_truth.npy'),   result.ground_truth)
-        np.save(os.path.join(out_base, 'energy_matrix.npy'),  result.energy_matrix)
-        evaluate(result.ground_truth, edge_preds_adj, prefix="Edge")
+            edge_preds_adj = _point_adjust(result.ground_truth, result.predictions)
+            np.save(os.path.join(out_base, 'edge_preds.npy'),     edge_preds_adj)
+            np.save(os.path.join(out_base, 'edge_preds_raw.npy'), result.predictions)
+            np.save(os.path.join(out_base, 'ground_truth.npy'),   result.ground_truth)
+            np.save(os.path.join(out_base, 'energy_matrix.npy'),  result.energy_matrix)
+            evaluate(result.ground_truth, edge_preds_adj, prefix="Edge")
 
     # ── Step 2: Mahalanobis routing ───────────────────────────────────────
     tolerance     = cfg.get('routing_tolerance', 0.1)
@@ -206,7 +284,7 @@ def run_inference(inference_config_path: str) -> None:
     logging.info("   %s", cloud_py)
 
     proc = subprocess.run(
-        [cloud_py, runner, "--config", inference_config_path],
+        [cloud_py, runner, "--config", effective_cfg_path],
         cwd=project_root,
         env={**os.environ, "CESAL_STEP_HANDOFF": handoff},
     )
@@ -228,5 +306,16 @@ if __name__ == '__main__':
         default='configs/inference/os.yaml',
         help='Path to inference YAML config.',
     )
+    parser.add_argument('--ratio', type=float, default=None,
+                        help="Fraction of events escalated to the cloud (the paper's "
+                             "routing ratio); overrides routing_tolerance in the config.")
+    parser.add_argument('--distance', choices=['ma', 'eu'], default=None,
+                        help='Routing distance; overrides routing_distance in the config.')
+    parser.add_argument('--output-dir', default=None,
+                        help='Where to write results; overrides output_dir in the config.')
+    parser.add_argument('--reuse-edge-from', default=None,
+                        help='Reuse the edge scan saved in this directory instead of '
+                             're-running it (it does not depend on the routing ratio).')
     args, _ = parser.parse_known_args()
-    run_inference(args.config)
+    run_inference(args.config, ratio=args.ratio, distance=args.distance,
+                  output_dir=args.output_dir, reuse_edge_from=args.reuse_edge_from)

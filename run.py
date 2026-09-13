@@ -6,7 +6,8 @@ Usage
   python run.py train    [DATASET]
   python run.py eval     [DATASET] [VOTING]
   python run.py convert  [DATASET]
-  python run.py infer    [DATASET]
+  python run.py infer    [DATASET] [RATIO]
+  python run.py sweep    [DATASET] [RATIOS]
   python run.py classify [MODELS]
   python run.py respond  [MODEL]
   python run.py help
@@ -20,6 +21,8 @@ Examples
   python run.py eval hdfs all
   python run.py convert hdfs
   python run.py infer hdfs
+  python run.py infer hdfs 0.2                       # escalate 20% to the cloud
+  python run.py sweep hdfs 0.05,0.1,0.2,0.3         # routing-ratio table
   python run.py classify                            # all LLMs in configs/llm/hdfs.yaml
   python run.py classify qwen2.5-14b-instruct       # one LLM backbone
   python run.py respond                             # HDFS detections → anomaly queues → classification → workflows
@@ -97,9 +100,15 @@ def main() -> None:
 
     elif command == "infer":
         dataset = argv[1] if len(argv) > 1 else "os"
-        print(f"[run] Inference pipeline — dataset: {dataset}")
+        extra = ["--ratio", argv[2]] if len(argv) > 2 else []
         _run_module("cesal_inference_pipeline.run",
-                    "--config", f"configs/inference/{dataset}.yaml")
+                    "--config", f"configs/inference/{dataset}.yaml", *extra)
+
+    elif command == "sweep":
+        dataset = argv[1] if len(argv) > 1 else "os"
+        ratios = argv[2] if len(argv) > 2 else "0.05,0.1,0.2,0.3"
+        _run_module("cesal_inference_pipeline.sweep",
+                    "--config", f"configs/inference/{dataset}.yaml", "--ratios", ratios)
 
     elif command == "classify":
         models = argv[1] if len(argv) > 1 else None

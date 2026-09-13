@@ -341,6 +341,33 @@ The LAD test data has no block IDs or timestamps, so records are keyed by sessio
 
 ## Advanced Options
 
+### Vary the routing ratio
+
+The routing ratio — the share of events the edge escalates to the cloud — is the pipeline's main trade-off knob. It defaults to `routing_tolerance: 0.1` in the inference config and can be overridden per run:
+
+```bash
+conda activate cesal-edge
+python run.py infer os 0.2          # escalate 20% instead of the configured 10%
+```
+
+To reproduce the paper's routing-ratio table, `sweep` runs several ratios and tabulates them:
+
+```bash
+python run.py sweep os 0.05,0.1,0.2,0.3
+```
+
+Only routing, cloud verification and the merge depend on the ratio — the edge scan does not — so the scan runs **once** and every later ratio reuses it. On HDFS that is the difference between one Q-BAT pass and one per ratio. Each ratio writes to `outputs/<dataset>/ratio_NN/`, with the combined table printed and saved to `outputs/<dataset>/routing_ratio_sweep.csv`:
+
+```
+ ROUTING RATIO SWEEP · Openstack
+   ratio     escalated        P        R       F1
+   ────────────────────────────────────────────────────────────
+   10%          15,530    99.91   100.00    99.95
+   20%          31,060    99.90   100.00    99.95
+```
+
+A ratio that fails (for example, the cloud stage running out of GPU memory) is reported as `(no result)` and the sweep continues with the rest. Every run also writes the exact settings it used to `effective_config.yaml` beside its outputs.
+
 ### Evaluate the ensemble
 
 ```bash
