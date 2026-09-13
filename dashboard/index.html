@@ -324,7 +324,8 @@ select:focus{outline:none;border-color:var(--blue);}
 /* ── Response workflows (paper Table 1) ─────────────────── */
 .wf-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px;}
 
-/* A card is a filter control: clicking it narrows the incident list below. */
+/* A card is the entry point to one response workflow: clicking it opens the
+   full Table 1 workflow in a modal. */
 .wf-card{display:flex;flex-direction:column;background:var(--bg);cursor:pointer;
   border:1px solid var(--border);border-left:3px solid var(--green);border-radius:10px;
   padding:12px 14px;transition:border-color .15s,box-shadow .15s,background .15s;}
@@ -334,14 +335,45 @@ select:focus{outline:none;border-color:var(--blue);}
 .wf-card.active{background:var(--card);border-color:var(--blue);box-shadow:0 0 0 1px var(--blue);}
 .wf-card.active{border-left-color:var(--green);}      /* keep the automation accent */
 .wf-card.active.manual{border-left-color:var(--amber);}
-.wf-hd{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;}
+.wf-hd{display:flex;align-items:flex-start;gap:10px;}
+.wf-ic{flex:none;width:32px;height:32px;border-radius:9px;background:var(--card);
+  border:1px solid var(--border);display:flex;align-items:center;justify-content:center;
+  font-size:16px;line-height:1;}
+.wf-ic.manual{background:#fffbeb;border-color:#fde68a;}
 .wf-name{font-size:12.5px;font-weight:700;color:var(--text);line-height:1.4;}
-.wf-n{font-size:10px;color:var(--muted);margin-left:auto;white-space:nowrap;}
-.wf-meta{font-size:10px;color:var(--muted);margin:5px 0 9px;
+.wf-n{display:block;font-size:10px;color:var(--muted);margin-top:2px;}
+.wf-meta{font-size:10px;color:var(--muted);margin:10px 0 0;
   display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
 .wf-cta{margin-top:auto;padding-top:9px;border-top:1px dashed var(--border);
   font-size:10.5px;font-weight:600;color:var(--blue);}
 .wf-card:hover .wf-cta{text-decoration:underline;}
+
+/* Workflow modal: the steps as a timeline, one node per Table 1 clause. */
+.wf-modal-hd{display:flex;align-items:flex-start;gap:12px;margin-bottom:4px;padding-right:28px;}
+.wf-modal-hd .wf-ic{width:40px;height:40px;border-radius:11px;font-size:20px;}
+.wf-modal-name{font-size:16px;font-weight:700;line-height:1.3;}
+.wf-modal-sub{font-size:10px;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.06em;font-weight:700;margin-top:4px;}
+.wf-tl{list-style:none;margin:0;padding:2px 0 2px 32px;position:relative;counter-reset:wfstep;}
+.wf-tl::before{content:'';position:absolute;left:11px;top:10px;bottom:10px;
+  width:2px;background:var(--border);}
+.wf-tl li{position:relative;counter-increment:wfstep;margin-bottom:13px;}
+.wf-tl li:last-child{margin-bottom:0;}
+.wf-tl li::before{content:counter(wfstep);position:absolute;left:-32px;top:-1px;
+  width:24px;height:24px;border-radius:50%;background:var(--card);
+  border:2px solid var(--border);color:var(--muted);
+  font-size:11px;font-weight:700;line-height:20px;text-align:center;}
+.wf-tl li.gate::before{background:#fff7ed;border-color:#fbbf24;color:var(--amber);}
+.wf-tl li.esc::before {background:#fef2f2;border-color:#f87171;color:var(--red);}
+.wf-tl li.man::before {background:#fffbeb;border-color:#fde68a;color:var(--amber);}
+.wf-tl-act{font-size:12.5px;line-height:1.6;color:var(--text);}
+.wf-tl-tag{display:block;margin-top:3px;font-size:9.5px;font-weight:700;
+  text-transform:uppercase;letter-spacing:.05em;color:var(--muted);}
+.wf-tl li.gate .wf-tl-tag{color:var(--amber);}
+.wf-tl li.esc  .wf-tl-tag{color:var(--red);}
+.wf-tl li.man  .wf-tl-tag{color:var(--amber);}
+.wf-modal-foot{display:flex;gap:8px;justify-content:flex-end;
+  border-top:1px solid var(--border);padding-top:14px;margin-top:16px;}
 
 /* Numbered steps, with the gated ones marked in the margin. */
 .wf-steps{list-style:none;margin:0 0 10px;padding:0;counter-reset:wfstep;}
@@ -370,7 +402,7 @@ select:focus{outline:none;border-color:var(--blue);}
 .wf-hero .wf-steps{margin-bottom:0;}
 .wf-ico{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;
   border:1px solid var(--border);border-radius:50%;font-size:9px;font-weight:700;line-height:1;
-  color:var(--muted);cursor:help;margin-left:5px;vertical-align:middle;user-select:none;}
+  color:var(--muted);cursor:pointer;margin-left:5px;vertical-align:middle;user-select:none;}
 .wf-ico:hover,.wf-ico:focus{border-color:var(--blue);color:var(--blue);outline:none;}
 #wfTip{position:fixed;z-index:900;display:none;max-width:430px;padding:11px 13px;
   background:var(--card);border:1px solid var(--border);border-radius:8px;
@@ -1168,6 +1200,14 @@ select:focus{outline:none;border-color:var(--blue);}
       <source src="/static/demo.mp4?v=2" type="video/mp4">
       Your browser does not support the video tag.
     </video>
+  </div>
+</div>
+
+<!-- ══ RESPONSE WORKFLOW MODAL ═══════════════════════════ -->
+<div class="modal-overlay" id="wfModal" onclick="closeWfModal(event)">
+  <div class="modal-box" style="max-width:720px">
+    <button class="modal-close" onclick="closeWfModal()">✕</button>
+    <div id="wfModalBody"></div>
   </div>
 </div>
 
@@ -2668,33 +2708,35 @@ function irRenderSummary(d) {
   window.IR_LABEL_IX = new Map(d.labels.map((l,i)=>[l.label, i]));
   const labelRows = d.labels.map((l,i)=>`<tr>
     <td>${esc(l.label)}<span class="wf-ico" data-wf="${i}" tabindex="0"
-        aria-label="Show the response workflow for ${esc(l.label)}">i</span></td>
+        aria-label="Open the response workflow for ${esc(l.label)}">i</span></td>
     <td>${l.count.toLocaleString()}</td>
     <td>${l.automated_response?'<span class="pill-ok">automated</span>':'<span class="pill-warn">human</span>'}</td>
     <td>${l.approval_steps||0}</td><td>${l.escalation_steps||0}</td>
   </tr>`).join('');
 
-  // The response half of the framework: what each selected workflow actually
-  // prescribes, in the paper's own words. Each card filters the list below.
+  // The response half of the framework: one card per anomaly type, opening the
+  // predefined workflow that type selects.
   const wfCards = d.labels.map((l,i)=>{
-    const bits = [`${(l.steps||[]).length} steps`];
+    const nSteps = (l.steps||[]).length;
+    const bits = nSteps ? [`${nSteps} steps`] : [];
     if (l.approval_steps)   bits.push(`${l.approval_steps} approval-gated`);
     if (l.escalation_steps) bits.push(`${l.escalation_steps} escalation`);
-    const n = l.count.toLocaleString();
     return `<div class="wf-card${l.automated_response?'':' manual'}" data-wf-card="${i}"
-         role="button" tabindex="0" onclick="irFilterByLabel(${i})"
-         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();irFilterByLabel(${i})}">
+         role="button" tabindex="0" onclick="openWfModal(${i})"
+         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openWfModal(${i})}">
       <div class="wf-hd">
-        <span class="wf-name">${esc(l.label)}</span>
-        <span class="wf-n">${n} incidents</span>
+        <span class="wf-ic${l.automated_response?'':' manual'}">${wfIcon(l.label)}</span>
+        <div>
+          <span class="wf-name">${esc(l.label)}</span>
+          <span class="wf-n">${l.count.toLocaleString()} incidents</span>
+        </div>
       </div>
       <div class="wf-meta">
         ${l.automated_response?'<span class="pill-ok">automated</span>'
                               :'<span class="pill-warn">human investigation</span>'}
-        <span>${bits.join(' · ')}</span>
+        ${bits.length?`<span>${bits.join(' · ')}</span>`:''}
       </div>
-      <ol class="wf-steps">${wfStepsHtml(l.steps)}</ol>
-      <div class="wf-cta">View ${n} incidents →</div>
+      <div class="wf-cta">View response workflow →</div>
     </div>`;
   }).join('');
 
@@ -2738,13 +2780,29 @@ function irRenderSummary(d) {
 
     <div class="card-title" style="margin-top:18px">Selected response workflows
       <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0">
-        — predefined per anomaly type (paper Table 1), word for word · click a card to list its incidents</span></div>
+        — predefined per anomaly type (paper Table 1) · click a card to read the workflow it selects</span></div>
     <div class="wf-grid">${wfCards}</div>`;
 }
 
 // ── Workflow hover tooltip ────────────────────────────────────────────────
 // The compact type table has no room for the workflow text, so the ⓘ next to
 // each predicted type reveals the Table 1 row it selects, word for word.
+// One glyph per HDFS anomaly type, so a type is recognisable before it is read.
+const WF_ICONS = {
+  'Namenode not updated after deleting block':          '\u{1F5C3}\uFE0F',
+  'Write exception client give up':                     '\u{1F6D1}',
+  'Write failed at beginning':                          '\u{270D}\uFE0F',
+  'Replica immediately deleted':                        '\u{267B}\uFE0F',
+  'Received block that does not belong to any file':    '\u{1F9E9}',
+  'Redundant addStoredBlock':                           '\u{1F501}',
+  'Delete a block that no longer exists on data node':  '\u{1F5D1}\uFE0F',
+  'Empty packet for block':                             '\u{1F4ED}',
+  'Receive block exception':                            '\u{1F4E5}',
+  'Replication Monitor timeout':                        '\u{23F1}\uFE0F',
+  'Other anomaly type':                                 '\u{2753}',
+};
+function wfIcon(label) { return WF_ICONS[label] || '\u{2753}'; }
+
 // Steps are the ';'-separated clauses of the Table 1 row; approval-gated and
 // escalating ones are marked so the controlled part of the response is visible.
 function wfStepsHtml(steps) {
@@ -2774,6 +2832,68 @@ function irSyncCards() {
     c.classList.toggle('active', !!l && l.label === v);
   });
 }
+
+// The full Table 1 workflow for one anomaly type, as a step timeline.
+function wfTimelineHtml(steps, automated) {
+  return (steps||[]).map(st=>{
+    const cls = st.requires_approval ? 'gate' : st.escalation ? 'esc'
+              : automated            ? ''     : 'man';
+    const tag = st.requires_approval ? 'requires administrator approval'
+              : st.escalation        ? 'escalation'
+              : automated            ? 'automatic'
+                                     : 'human investigation';
+    return `<li class="${cls}"><div class="wf-tl-act">${esc(st.action)}</div>
+      <span class="wf-tl-tag">${tag}</span></li>`;
+  }).join('');
+}
+
+function openWfModal(i) {
+  const l = (window.IR_LABELS||[])[i];
+  if (!l) return;
+  const steps = l.steps||[];
+  const stat = (k,v,c)=>`<div class="modal-meta"><div class="mm-key">${k}</div>
+    <div class="mm-val"${c?` style="color:${c}"`:''}>${v}</div></div>`;
+  document.getElementById('wfModalBody').innerHTML = `
+    <div class="wf-modal-hd">
+      <span class="wf-ic${l.automated_response?'':' manual'}">${wfIcon(l.label)}</span>
+      <div>
+        <div class="wf-modal-name">${esc(l.label)}
+          ${l.automated_response?'<span class="pill-ok">automated</span>'
+                                :'<span class="pill-warn">human investigation</span>'}</div>
+        <div class="wf-modal-sub">Predefined response workflow · paper Table 1</div>
+      </div>
+    </div>
+    <div class="modal-meta-grid" style="margin-top:14px">
+      ${stat('Incidents', l.count.toLocaleString())}
+      ${stat('Edge / cloud', `${(l.count_edge??0).toLocaleString()} / ${(l.count_cloud??0).toLocaleString()}`)}
+      ${stat('True anomalies', (l.count_true??0).toLocaleString(), 'var(--red)')}
+      ${stat('Detector false pos.', (l.count_fp??0).toLocaleString(), 'var(--muted)')}
+      ${stat('Steps', steps.length)}
+      ${stat('Approval-gated', l.approval_steps||0, l.approval_steps?'var(--amber)':'')}
+      ${stat('Escalation', l.escalation_steps||0, l.escalation_steps?'var(--red)':'')}
+    </div>
+    <div class="modal-section">
+      <div class="modal-section-title">Workflow steps — the Table 1 row, word for word</div>
+      ${steps.length ? `<ol class="wf-tl">${wfTimelineHtml(steps, l.automated_response)}</ol>`
+        : `<div style="color:var(--muted);font-size:11px">This server build did not send the
+             workflow steps. Restart the dashboard to pick up the response module.</div>`}
+    </div>
+    <div class="wf-modal-foot">
+      <button class="btn" onclick="closeWfModal()">Close</button>
+      <button class="btn btn-primary" onclick="closeWfModal();irFilterByLabel(${i})">
+        List the ${l.count.toLocaleString()} incidents</button>
+    </div>`;
+  document.getElementById('wfModal').classList.add('open');
+}
+
+function closeWfModal(event) {
+  if (event && event.target !== document.getElementById('wfModal')) return;
+  document.getElementById('wfModal').classList.remove('open');
+}
+
+document.addEventListener('keydown', e=>{
+  if (e.key === 'Escape') document.getElementById('wfModal').classList.remove('open');
+});
 
 function wfTipHtml(l) {
   const steps = wfStepsHtml(l.steps);
@@ -2816,6 +2936,15 @@ document.addEventListener('focusin',  e=>{
 });
 document.addEventListener('keydown', e=>{ if (e.key === 'Escape') wfTipHide(); });
 window.addEventListener('scroll', wfTipHide, true);
+// Capture phase: the icon sits inside a clickable row, and clicking it must open
+// the workflow rather than the row's incident detail.
+document.addEventListener('click', e=>{
+  const ico = e.target.closest && e.target.closest('.wf-ico');
+  if (!ico) return;
+  e.stopPropagation(); e.preventDefault();
+  wfTipHide();
+  openWfModal(+ico.dataset.wf);
+}, true);
 
 function irSetQueue(q, el) {
   IR.queue = q;
@@ -2846,7 +2975,7 @@ function irResponseCell(r) {
   const ix = (window.IR_LABEL_IX||new Map()).get(r.pred_label);
   if (ix !== undefined)
     bits.push(`<span class="wf-ico" data-wf="${ix}" tabindex="0"
-      aria-label="Show the response workflow for ${esc(r.pred_label)}">i</span>`);
+      aria-label="Open the response workflow for ${esc(r.pred_label)}">i</span>`);
   return bits.join(' ');
 }
 
