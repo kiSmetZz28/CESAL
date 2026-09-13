@@ -935,9 +935,8 @@ _INCIDENT_NUMERIC = (
     "ground_truth", "approval_steps", "escalation_steps",
 )
 _INCIDENT_LIST_FIELDS = (
-    "session_id", "queue", "ground_truth", "n_events", "n_anomalous_events",
-    "n_routed_events", "pred_label", "decision_source", "best_score",
-    "workflow", "approval_steps", "escalation_steps", "automated_response",
+    "session_id", "queue", "ground_truth", "n_events", "pred_label",
+    "approval_steps", "escalation_steps", "automated_response",
 )
 
 

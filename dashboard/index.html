@@ -330,6 +330,16 @@ select:focus{outline:none;border-color:var(--blue);}
 .wf-steps{margin:0;padding-left:17px;font-size:11px;line-height:1.65;color:var(--muted);}
 .wf-steps li{margin-bottom:3px;}
 .wf-steps li:last-child{margin-bottom:0;}
+.wf-ico{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;
+  border:1px solid var(--border);border-radius:50%;font-size:9px;font-weight:700;line-height:1;
+  color:var(--muted);cursor:help;margin-left:5px;vertical-align:middle;user-select:none;}
+.wf-ico:hover,.wf-ico:focus{border-color:var(--blue);color:var(--blue);outline:none;}
+#wfTip{position:fixed;z-index:900;display:none;max-width:430px;padding:11px 13px;
+  background:var(--card);border:1px solid var(--border);border-radius:8px;
+  box-shadow:0 8px 24px rgba(15,23,42,.22);font-size:11px;line-height:1.6;}
+#wfTip .wf-tip-name{font-size:12px;font-weight:700;color:var(--text);margin-bottom:5px;}
+#wfTip .wf-tip-src{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;
+  margin-bottom:6px;}
 
 /* ── Quick results sidebar ─────────────────────────────── */
 .qs-row{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px;}
@@ -1061,8 +1071,8 @@ select:focus{outline:none;border-color:var(--blue);}
           <div class="log-tbl-wrap" style="max-height:420px">
             <table class="log-tbl">
               <thead><tr>
-                <th>Session</th><th>Queue</th><th>Truth</th><th>Events</th><th>Anomalous</th>
-                <th>Predicted type</th><th>Decision</th><th>Score</th><th>Response</th>
+                <th>Session</th><th>Queue</th><th>Truth</th><th>Events</th>
+                <th>Predicted type</th><th>Response</th>
               </tr></thead>
               <tbody id="irRows"></tbody>
             </table>
@@ -2616,8 +2626,11 @@ async function irLoad() {
 
 function irRenderSummary(d) {
   const c = d.counts;
-  const labelRows = d.labels.map(l=>`<tr>
-    <td>${esc(l.label)}</td>
+  window.IR_LABELS = d.labels;     // backing data for the hover tooltips
+  window.IR_LABEL_IX = new Map(d.labels.map((l,i)=>[l.label, i]));
+  const labelRows = d.labels.map((l,i)=>`<tr>
+    <td>${esc(l.label)}<span class="wf-ico" data-wf="${i}" tabindex="0"
+        aria-label="Show the response workflow for ${esc(l.label)}">i</span></td>
     <td>${l.count.toLocaleString()}</td>
     <td>${l.automated_response?'<span class="pill-ok">automated</span>':'<span class="pill-warn">human</span>'}</td>
     <td>${l.approval_steps||0}</td><td>${l.escalation_steps||0}</td>
@@ -2686,6 +2699,55 @@ function irRenderSummary(d) {
     <div class="wf-grid">${wfCards}</div>`;
 }
 
+// ── Workflow hover tooltip ────────────────────────────────────────────────
+// The compact type table has no room for the workflow text, so the ⓘ next to
+// each predicted type reveals the Table 1 row it selects, word for word.
+function wfTipHtml(l) {
+  const steps = (l.steps||[]).map(st=>{
+    const tag = st.requires_approval ? ' <span class="pill-warn">needs approval</span>'
+              : st.escalation        ? ' <span class="pill-no">escalation</span>' : '';
+    return `<li>${esc(st.action)}${tag}</li>`;
+  }).join('');
+  return `<div class="wf-tip-name">${esc(l.label)}
+      ${l.automated_response?'<span class="pill-ok">automated</span>'
+                            :'<span class="pill-warn">human investigation</span>'}</div>
+    <div class="wf-tip-src">Predefined response workflow · paper Table 1</div>
+    ${steps ? `<ol class="wf-steps">${steps}</ol>`
+            : `<div style="color:var(--muted)">${esc(l.description||'No workflow text available.')}</div>`}`;
+}
+
+function wfTipShow(ico) {
+  const l = (window.IR_LABELS||[])[+ico.dataset.wf];
+  if (!l) return;
+  const tip = document.getElementById('wfTip');
+  tip.innerHTML = wfTipHtml(l);
+  tip.style.display = 'block';
+  // Place below-right of the icon, flipping at the viewport edges.
+  const r = ico.getBoundingClientRect(), t = tip.getBoundingClientRect(), pad = 8;
+  let left = r.left, top = r.bottom + 6;
+  if (left + t.width  > innerWidth  - pad) left = Math.max(pad, innerWidth - pad - t.width);
+  if (top  + t.height > innerHeight - pad) top  = Math.max(pad, r.top - 6 - t.height);
+  tip.style.left = left + 'px';
+  tip.style.top  = top  + 'px';
+}
+
+function wfTipHide() { document.getElementById('wfTip').style.display = 'none'; }
+
+document.addEventListener('mouseover', e=>{
+  const ico = e.target.closest && e.target.closest('.wf-ico');
+  if (ico) wfTipShow(ico);
+});
+document.addEventListener('mouseout', e=>{
+  if (e.target.closest && e.target.closest('.wf-ico')) wfTipHide();
+});
+// Keyboard and touch: focus opens it, Escape and scrolling close it.
+document.addEventListener('focusin',  e=>{
+  const ico = e.target.closest && e.target.closest('.wf-ico');
+  if (ico) wfTipShow(ico); else wfTipHide();
+});
+document.addEventListener('keydown', e=>{ if (e.key === 'Escape') wfTipHide(); });
+window.addEventListener('scroll', wfTipHide, true);
+
 function irSetQueue(q, el) {
   IR.queue = q;
   document.querySelectorAll('#irQueueGroup .pill-btn').forEach(b=>b.classList.remove('active'));
@@ -2711,6 +2773,11 @@ function irResponseCell(r) {
     bits.push(`<span class="pill-warn">${r.approval_steps} approval</span>`);
   if (r.escalation_steps > 0)
     bits.push(`<span class="pill-no">${r.escalation_steps} escalation</span>`);
+  // Same ⓘ as the summary: hover a row to read the workflow this incident selected.
+  const ix = (window.IR_LABEL_IX||new Map()).get(r.pred_label);
+  if (ix !== undefined)
+    bits.push(`<span class="wf-ico" data-wf="${ix}" tabindex="0"
+      aria-label="Show the response workflow for ${esc(r.pred_label)}">i</span>`);
   return bits.join(' ');
 }
 
@@ -2720,12 +2787,12 @@ async function irLoadList(page) {
   const url = `/api/incidents/list?dataset=${S.dataset}&queue=${IR.queue}&label=${label}`
             + `&ground_truth=${IR.gt}&page=${IR.page}&per_page=${IR.perPage}`;
   const body = document.getElementById('irRows');
-  body.innerHTML = '<tr><td colspan="9" style="color:var(--muted);padding:12px">Loading…</td></tr>';
+  body.innerHTML = '<tr><td colspan="6" style="color:var(--muted);padding:12px">Loading…</td></tr>';
   try {
     const d = await fetch(url).then(r=>r.json());
     IR.total = d.total || 0;
     if (!d.rows?.length) {
-      body.innerHTML = '<tr><td colspan="9" style="color:var(--muted);padding:12px">No incidents match these filters.</td></tr>';
+      body.innerHTML = '<tr><td colspan="6" style="color:var(--muted);padding:12px">No incidents match these filters.</td></tr>';
     } else {
       body.innerHTML = d.rows.map(r=>`
         <tr class="${r.ground_truth===1?'anom-tr':''}" style="cursor:pointer" onclick="irOpenDetail(${r.session_id})">
@@ -2733,10 +2800,7 @@ async function irLoadList(page) {
           <td><span class="tag ${r.queue==='cloud'?'tag-cloud':'tag-edge'}">${esc(r.queue)}</span></td>
           <td>${r.ground_truth===1?'<span class="pill-warn">anomaly</span>':'<span class="pill-no">normal</span>'}</td>
           <td>${r.n_events}</td>
-          <td>${r.n_anomalous_events}${r.n_routed_events?` <span style="color:var(--muted)">(${r.n_routed_events} routed)</span>`:''}</td>
           <td>${esc(r.pred_label)}</td>
-          <td style="font-family:monospace;font-size:10px">${esc(r.decision_source)}</td>
-          <td>${r.best_score!=null?r.best_score.toFixed(3):'—'}</td>
           <td style="font-size:10px;white-space:nowrap">${irResponseCell(r)}</td>
         </tr>`).join('');
     }
@@ -3139,5 +3203,6 @@ document.addEventListener('DOMContentLoaded', () => {
   <div id="ctxFloatBody"></div>
 </div>
 
+<div id="wfTip" role="tooltip"></div>
 </body>
 </html>
