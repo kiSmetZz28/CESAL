@@ -1033,7 +1033,6 @@ async def incidents_summary(dataset: str = "hdfs"):
     inc, cls = data["incidents"], data["classified"]
 
     labels: dict = {}
-    sources: dict = {}
     for r in inc:
         entry = labels.setdefault(r["pred_label"], {
             "label": r["pred_label"], "count": 0, "workflow": r.get("workflow"),
@@ -1042,7 +1041,6 @@ async def incidents_summary(dataset: str = "hdfs"):
             "escalation_steps": r.get("escalation_steps", 0),
         })
         entry["count"] += 1
-        sources[r["decision_source"]] = sources.get(r["decision_source"], 0) + 1
 
     return {
         "available": True,
@@ -1058,7 +1056,6 @@ async def incidents_summary(dataset: str = "hdfs"):
             "with_approval_step": sum((r.get("approval_steps") or 0) > 0 for r in inc),
         },
         "labels": sorted(labels.values(), key=lambda x: -x["count"]),
-        "decision_sources": dict(sorted(sources.items(), key=lambda kv: -kv[1])),
         "unique_sequences": len(cls) or len({r["template_sequence"] for r in inc}),
         "llm_calls": sum(1 for r in cls.values() if r.get("raw_output")),
         "evaluation": data["evaluation"],

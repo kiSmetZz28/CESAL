@@ -2620,10 +2620,6 @@ function irRenderSummary(d) {
     <td><strong>${f4(e.f1)}</strong></td><td>${e.support.toLocaleString()}</td>
   </tr>`).join('');
 
-  const srcRows = Object.entries(d.decision_sources||{}).map(([k,v])=>`<tr>
-    <td style="font-family:monospace">${esc(k)}</td><td>${v.toLocaleString()}</td>
-    <td>${(100*v/c.total).toFixed(1)}%</td></tr>`).join('');
-
   document.getElementById('irSummary').innerHTML = `
     <div class="kpi-row">
       <div class="kpi c-blue">  <div class="kl">Queued incidents</div>  <div class="kv">${fmtNum(c.total)}</div>
@@ -2650,9 +2646,6 @@ function irRenderSummary(d) {
           <thead><tr><th>Type</th><th>Precision</th><th>Recall</th><th>F1</th><th>Support</th></tr></thead>
           <tbody>${evalRows || '<tr><td colspan="5" style="color:var(--muted)">No evaluation file.</td></tr>'}</tbody>
         </table>
-        <div class="card-title" style="margin-top:16px">Decision source</div>
-        <table class="tbl"><thead><tr><th>Source</th><th>Count</th><th>Share</th></tr></thead>
-          <tbody>${srcRows}</tbody></table>
         <p style="font-size:10px;color:var(--muted);margin-top:8px;line-height:1.6">
           ${fmtNum(d.unique_sequences)} unique template sequences classified · ${fmtNum(d.llm_calls)} LLM calls ·
           <span style="font-family:monospace">${esc(d.files.incidents)}</span>
