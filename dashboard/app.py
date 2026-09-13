@@ -938,6 +938,14 @@ def _load_incidents(dataset: str) -> dict:
     """Incidents plus per-sequence classifications, cached on the incidents file mtime."""
     qdir, inc_path = _incident_paths(dataset)
     if inc_path is None:
+        # The classifier's label set and knowledge base are HDFS-specific, so
+        # there is nothing to run for other datasets — say so rather than
+        # suggesting a command that cannot help here.
+        if dataset.lower() != "hdfs":
+            return {"available": False, "hdfs_only": True,
+                    "reason": "Incident classification and response are defined for HDFS only — "
+                              "the anomaly types and the retrieval knowledge base come from the "
+                              "HDFS open-set benchmark. Switch the dataset to HDFS to see this module."}
         return {"available": False,
                 "reason": f"No incidents_*.csv under outputs/{dataset}/llm/queues/ — "
                           "run 'python run.py respond' to build and classify the anomaly queues."}

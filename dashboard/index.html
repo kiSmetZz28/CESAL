@@ -435,16 +435,16 @@ select:focus{outline:none;border-color:var(--blue);}
   border:1px solid var(--border);border-radius:10px;padding:12px 10px;
   margin-bottom:14px;overflow-x:auto;
 }
-.welcome-arch-inner{display:flex;align-items:center;justify-content:center;min-width:max-content;margin:0 auto;}
+.welcome-arch-inner{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;row-gap:8px;margin:0 auto;}
 .wa-node{
-  text-align:center;padding:8px 10px;background:var(--card);
-  border:1px solid var(--border);border-radius:9px;min-width:74px;
-  font-size:10px;line-height:1.4;flex-shrink:0;box-shadow:0 1px 3px rgba(0,0,0,.06);
+  text-align:center;padding:8px 9px;background:var(--card);
+  border:1px solid var(--border);border-radius:9px;min-width:68px;
+  font-size:10px;line-height:1.4;flex:0 0 auto;box-shadow:0 1px 3px rgba(0,0,0,.06);
 }
 .wa-node .wa-icon{font-size:18px;display:block;margin-bottom:3px;}
 .wa-node .wa-lbl{font-weight:700;color:var(--text);font-size:11px;}
 .wa-node .wa-sub{color:var(--muted);font-size:9px;}
-.wa-arrow{color:var(--blue);font-size:14px;padding:0 5px;flex-shrink:0;opacity:.6;}
+.wa-arrow{color:var(--blue);font-size:14px;padding:0 4px;flex-shrink:0;opacity:.6;}
 .tour-intro-footer{
   padding:12px 24px 18px;display:flex;align-items:center;justify-content:space-between;
   border-top:1px solid var(--border);margin-top:8px;
@@ -536,7 +536,7 @@ select:focus{outline:none;border-color:var(--blue);}
 <div class="hdr">
   <h1>CESAL</h1>
   <span class="badge">v2</span>
-  <span class="hdr-sub">Cloud-Edge Security Analytics for Log-Based Incident Detection</span>
+  <span class="hdr-sub">Cloud–Edge Security Analytics for Log-Based Incident Detection, Classification, and Controlled Response</span>
   <div class="hdr-right">
     <button class="btn-help" onclick="showWelcome()">? Help</button>
     <div class="status-pill">
@@ -573,7 +573,7 @@ select:focus{outline:none;border-color:var(--blue);}
       <div class="welcome-header-icon">🔍</div>
       <div class="welcome-header-text">
         <h2>Welcome to CESAL</h2>
-        <p>Cloud-Edge Security Analytics for Log-Based Incident Detection &mdash; a research prototype for detecting anomalies in system logs.</p>
+        <p>Cloud&ndash;Edge Security Analytics for Log-Based Incident Detection, Classification, and Controlled Response &mdash; a research prototype that finds anomalies in system logs, works out what kind of incident each one is, and picks the response to it.</p>
       </div>
     </div>
     <div class="welcome-body">
@@ -587,11 +587,13 @@ select:focus{outline:none;border-color:var(--blue);}
           <span class="wa-arrow">→</span>
           <div class="wa-node"><span class="wa-icon">☁️</span><span class="wa-lbl">Cloud</span></div>
           <span class="wa-arrow">→</span>
-          <div class="wa-node"><span class="wa-icon">🎯</span><span class="wa-lbl">Result</span></div>
+          <div class="wa-node"><span class="wa-icon">🏷️</span><span class="wa-lbl">Classify</span></div>
+          <span class="wa-arrow">→</span>
+          <div class="wa-node"><span class="wa-icon">🛡️</span><span class="wa-lbl">Respond</span></div>
         </div>
       </div>
       <p style="font-size:12px;color:var(--muted);line-height:1.65;margin:0 0 4px">
-        Take a <strong style="color:var(--text)">quick 5-step tour</strong> to discover the key features, or jump straight in.
+        Take a <strong style="color:var(--text)">quick 6-step tour</strong> to discover the key features, or jump straight in.
       </p>
     </div>
     <div class="tour-intro-footer">
@@ -803,6 +805,18 @@ select:focus{outline:none;border-color:var(--blue);}
         <span class="pb-ico">✅</span>
         <span class="pb-title">Result</span>
         <span class="pb-sub">anomaly predictions</span>
+      </div>
+      <div class="pb-arrow">›</div>
+      <div class="pb-stage" id="pb-classify" onclick="showTab('incidents',document.querySelector('.tab[data-tab=incidents]'))">
+        <span class="pb-ico">🏷️</span>
+        <span class="pb-title">Classify</span>
+        <span class="pb-sub">incident type, or unknown (LLM + RAG)</span>
+      </div>
+      <div class="pb-arrow">›</div>
+      <div class="pb-stage" id="pb-respond" onclick="showTab('incidents',document.querySelector('.tab[data-tab=incidents]'))">
+        <span class="pb-ico">🛡️</span>
+        <span class="pb-title">Respond</span>
+        <span class="pb-sub">workflow, approval, escalation</span>
       </div>
     </div>
 
@@ -1160,7 +1174,10 @@ async function initDemoMode() {
 function setDataset(ds, btn) {
   S.dataset = ds;
   document.querySelectorAll('.ds-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
+  // Callers that are not a dataset button (e.g. the "Switch to HDFS" link in the
+  // Incident Response tab) pass no button, so find the matching one.
+  const target = btn || document.getElementById(`ds-${ds}`);
+  if (target) target.classList.add('active');
   closeRawPredict();
   loadConfigSummary(ds);
   updatePipelineBanner();
@@ -1350,6 +1367,11 @@ async function updatePipelineBanner() {
     setStageState('pb-routing',  hasRouting  ? 'done' : '');
     setStageState('pb-cloud',    hasRouting  ? 'done' : '');
     setStageState('pb-result',   hasResults  ? 'done' : '');
+    // Classification and response only exist once `run.py respond` has produced
+    // incident records; IR.summary is filled by the Incident Response tab.
+    const hasIncidents = !!(window.IR_SUMMARY && window.IR_SUMMARY.available);
+    setStageState('pb-classify', hasIncidents ? 'done' : '');
+    setStageState('pb-respond',  hasIncidents ? 'done' : '');
   } catch {}
 }
 
@@ -2494,13 +2516,19 @@ async function irLoad() {
   const sum = document.getElementById('irSummary');
   try {
     const d = await fetch(`/api/incidents/summary?dataset=${S.dataset}`).then(r=>r.json());
+    window.IR_SUMMARY = d;
     if (!d.available) {
-      sum.innerHTML = `<div class="empty"><div class="ico">🚨</div><p>${esc(d.reason||'No incident data available.')}</p></div>`;
+      const jump = d.hdfs_only
+        ? `<div style="margin-top:10px"><button class="btn" onclick="setDataset('hdfs')">Switch to HDFS →</button></div>`
+        : '';
+      sum.innerHTML = `<div class="empty"><div class="ico">🚨</div><p>${esc(d.reason||'No incident data available.')}</p>${jump}</div>`;
       document.getElementById('irBody').style.display = 'none';
       return;
     }
     IR.loaded = true;
+    window.IR_SUMMARY = d;          // lets the pipeline banner light Classify/Respond
     irRenderSummary(d);
+    try { updatePipelineBanner(); } catch (e) {}
     document.getElementById('irLabelSel').innerHTML =
       '<option value="">All predicted types</option>' +
       d.labels.map(l=>`<option value="${esc(l.label)}">${esc(l.label)} — ${l.count.toLocaleString()}</option>`).join('');
@@ -2724,7 +2752,7 @@ const TOUR_STEPS = [
     desc: 'Pick the system logs to analyse. <strong>HDFS</strong> and <strong>OpenStack</strong> are both live in this demo.',
     target: '.ds-grid', pad: 10, pos: 'right' },
   { title: '② Start the Analysis',
-    desc: 'Click <strong style="color:#16a34a">▶ Start Full Test Set Analysis</strong> to run the test set through the pipeline — Edge, Routing, and Cloud — and see aggregate metrics (accuracy, precision, recall, F1).',
+    desc: 'Click <strong style="color:#16a34a">▶ Start Full Test Set Analysis</strong> to run the test set through the detection pipeline — Edge, Routing, and Cloud — and see aggregate metrics (accuracy, precision, recall, F1). Classification and response run separately, via <code>run.py respond</code>.',
     target: '#runBtn', pad: 8, pos: 'right' },
   { title: '③ Watch the Pipeline Tab',
     desc: 'Switch here to see raw log messages, parsed sessions, and live stage-by-stage progress.',
@@ -2732,7 +2760,10 @@ const TOUR_STEPS = [
   { title: '④ Explore Results',
     desc: 'The <strong>Results</strong> tab shows the Anomaly Timeline — ground truth, Edge predictions, and final Edge + Cloud collaborative predictions side by side.',
     target: '.tab[data-tab="results"]', pad: 6, pos: 'bottom' },
-  { title: '⑤ Predict a Single Sliding Context Window',
+  { title: '⑤ Incident Response',
+    desc: 'Detection only says <em>something is wrong</em>. This tab goes further: every detected session is queued, a <strong>RAG-enhanced LLM</strong> names the incident type — or marks it <strong>unknown</strong> when no known type fits — and each known type selects a <strong>predefined response workflow</strong>. Low-impact steps can run automatically; high-impact ones need an administrator\'s approval, and unknown incidents are held for a human.',
+    target: '.tab[data-tab="incidents"]', pad: 6, pos: 'bottom' },
+  { title: '⑥ Predict a Single Sliding Context Window',
     desc: 'Click <strong>any raw log row</strong> like this one to score it through the full Edge → Routing → Cloud pipeline. The model does <strong>not</strong> look at the single line alone — it uses that line\'s <strong>forward sequence</strong> (the 10 preceding events that form its sliding context window) for evaluation. The 10-event context and the final verdict appear inline below the row.',
     target: '#plRawBody .pl-row', fallback: '#plRawBody', pad: 6, pos: 'left', isLast: true },
 ];
