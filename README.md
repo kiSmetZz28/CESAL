@@ -72,14 +72,17 @@ CESAL uses **two Conda environments**, one for each inference tier:
 **The pipeline, end to end.** Step 2 produces the models; Steps 3 and 4 run them:
 
 ```
-       ┌── Step 2 ──────────────────┐
-       │  train BAT ──▶ convert to  │        Step 3           Step 4
-       │  (81 models)     Q-BAT     │──▶  detection  ──▶  classification ──▶ response
-       └────────────────────────────┘
-          or: download the published checkpoints the paper was measured on
+   ┌─────────────────── Step 2 ───────────────────┐
+   │                  ┌──▶ all 81 ─────────▶ BAT  │     Step 3            Step 4
+   │  train EM-AT ────┤                   (cloud) │      │                 │
+   │   (81 models)    └──▶ quantize 3 ───▶ Q-BAT  │      ▼                 ▼
+   │                       + export to    (edge)  │  detection ──▶ classification ──▶ response
+   │                       ExecuTorch             │
+   └──────────────────────────────────────────────┘
+       or: download the published checkpoints the paper was measured on
 ```
 
-Training the ensemble is the expensive stage, so the checkpoints behind the paper's numbers are published as well — **to reproduce Table 3, download them**; to rebuild the system from scratch, train and convert instead. Everything from Step 3 on is the same either way.
+Training is the expensive stage, so the checkpoints behind the paper's numbers are published as well — **to reproduce Table 3, download them**; to rebuild the system from scratch, train and quantize instead. Everything from Step 3 on is the same either way.
 
 ### What you need to run CESAL
 
@@ -123,7 +126,7 @@ conda env list   # should list both 'cesal-edge' and 'cesal-cloud'
 
 ### Step 2 — Obtain the BAT and Q-BAT models
 
-Detection needs two sets of models: the **BAT** ensemble (81 full-precision EM-AT models per dataset, the cloud tier) and the quantized **Q-BAT** models exported to ExecuTorch `.pte` (the edge tier). Produce them either way — Step 3 onwards is identical.
+Both tiers are ensembles of the same base learner, **EM-AT**, trained over a 3×3×3×3 hyperparameter grid. The cloud tier, **BAT**, uses all 81 trained models at full precision. The edge tier, **Q-BAT**, keeps **3** of those learners, quantizes them (8-bit activations, 4-bit weights) and exports each as an ExecuTorch `.pte` program. Q-BAT is therefore a separate, smaller ensemble built from the same checkpoints — not a quantized copy of the 81-model BAT. Obtain them either way below; Step 3 onwards is identical.
 
 **Option A — train them (the full lifecycle).** Train the ensemble, then quantize and export it:
 
@@ -131,10 +134,10 @@ Detection needs two sets of models: the **BAT** ensemble (81 full-precision EM-A
 conda activate cesal-cloud
 python run.py train hdfs              # 81 EM-AT models → checkpoints/bat/hdfs
 conda activate cesal-edge
-python run.py convert hdfs            # quantize + export → checkpoints/qbat/hdfs
+python run.py convert hdfs            # quantize EM-AT checkpoints → .pte in checkpoints/qbat/hdfs
 ```
 
-Training is the expensive stage — 81 models per dataset over the 3×3×3×3 hyperparameter grid. See [Train the BAT ensemble from scratch](#train-the-bat-ensemble-from-scratch) and [Convert BAT to Q-BAT](#convert-bat-to-q-bat-edge-models) for what each grid point costs and how partial failures are reported. Conversion needs the ExecuTorch runtime, so run `python run.py download hdfs qbat` first if you have not already.
+Training is the expensive stage — 81 models per dataset over the 3×3×3×3 hyperparameter grid. See [Train the BAT ensemble from scratch](#train-the-bat-ensemble-from-scratch) and [Quantize and export Q-BAT](#quantize-and-export-q-bat-edge-models) for what each grid point costs and how partial failures are reported. Conversion needs the ExecuTorch runtime, so run `python run.py download hdfs qbat` first if you have not already.
 
 **Option B — download the published checkpoints.** These are the exact models the paper's numbers were measured on, so this is the route to reproduce Table 3 rather than to retrain it:
 
@@ -264,7 +267,7 @@ Training reports as two steps, with a progress bar across the sweep and one line
 
 A model that fails does not abort the sweep — it is reported and the run continues, and the closing summary states how many of the 81 were trained.
 
-### Convert BAT to Q-BAT (edge models)
+### Quantize and export Q-BAT (edge models)
 
 ```bash
 conda activate cesal-edge
@@ -272,7 +275,7 @@ python run.py convert os
 python run.py convert hdfs
 ```
 
-Applies quantization techniques and exports `.pte` files to `checkpoints/qbat/{dataset}/`. Skip if you already downloaded Q-BAT checkpoints via `python run.py download <dataset> qbat`.
+Quantizes the trained EM-AT checkpoints and exports each as an ExecuTorch program under `checkpoints/qbat/{dataset}/`. The command converts every grid point, so you can pick which learners to deploy; the `edge_models` list in `configs/inference/<dataset>.yaml` names the **3** that make up Q-BAT. Skip this if you already downloaded Q-BAT checkpoints via `python run.py download <dataset> qbat`.
 
 Conversion reports as two steps. The first says how many trained models were found and how much space they take; the second walks through them with a progress bar that names the current model and its sub-stage (loading → quantizing → exporting → writing), and reports the size each one dropped to:
 
@@ -414,7 +417,7 @@ CESAL/
 │   ├── solver.py                  #    EM-AT base model training
 │   └── evaluate.py                #    Per-model evaluation
 │
-├── quantization/                  # 2. Convert BAT → Q-BAT
+├── quantization/                  # 2. Quantize EM-AT checkpoints → Q-BAT (.pte)
 │   └── qbat_export.py             #    A8W4 quantize, export to ExecuTorch .pte
 │
 ├── <b>🔴 cesal_inference_pipeline/</b>      # 3. CESAL collaborative inference pipeline: Edge → routing → cloud

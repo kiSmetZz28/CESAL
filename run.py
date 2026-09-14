@@ -94,7 +94,7 @@ def main() -> None:
 
     elif command == "convert":
         dataset = argv[1] if len(argv) > 1 else "os"
-        print(f"[run] Converting BAT → Q-BAT — dataset: {dataset}")
+        print(f"[run] Quantizing EM-AT checkpoints → Q-BAT — dataset: {dataset}")
         _run(str(_ROOT / "quantization" / "qbat_export.py"),
              "--config", f"configs/training/{dataset}.yaml", "--all")
 
