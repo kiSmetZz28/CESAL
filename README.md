@@ -138,9 +138,16 @@ python run.py download hdfs qbat      # HDFS quantized Q-BAT + ExecuTorch runtim
 
 > **Note:** raw log files are _not_ fetched here — they are only needed for the optional web dashboard's log-browsing panels and are downloaded by `launch_dashboard.py` (see "Optional — Launch the local dashboard" below).
 
-### Step 3 — Run the full pipeline from the CLI
+**Check the install before the long run.** The unit suite needs no checkpoints and no GPU, and covers the pieces the pipeline's numbers depend on — EM-GMM thresholding, anomaly-energy scoring, ensemble voting, thresholded prediction, the routing-ratio sweep and the Table 1 workflow mapping:
 
-Pre-computed thresholds for both datasets are bundled, so inference runs immediately:
+```bash
+conda activate cesal-edge
+python -m pytest tests -q             # 88 tests, a few seconds
+```
+
+### Step 3 — Run the detection pipeline
+
+**This is the evaluation path.** Pre-computed thresholds for both datasets are bundled, so inference runs immediately:
 
 ```bash
 conda activate cesal-edge
@@ -148,46 +155,26 @@ python run.py infer os                # edge scan → routing → cloud re-check
 python run.py infer hdfs
 ```
 
-### Optional — Launch the local dashboard
+One command runs the whole framework: Q-BAT scores every event on the edge, the Mahalanobis policy escalates the most uncertain 10%, the 81-model BAT ensemble re-evaluates those, and the two are merged into the final prediction. The cloud stage is spawned as a `cesal-cloud` subprocess automatically — you never switch environments by hand.
 
-A web UI at **http://localhost:8765** that runs the pipeline and browses the parsed logs.
+**What it prints.** Every step states its inputs, what it is doing and its outcome, and the run closes with precision / recall / F1 for the edge-only, cloud-only and collaborative predictions — the three rows of [Table 3](#log-based-incident-detection-table-3), scored under the point-adjustment protocol the paper uses.
 
-**First time — fetch assets, then launch.** `launch_dashboard.py` does the same download as `run.py download`, plus the **raw log files** the log-browsing panels need:
+**What it writes** to `outputs/<dataset>/`:
 
-```bash
-conda activate cesal-edge
-python launch_dashboard.py                # download missing assets (ExecuTorch + Q-BAT + raw logs + BAT) + launch UI
-python launch_dashboard.py --setup-only   # download assets, do not launch
-python launch_dashboard.py --no-bat       # skip BAT checkpoints (~3.5 GB × dataset)
-python launch_dashboard.py --status       # print what is present / missing, then exit (no downloads, no setup)
-```
+| File                    | Contents                                                      |
+| ----------------------- | ------------------------------------------------------------- |
+| `edge_preds.npy`        | Q-BAT per-event predictions (point-adjusted)                  |
+| `edge_preds_raw.npy`    | the same predictions before point adjustment                  |
+| `energy_matrix.npy`     | per-model anomaly scores, the input to the routing decision   |
+| `routed_indices.npy`    | which events the routing policy escalated                     |
+| `routed_lines.npy`      | the feature vectors sent to the cloud                         |
+| `cloud_preds.npy`       | BAT verdicts on the routed events                             |
+| `hybrid_preds.npy`      | the merged CESAL prediction                                   |
+| `ground_truth.npy`      | labels, for scoring                                           |
 
-**Afterwards — start the UI directly.** Skips all setup; up in seconds:
+To reproduce the routing-ratio table without repeating the edge scan for every ratio, see [Vary the routing ratio](#vary-the-routing-ratio).
 
-```bash
-conda activate cesal-edge
-export EDGE_PYTHON=$(which python)                            # interpreter for the edge stage
-export CLOUD_PYTHON=~/miniconda3/envs/cesal-cloud/bin/python  # interpreter for the BAT and LLM stages
-python dashboard/app.py                                       # PORT=8799 python dashboard/app.py for another port
-```
-
-`python dashboard/app.py` is exactly what `launch_dashboard.py` execs once its asset checks pass — same UI, but it never downloads or installs. Prefer it day to day: `launch_dashboard.py` re-runs the ExecuTorch **Python-bindings** cmake build on every launch whenever `from executorch.runtime import Runtime` fails. Those bindings are optional — the edge stage falls back to the pre-built C++ `executor_runner` from the ExecuTorch download, which is the default path anyway.
-
-`EDGE_PYTHON` and `CLOUD_PYTHON` name the interpreters the dashboard spawns per stage (defaults: `~/miniconda3/envs/cesal-edge/bin/python` and `~/miniconda3/envs/cesal-cloud/bin/python`); set them if your environment names differ. A built-in **? Help** button walks through the panels.
-
-The dashboard opens on **HDFS** whenever its logs have been ingested — it is the paper's primary dataset and the only one with incident classification and response — and falls back to OpenStack otherwise. Either can be selected at any time.
-
-The pipeline banner across the top covers the whole framework — **Raw Logs → Parse → Sessions → Edge → Routing → Cloud → Result → Classify → Respond** — and each stage jumps to the tab that shows it.
-
-**Start Full Test Set Analysis** runs the whole framework in one click. With _"Also classify each incident and choose its response"_ ticked it chains detection into incident response, and the live panel reports all eight steps as a single run — `Edge → Routing → Cloud → Result → Queue → Classify → Workflow → Score`. The option is enabled for **HDFS only** (the anomaly types and retrieval knowledge base come from the HDFS open-set benchmark) and is off in demo mode, where there is no GPU. It ticks itself when classifications are already cached — the run then finishes in seconds — and stays off when a cold run would need to load a language model first; either way the checkbox says which case you are in.
-
-The **Incident Response** tab shows the last two stages: queued incidents, the anomaly type assigned to each, the response workflow that type selects, how many of its steps need administrator approval or escalation, and how many were left as unknown for a human. It can also be produced from the CLI with `python run.py respond`.
-
-**Live Execution Progress** tracks the same steps the CLI prints: the stage track shows the active step, **What's happening now** carries a progress bar for the work inside it, and **Current step** lists that step's inputs, sub-steps and results — so each step ends with a visible outcome instead of scrolling away. A skipped step states its reason. The panel is driven by structured progress events from the runners ([cesal_core/utils/steps.py](cesal_core/utils/steps.py)) rather than by pattern-matching log text, so it cannot drift out of sync when a message is reworded.
-
-On first launch the **Database** indicator shows **Loading** while logs are imported, and the HDFS log-browsing panel needs a few minutes per process to build its ordering cache; the results, config and prediction panels respond immediately.
-
-### Optional — LLM-based incident classification and controlled response
+### Step 4 — Incident classification and controlled response (HDFS)
 
 `incident_response/` labels abnormal HDFS sequences as one of the 10 known anomaly types or `Other anomaly type` using a RAG-enhanced LLM, then maps each label to a response workflow (Table 1). Runs in `cesal-cloud` and needs a CUDA GPU; models exceeding GPU memory are partly offloaded to CPU RAM.
 
@@ -225,6 +212,35 @@ python run.py respond         # queues → classification → workflows
 ```
 
 The LAD test data has no block IDs or timestamps, so records are keyed by session index. Its HDFS sessions come from a different log-key extraction than loghub's `Event_traces.csv` — most exception events (e.g. E7) are absent — so about 20% of abnormal sessions match no knowledge-base or test sequence exactly and are excluded from the classification score. Classifications are cached per unique sequence in `classified_<model>.csv`, so an interrupted run resumes.
+
+### Optional — Launch the local dashboard
+
+A web UI at **http://localhost:8765** that drives the same pipeline stages as the CLI and browses the parsed logs. Everything it does is reachable from the terminal — it is for demonstration and inspection, not required for evaluation.
+
+**First time — fetch assets, then launch.** `launch_dashboard.py` does the same download as `run.py download`, plus the **raw log files** the log-browsing panels need:
+
+```bash
+conda activate cesal-edge
+python launch_dashboard.py                # download missing assets + launch the UI
+python launch_dashboard.py --setup-only   # download assets, do not launch
+python launch_dashboard.py --no-bat       # skip BAT checkpoints (~3.5 GB per dataset)
+python launch_dashboard.py --status       # report what is present / missing, then exit
+```
+
+**Afterwards — start the UI directly.** Skips all setup; up in seconds:
+
+```bash
+conda activate cesal-edge
+export EDGE_PYTHON=$(which python)                            # interpreter for the edge stage
+export CLOUD_PYTHON=~/miniconda3/envs/cesal-cloud/bin/python  # interpreter for the BAT and LLM stages
+python dashboard/app.py                                       # PORT=8799 python dashboard/app.py for another port
+```
+
+`EDGE_PYTHON` and `CLOUD_PYTHON` name the interpreters the dashboard spawns per stage; set them if your environment names differ. Prefer `dashboard/app.py` day to day — `launch_dashboard.py` re-runs the optional ExecuTorch **Python-bindings** cmake build whenever `from executorch.runtime import Runtime` fails, and the edge stage does not need those bindings: it falls back to the pre-built C++ `executor_runner`, which is the default path anyway.
+
+**Start Full Test Set Analysis** runs the whole framework in one click, optionally chaining detection into classification and response (HDFS only, GPU required). The pipeline banner mirrors the framework — Raw Logs → Parse → Sessions → Edge → Routing → Cloud → Result → Classify → Respond — and the **Incident Response** tab shows each queued incident, the anomaly type assigned to it and the response workflow that type selects. **Live Execution Progress** reports the same steps the CLI prints, driven by structured progress events ([cesal_core/utils/steps.py](cesal_core/utils/steps.py)) rather than by pattern-matching log text. A built-in **? Help** button walks through the panels.
+
+The dashboard opens on **HDFS** when its logs have been ingested and falls back to OpenStack otherwise; either can be selected at any time. On first launch the **Database** indicator shows **Loading** while logs are imported — the results, config and prediction panels respond immediately.
 
 ---
 
