@@ -60,15 +60,6 @@ CESAL is a security-aware cloud-edge framework for log-based incident detection,
 
 **`run.py` is the entry point for every stage** — download, train, eval, convert, infer, classify, respond. Steps 1-4 below are the complete path from a clean checkout to the paper's numbers; nothing else is required, and the optional dashboard at the end changes none of them. All commands run from the project root.
 
-| Stage                       | Command                       | Environment   | Produces                                                        |
-| --------------------------- | ----------------------------- | ------------- | --------------------------------------------------------------- |
-| 1. Environments             | `conda create …` (below)      | —             | `cesal-edge`, `cesal-cloud`                                     |
-| 2. Checkpoints              | `python run.py download`      | `cesal-edge`  | `checkpoints/bat/`, `checkpoints/qbat/`, ExecuTorch runtime     |
-| — Check the install         | `python -m pytest tests -q`   | `cesal-edge`  | 88 passing tests, a few seconds                                 |
-| 3. Detection                | `python run.py infer hdfs`    | `cesal-edge`  | `outputs/<dataset>/*.npy`, the **Table 3** scores               |
-| 4a. Classification          | `python run.py classify`      | `cesal-cloud` | `outputs/hdfs/llm/`, the **Table 7** scores                     |
-| 4b. Response                | `python run.py respond`       | `cesal-cloud` | `outputs/hdfs/llm/queues/`, the **Table 1** workflow per incident |
-
 CESAL uses **two Conda environments**, one for each inference tier:
 
 | Environment   | Tier      | Stack                                       | What runs in it                                                                                                                                                                                                             |
@@ -78,55 +69,25 @@ CESAL uses **two Conda environments**, one for each inference tier:
 
 **Why two?** Edge runs ExecuTorch (compact, CPU-only, `.pte` quantized models); cloud runs full-precision PyTorch with CUDA. Separating them keeps each install minimal and avoids version conflicts between the two.
 
-**Two ways through the artifact.** The full lifecycle runs left to right; the trained checkpoints are published, so the numbered steps below skip the two most expensive stages:
+**The pipeline, end to end.** Step 2 produces the models; Steps 3 and 4 run them:
 
 ```
-  train BAT ensemble ──▶ convert to Q-BAT ──▶ detection ──▶ classification ──▶ response
-      (81 models)          (quantize)          Step 3         Step 4            Step 4
-           └────────── replaced by Step 2: download ──────────┘
+       ┌── Step 2 ──────────────────┐
+       │  train BAT ──▶ convert to  │        Step 3           Step 4
+       │  (81 models)     Q-BAT     │──▶  detection  ──▶  classification ──▶ response
+       └────────────────────────────┘
+          or: download the published checkpoints the paper was measured on
 ```
 
-**To reproduce the paper**, follow Steps 1-4: the published BAT and Q-BAT checkpoints go straight from install to results. **To rebuild the models from scratch**, do [Train the BAT ensemble](#train-the-bat-ensemble-from-scratch) and [Convert BAT to Q-BAT](#convert-bat-to-q-bat-edge-models) in place of Step 2, then rejoin at Step 3 — the rest of the pipeline is identical.
+Training the ensemble is the expensive stage, so the checkpoints behind the paper's numbers are published as well — **to reproduce Table 3, download them**; to rebuild the system from scratch, train and convert instead. Everything from Step 3 on is the same either way.
 
 ### What you need to run CESAL
 
 Far less than the paper's testbed ([Hardware setup](#hardware-setup-section-41) records what the published numbers were measured on).
 
-| Purpose                              | Requirement                                                                                                                             |
-| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
-| Edge stage, dashboard, unit tests    | x86-64 CPU, 16 GB RAM. **No GPU needed.**                                                                                               |
-| Cloud BAT ensemble (81 EM-AT models) | One CUDA GPU; 16 GB VRAM is sufficient.                                                                                                 |
-| LLM incident classification          | One CUDA GPU, 16 GB VRAM (verified on an RTX 2000 Ada). Models larger than VRAM are partly offloaded to CPU RAM — slower, but it works. |
-| Edge resource measurements (Table 6) | Physical Raspberry Pi 3B+/4B/5. Not reproducible without that hardware.                                                                 |
+**Hardware.** The edge stage, the dashboard and the unit tests need only an x86-64 CPU with 16 GB RAM — **no GPU**. One CUDA GPU with **16 GB VRAM** covers everything else: the 81-model BAT ensemble and the LLM classification (verified on an RTX 2000 Ada; models larger than VRAM are partly offloaded to CPU RAM — slower, but it works). The edge resource measurements in Table 6 need physical Raspberry Pi 3B+/4B/5 hardware and are not reproducible without it.
 
-**Disk** — what you need depends on how far down the pipeline you go. Detection alone is modest; the LLM backbones are what fill a disk.
-
-**Steps 1-3, the detection evaluation path — about 12 GB:**
-
-| Item                                    | Size                |
-| --------------------------------------- | ------------------- |
-| Repository clone                        | ~31 MB              |
-| BAT checkpoints (81 `.pth` per dataset) | ~3.5 GB per dataset |
-| Q-BAT checkpoints (both datasets)       | ~160 MB             |
-| ExecuTorch runtime + build tree         | ~3.1 GB             |
-| Prediction outputs per dataset          | ~1.2 GB             |
-
-**Step 4, incident classification — the model weights dominate.** They are pulled from Hugging Face on first use and cached outside the repository in `~/.cache/huggingface/hub`:
-
-| Backbone                              | Size    |
-| ------------------------------------- | ------- |
-| Qwen2.5-14B-Instruct (default)        | ~28 GB  |
-| Qwen2.5-7B-Instruct                   | ~15 GB  |
-| gemma-2-9b-it                         | ~18 GB  |
-| Meta-Llama-3.1-8B-Instruct            | ~15 GB  |
-| **All four** (what `run.py classify` evaluates) | **~76 GB** |
-
-**Optional dashboard — about 7 GB more:**
-
-| Item                                         | Size    |
-| -------------------------------------------- | ------- |
-| Raw HDFS logs (log-browsing panels only)     | ~1.6 GB |
-| Dashboard SQLite database (built at runtime) | ~5.5 GB |
+**Disk.** Detection (Steps 1-3) needs about **12 GB** — BAT checkpoints ~3.5 GB per dataset, the ExecuTorch runtime and build tree ~3.1 GB, prediction outputs ~1.2 GB per dataset, everything else under 250 MB. Step 4 is dominated by the LLM weights, pulled from Hugging Face on first use into `~/.cache/huggingface/hub`: **~28 GB** for the default Qwen2.5-14B-Instruct, or **~76 GB** for all four backbones that `run.py classify` evaluates. The optional dashboard adds ~7 GB (raw HDFS logs plus the SQLite database it builds).
 
 ### Step 1 — Set up environments
 
@@ -160,9 +121,22 @@ pip install -e .
 conda env list   # should list both 'cesal-edge' and 'cesal-cloud'
 ```
 
-### Step 2 — Download checkpoints and the edge runtime
+### Step 2 — Obtain the BAT and Q-BAT models
 
-`run.py download` fetches the BAT (`.pth`) and Q-BAT (`.pte`) checkpoints. When Q-BAT is included it also installs the **ExecuTorch 0.5.0 runtime** and its bundled `torchao` build, which `run.py infer` and `run.py convert` need.
+Detection needs two sets of models: the **BAT** ensemble (81 full-precision EM-AT models per dataset, the cloud tier) and the quantized **Q-BAT** models exported to ExecuTorch `.pte` (the edge tier). Produce them either way — Step 3 onwards is identical.
+
+**Option A — train them (the full lifecycle).** Train the ensemble, then quantize and export it:
+
+```bash
+conda activate cesal-cloud
+python run.py train hdfs              # 81 EM-AT models → checkpoints/bat/hdfs
+conda activate cesal-edge
+python run.py convert hdfs            # quantize + export → checkpoints/qbat/hdfs
+```
+
+Training is the expensive stage — 81 models per dataset over the 3×3×3×3 hyperparameter grid. See [Train the BAT ensemble from scratch](#train-the-bat-ensemble-from-scratch) and [Convert BAT to Q-BAT](#convert-bat-to-q-bat-edge-models) for what each grid point costs and how partial failures are reported. Conversion needs the ExecuTorch runtime, so run `python run.py download hdfs qbat` first if you have not already.
+
+**Option B — download the published checkpoints.** These are the exact models the paper's numbers were measured on, so this is the route to reproduce Table 3 rather than to retrain it:
 
 ```bash
 conda activate cesal-edge
@@ -171,6 +145,8 @@ python run.py download hdfs           # one dataset (BAT + Q-BAT) + ExecuTorch r
 python run.py download hdfs bat       # HDFS full-precision only (no ExecuTorch needed)
 python run.py download hdfs qbat      # HDFS quantized Q-BAT + ExecuTorch runtime
 ```
+
+Whenever Q-BAT is in the set, `run.py download` also installs the **ExecuTorch 0.5.0 runtime** and its bundled `torchao` build, which `run.py infer` and `run.py convert` both need.
 
 > **Note:** raw log files are _not_ fetched here. They are only needed by the optional dashboard's log-browsing panels, and `launch_dashboard.py` fetches them.
 
@@ -259,7 +235,7 @@ Everything above runs from the terminal, and the terminal is the evaluation path
 
 ## Advanced Options
 
-Rebuilding the models, scoring the ensemble, and the ablations behind the paper's tables.
+Detail on the two Step 2 training commands, plus ensemble scoring and the ablations behind the paper's tables.
 
 ### Train the BAT ensemble from scratch
 
