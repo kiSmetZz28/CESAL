@@ -1426,9 +1426,22 @@ function connectStream() {
     // Fallback for runners that predate structured events (e.g. replayed logs).
     if (!LP.structured) parseLiveLine(line);
   };
-  es.addEventListener('done', () => {
+  es.addEventListener('done', async () => {
     es.close(); S.es = null;
     setRunning(false);
+    // A failed run still closes the stream, so check how the process exited
+    // before announcing success and loading whatever is on disk.
+    let rc = 0;
+    if (!S.stopRequested) {
+      try { rc = (await fetch('/api/status').then(r=>r.json())).returncode ?? 0; } catch {}
+    }
+    if (rc !== 0) {
+      setFriendlyStatus('⚠️', 'Run failed',
+        `The pipeline exited with code ${rc}. The console output above says why.`);
+      log(`[Dashboard] Pipeline exited with code ${rc} — results not loaded.`, 'le');
+      setTimeout(loadLogs, 1500);
+      return;
+    }
     if (S.stopRequested) {
       log('[Dashboard] Run was stopped — results not loaded.', 'lw');
       // Clear stale results from display

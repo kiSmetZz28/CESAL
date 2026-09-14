@@ -1487,8 +1487,31 @@ def _parse_log_metrics(lines: list[str]) -> dict:
 # Override EDGE_PYTHON / CLOUD_PYTHON env vars to use a different interpreter
 # (e.g. set both to sys.executable in Docker where conda envs don't exist).
 _CONDA = Path.home() / "miniconda3" / "envs"
-EDGE_PYTHON  = os.getenv("EDGE_PYTHON",  str(_CONDA / "cesal-edge"  / "bin" / "python"))
-CLOUD_PYTHON = os.getenv("CLOUD_PYTHON", str(_CONDA / "cesal-cloud" / "bin" / "python"))
+
+
+def _resolve_python(path: str, var: str, tier: str) -> str:
+    """Interpreter for one pipeline tier, falling back to this one if it is absent.
+
+    The conda layout below is a default, not a guarantee: a checkout may name its
+    environments differently, and Docker / HF Spaces have no conda at all. Without
+    this check a missing interpreter reaches the shell as a bare
+    "No such file or directory", which names a path but not the environment the
+    user actually has to create or point at.
+    """
+    if Path(path).exists():
+        return path
+    print(f"[env] {tier} interpreter not found at {path} — using {sys.executable}. "
+          f"Set {var} to the python of your {tier.lower()} environment "
+          f"if that is not the right one.", flush=True)
+    return sys.executable
+
+
+EDGE_PYTHON  = _resolve_python(
+    os.getenv("EDGE_PYTHON",  str(_CONDA / "cesal-edge"  / "bin" / "python")),
+    "EDGE_PYTHON", "Edge")
+CLOUD_PYTHON = _resolve_python(
+    os.getenv("CLOUD_PYTHON", str(_CONDA / "cesal-cloud" / "bin" / "python")),
+    "CLOUD_PYTHON", "Cloud")
 
 # True when the full inference pipeline (run.py + ExecuTorch executor_runner) is present.
 # Falls back to demo_runner.py when either component is missing.
