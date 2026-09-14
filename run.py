@@ -74,7 +74,7 @@ def main() -> None:
         if ckpt_type != "bat":
             print("[run] Ensuring ExecuTorch runtime is installed (needed for infer / convert) …")
             sys.path.insert(0, str(_ROOT))
-            from launch_dashboard import setup_executorch
+            from tools.setup_executorch import setup_executorch
             ok = setup_executorch()
             sys.exit(0 if ok else 1)
         sys.exit(0)

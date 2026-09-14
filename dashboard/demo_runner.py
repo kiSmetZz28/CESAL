@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Container demo inference pipeline (Docker / HF Spaces).
+"""Container demo inference pipeline (Docker).
 
 Replaces the full two-environment pipeline (ExecuTorch edge + conda cloud)
 with a Python-only execution that uses the BAT .pth checkpoints for BOTH

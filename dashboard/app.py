@@ -907,10 +907,10 @@ async def _startup():
     for _ds in ("os", "hdfs"):
         asyncio.create_task(asyncio.to_thread(_sync_fit_scaler, _ds))
     # Preload BAT models into RAM only when no separate cloud env is available
-    # (i.e. HF Spaces / Docker where CLOUD_PYTHON == this interpreter).
+    # (i.e. a container where CLOUD_PYTHON == this interpreter).
     # Locally, the hybrid conda env subprocess is faster and uses the GPU.
     #
-    # On HF Spaces the 11 M-row HDFS ingest and the ~7 GB of PyTorch model
+    # In a container the 11 M-row HDFS ingest and the ~7 GB of PyTorch model
     # weights would compete for the same RAM if started simultaneously.
     # Deferring model loading until ingest finishes keeps peak usage low:
     #   - ingest runs alone  →  HDFS DB is built faster with less I/O contention
@@ -1493,7 +1493,7 @@ def _resolve_python(path: str, var: str, tier: str) -> str:
     """Interpreter for one pipeline tier, falling back to this one if it is absent.
 
     The conda layout below is a default, not a guarantee: a checkout may name its
-    environments differently, and Docker / HF Spaces have no conda at all. Without
+    environments differently, and a container may have no conda at all. Without
     this check a missing interpreter reaches the shell as a bare
     "No such file or directory", which names a path but not the environment the
     user actually has to create or point at.
@@ -1537,7 +1537,7 @@ def _build_precomputed_infer_cmd(ds: str) -> list[str]:
 
 
 def _build_container_infer_cmd(ds: str, tolerance: float, distance: str) -> list[str]:
-    """Inference for container / HF Spaces using demo_runner.py.
+    """Inference for container deployments using demo_runner.py.
 
     demo_runner.py runs the full four-stage pipeline entirely in Python using
     the BAT .pth checkpoints (no ExecuTorch required):
@@ -1564,7 +1564,7 @@ def _build_container_infer_cmd(ds: str, tolerance: float, distance: str) -> list
 def _build_cmd(req: RunRequest) -> list[str]:
     ds = req.dataset
     if req.command == "infer" and not _FULL_PIPELINE_AVAILABLE:
-        # Full inference pipeline not present (Docker / HF Spaces):
+        # Full inference pipeline not present (container):
         # use demo_runner.py which executes BAT models for both edge and cloud.
         return _build_container_infer_cmd(ds, req.routing_tolerance, req.routing_distance)
     if req.command == "train":

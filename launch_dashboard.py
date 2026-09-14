@@ -25,15 +25,19 @@ import argparse
 import os
 import subprocess
 import sys
-import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(ROOT))          # importable from any working directory
 
 # ── Asset locations ───────────────────────────────────────────────────────────
-EXECUTORCH_DIR    = ROOT / "cesal_inference_pipeline" / "executorch"
-EXECUTOR_RUNNER   = EXECUTORCH_DIR / "cmake-out" / "executor_runner"
-EXECUTORCH_GDRIVE   = "1YyFOhLxOYOJJCxN6yxTEyMKSHhgaLWuh"  # ExecuTorch 0.5.0 pre-built
+# The ExecuTorch runtime is a pipeline asset, not a dashboard one: it is fetched
+# and installed by tools/setup_executorch.py, which `run.py download` also calls.
+from tools.setup_executorch import (            # noqa: E402
+    executorch_present as _executorch_ok,
+    extract_zip as _extract,
+    setup_executorch as _setup_executorch,
+)
 
 QBAT_DIR     = ROOT / "checkpoints" / "qbat"
 QBAT_DATASETS = ["hdfs", "os"]
@@ -48,9 +52,6 @@ MIN_BAT_CKPTS  = 81
 
 
 # ── Presence checks ───────────────────────────────────────────────────────────
-
-def _executorch_ok() -> bool:
-    return EXECUTOR_RUNNER.is_file()
 
 def _qbat_ok() -> bool:
     return all(
@@ -77,14 +78,6 @@ def _outputs_ok(ds: str) -> bool:
 
 # ── Dependency helpers ────────────────────────────────────────────────────────
 
-def _ensure_gdown() -> None:
-    try:
-        import gdown  # noqa: F401
-    except ImportError:
-        print("Installing gdown …")
-        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "gdown>=4.6"], check=True)
-
-
 def _ensure_hf_hub() -> None:
     try:
         import huggingface_hub  # noqa: F401
@@ -94,18 +87,6 @@ def _ensure_hf_hub() -> None:
 
 
 # ── Download functions ────────────────────────────────────────────────────────
-
-def _gdrive_download(file_id: str, dest: Path) -> bool:
-    import gdown
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        gdown.download(url=f"https://drive.google.com/uc?id={file_id}",
-                       output=str(dest), quiet=False)
-        return dest.exists()
-    except Exception as exc:
-        print(f"  ERROR: {exc}", file=sys.stderr)
-        return False
-
 
 def _hf_download(filename: str, local_path: Path) -> bool:
     from huggingface_hub import hf_hub_download
@@ -124,66 +105,10 @@ def _hf_download(filename: str, local_path: Path) -> bool:
         return False
 
 
-def _extract(zip_path: Path, out_dir: Path) -> None:
-    out_dir.mkdir(parents=True, exist_ok=True)
-    print(f"  Extracting → {out_dir} …")
-    with zipfile.ZipFile(zip_path, "r") as zf:
-        zf.extractall(str(out_dir))
-    zip_path.unlink(missing_ok=True)
-
-
 # ── Per-asset setup ───────────────────────────────────────────────────────────
 
-def _install_executorch_python_bindings() -> bool:
-    install_script = EXECUTORCH_DIR / "install_requirements.py"
-    if not install_script.exists():
-        print("  WARNING: install_requirements.py not found — Python bindings skipped.")
-        return False
-    print("  Installing ExecuTorch Python bindings …")
-    result = subprocess.run(
-        [sys.executable, str(install_script)],
-        cwd=str(EXECUTORCH_DIR),
-    )
-    if result.returncode == 0:
-        edge_req = ROOT / "environment" / "edge" / "requirements.txt"
-        if edge_req.exists():
-            subprocess.run([sys.executable, "-m", "pip", "install", "-q",
-                            "-r", str(edge_req)], check=False)
-        print("  ExecuTorch Python bindings installed.")
-        return True
-    print("  WARNING: Python binding install failed — C++ executor_runner fallback will be used.")
-    return False
-
-
 def setup_executorch() -> bool:
-    bindings_ok = False
-    try:
-        from executorch.runtime import Runtime  # noqa: F401
-        bindings_ok = True
-    except ImportError:
-        pass
-
-    if _executorch_ok() and bindings_ok:
-        print("[1/4] ExecuTorch — already present, skipping.")
-        return True
-
-    if not _executorch_ok():
-        print("[1/4] Downloading ExecuTorch 0.5.0 (~1.4 GB) from Google Drive …")
-        _ensure_gdown()
-        zip_path = ROOT / "cesal_inference_pipeline" / "executorch.zip"
-        if not _gdrive_download(EXECUTORCH_GDRIVE, zip_path):
-            print("  WARNING: ExecuTorch download failed — edge inference unavailable.")
-            return False
-        _extract(zip_path, ROOT / "cesal_inference_pipeline")
-        if not _executorch_ok():
-            print("  WARNING: executor_runner not found after extraction.")
-            return False
-
-    if not bindings_ok:
-        _install_executorch_python_bindings()
-
-    print("  ExecuTorch ready.")
-    return True
+    return _setup_executorch(prefix="[1/4] ")
 
 
 def setup_qbat() -> bool:
@@ -272,14 +197,16 @@ def show_status() -> None:
     def _ok(cond: bool) -> str:
         return "OK" if cond else "MISSING"
 
+    rows = [("ExecuTorch (executor_runner)", _executorch_ok()),
+            ("Q-BAT checkpoints",            _qbat_ok()),
+            ("HDFS raw logs",                _hdfs_logs_ok())]
+    rows += [(f"BAT {ds.upper()} checkpoints", _bat_ok(ds)) for ds in BAT_DATASETS]
+    rows += [(f"{ds.upper()} inference outputs", _outputs_ok(ds)) for ds in ("hdfs", "os")]
+    width = max(len(name) for name, _ in rows)
+
     print("\n── Asset Status ─────────────────────────────────────────────")
-    print(f"  ExecuTorch (executor_runner) : {_ok(_executorch_ok())}")
-    print(f"  Q-BAT checkpoints            : {_ok(_qbat_ok())}")
-    print(f"  HDFS raw logs                : {_ok(_hdfs_logs_ok())}")
-    for ds in BAT_DATASETS:
-        print(f"  BAT {ds.upper()} checkpoints          : {_ok(_bat_ok(ds))}")
-    for ds in ("hdfs", "os"):
-        print(f"  {ds.upper()} inference outputs        : {_ok(_outputs_ok(ds))}")
+    for name, ok in rows:
+        print(f"  {name:<{width}} : {_ok(ok)}")
     print()
 
 

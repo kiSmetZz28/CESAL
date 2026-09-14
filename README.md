@@ -5,9 +5,6 @@
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.4%2B-EE4C2C?logo=pytorch&logoColor=white)](https://pytorch.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![HF Demo](https://img.shields.io/badge/🤗%20Demo-Hugging%20Face-yellow)](https://kismetzz-ceco-lad.hf.space/)
-
-**[🤗 Try the live demo on Hugging Face Spaces](https://kismetzz-ceco-lad.hf.space/)**
 
 ---
 
@@ -59,9 +56,20 @@ CESAL is a security-aware cloud-edge framework for log-based incident detection,
 
 ---
 
-## Full Setup
+## Running CESAL from the Terminal
 
-All commands run from the project root. CESAL uses **two Conda environments**, one for each inference tier:
+**`run.py` is the entry point for every stage** — download, train, eval, convert, infer, classify, respond. Steps 1-4 below are the complete path from a clean checkout to the paper's numbers; nothing else is required, and the optional dashboard at the end changes none of them. All commands run from the project root.
+
+| Stage                       | Command                       | Environment   | Produces                                                        |
+| --------------------------- | ----------------------------- | ------------- | --------------------------------------------------------------- |
+| 1. Environments             | `conda create …` (below)      | —             | `cesal-edge`, `cesal-cloud`                                     |
+| 2. Checkpoints              | `python run.py download`      | `cesal-edge`  | `checkpoints/bat/`, `checkpoints/qbat/`, ExecuTorch runtime     |
+| — Check the install         | `python -m pytest tests -q`   | `cesal-edge`  | 88 passing tests, a few seconds                                 |
+| 3. Detection                | `python run.py infer hdfs`    | `cesal-edge`  | `outputs/<dataset>/*.npy`, the **Table 3** scores               |
+| 4a. Classification          | `python run.py classify`      | `cesal-cloud` | `outputs/hdfs/llm/`, the **Table 7** scores                     |
+| 4b. Response                | `python run.py respond`       | `cesal-cloud` | `outputs/hdfs/llm/queues/`, the **Table 1** workflow per incident |
+
+CESAL uses **two Conda environments**, one for each inference tier:
 
 | Environment   | Tier      | Stack                                       | What runs in it                                                                                                                                                                                                             |
 | ------------- | --------- | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -78,7 +86,7 @@ All commands run from the project root. CESAL uses **two Conda environments**, o
            └────────── replaced by Step 2: download ──────────┘
 ```
 
-**To reproduce the paper**, follow Steps 1–4: the published BAT and Q-BAT checkpoints go straight from install to results. **To rebuild the models from scratch**, do [Train the BAT ensemble](#train-the-bat-ensemble-from-scratch) and [Convert BAT to Q-BAT](#convert-bat-to-q-bat-edge-models) in place of Step 2, then rejoin at Step 3 — the rest of the pipeline is identical.
+**To reproduce the paper**, follow Steps 1-4: the published BAT and Q-BAT checkpoints go straight from install to results. **To rebuild the models from scratch**, do [Train the BAT ensemble](#train-the-bat-ensemble-from-scratch) and [Convert BAT to Q-BAT](#convert-bat-to-q-bat-edge-models) in place of Step 2, then rejoin at Step 3 — the rest of the pipeline is identical.
 
 ### What you need to run CESAL
 
@@ -132,7 +140,7 @@ pip install -r environment/edge/requirements.txt \
 pip install -e .
 ```
 
-ExecuTorch **0.5.0** ([docs](https://docs.pytorch.org/executorch/0.5/)) and its bundled `torchao` build are downloaded and installed automatically in Step 2 below (or by `launch_dashboard.py`) — no manual compilation needed (they carry PEP 440 local version labels and are not on PyPI, hence commented out in `requirements.txt`). **Linux/macOS only**; Windows users: use WSL2.
+ExecuTorch **0.5.0** ([docs](https://docs.pytorch.org/executorch/0.5/)) and its bundled `torchao` build are downloaded and installed automatically in Step 2 below by [tools/setup_executorch.py](tools/setup_executorch.py) — no manual compilation needed (they carry PEP 440 local version labels and are not on PyPI, hence commented out in `requirements.txt`). **Linux/macOS only**; Windows users: use WSL2.
 
 #### Cloud environment (`cesal-cloud`)
 
@@ -164,7 +172,7 @@ python run.py download hdfs bat       # HDFS full-precision only (no ExecuTorch 
 python run.py download hdfs qbat      # HDFS quantized Q-BAT + ExecuTorch runtime
 ```
 
-> **Note:** raw log files are _not_ fetched here — they are only needed for the optional web dashboard's log-browsing panels and are downloaded by `launch_dashboard.py` (see "Optional — Launch the local dashboard" below).
+> **Note:** raw log files are _not_ fetched here. They are only needed by the optional dashboard's log-browsing panels, and `launch_dashboard.py` fetches them.
 
 **Check the install before the long run.** The unit suite needs no checkpoints and no GPU, and covers the pieces the pipeline's numbers depend on — EM-GMM thresholding, anomaly-energy scoring, ensemble voting, thresholded prediction, the routing-ratio sweep and the Table 1 workflow mapping:
 
@@ -243,34 +251,9 @@ python run.py respond         # queues → classification → workflows
 
 The LAD test data has no block IDs or timestamps, so records are keyed by session index. Its HDFS sessions come from a different log-key extraction than loghub's `Event_traces.csv` — most exception events (e.g. E7) are absent — so about 20% of abnormal sessions match no knowledge-base or test sequence exactly and are excluded from the classification score. Classifications are cached per unique sequence in `classified_<model>.csv`, so an interrupted run resumes.
 
-### Optional — Launch the local dashboard
+### Optional — the web dashboard
 
-A web UI at **http://localhost:8765** that drives the same pipeline stages as the CLI and browses the parsed logs. Everything it does is reachable from the terminal — it is for demonstration and inspection, not required for evaluation.
-
-**First time — fetch assets, then launch.** `launch_dashboard.py` does the same download as `run.py download`, plus the **raw log files** the log-browsing panels need:
-
-```bash
-conda activate cesal-edge
-python launch_dashboard.py                # download missing assets + launch the UI
-python launch_dashboard.py --setup-only   # download assets, do not launch
-python launch_dashboard.py --no-bat       # skip BAT checkpoints (~3.5 GB per dataset)
-python launch_dashboard.py --status       # report what is present / missing, then exit
-```
-
-**Afterwards — start the UI directly.** Skips all setup; up in seconds:
-
-```bash
-conda activate cesal-edge
-export EDGE_PYTHON=$(which python)                            # interpreter for the edge stage
-export CLOUD_PYTHON=~/miniconda3/envs/cesal-cloud/bin/python  # interpreter for the BAT and LLM stages
-python dashboard/app.py                                       # PORT=8799 python dashboard/app.py for another port
-```
-
-`EDGE_PYTHON` and `CLOUD_PYTHON` name the interpreters the dashboard spawns per stage. If either is missing it falls back to the interpreter the dashboard itself is running under and says so at startup — right for the edge stage, but set `CLOUD_PYTHON` explicitly if your cloud environment is named differently, since the BAT and LLM stages need its CUDA build. Prefer `dashboard/app.py` day to day — `launch_dashboard.py` re-runs the optional ExecuTorch **Python-bindings** cmake build whenever `from executorch.runtime import Runtime` fails, and the edge stage does not need those bindings: it falls back to the pre-built C++ `executor_runner`, which is the default path anyway.
-
-**Start Full Test Set Analysis** runs the whole framework in one click, optionally chaining detection into classification and response (HDFS only, GPU required). The pipeline banner mirrors the framework — Raw Logs → Parse → Sessions → Edge → Routing → Cloud → Result → Classify → Respond — and the **Incident Response** tab shows each queued incident, the anomaly type assigned to it and the response workflow that type selects. **Live Execution Progress** reports the same steps the CLI prints, driven by structured progress events ([cesal_core/utils/steps.py](cesal_core/utils/steps.py)) rather than by pattern-matching log text. A built-in **? Help** button walks through the panels.
-
-The dashboard opens on **HDFS** when its logs have been ingested and falls back to OpenStack otherwise; either can be selected at any time. On first launch the **Database** indicator shows **Loading** while logs are imported — the results, config and prediction panels respond immediately.
+Everything above runs from the terminal, and the terminal is the evaluation path. A browser UI is also included for demonstration: `python launch_dashboard.py` fetches any missing assets (the same download as `run.py download`, plus raw log files for its log-browsing panels) and serves **http://localhost:8765**; afterwards `python dashboard/app.py` starts it directly in seconds. It runs the same pipeline stages as the CLI and shows the detection, classification and response results, with `--status`, `--setup-only` and `--no-bat` flags on the launcher for asset management. Set `EDGE_PYTHON` / `CLOUD_PYTHON` if your environments are not named `cesal-edge` / `cesal-cloud`; otherwise it falls back to the interpreter it is running under and says so. Nothing in `run.py` depends on it — skip this section entirely and the artifact still reproduces every number in the paper.
 
 ---
 
@@ -467,15 +450,15 @@ CESAL/
 │   ├── sweep.py                   #    Routing-ratio sweep (edge scan reused across ratios)
 │   └── executorch/                #    Pre-built ExecuTorch runtime (fetched by `run.py download`)
 │
-├── dashboard/                     # 4. Front-end UI for visualization
-│
-├── incident_response/             # 5. LLM-based open-set incident classification + controlled response
+├── incident_response/             # 4. LLM-based open-set incident classification + controlled response
 │   ├── classifier.py              #    Lexical RAG retriever, open-set decision rules, LLM prompt/parsing
 │   ├── evaluate.py                #    Evaluate LLM backbones on HDFS abnormal sequences (Table 7)
 │   ├── data_prep.py               #    Build open-set test set + RAG knowledge base
 │   ├── workflows.py               #    Predefined response workflows (Table 1)
 │   ├── queues.py                  #    HDFS detections → edge/cloud anomaly queues
 │   └── process_queues.py          #    Classify queued incidents + select workflows
+│
+├── dashboard/                     #    Optional web UI — nothing in run.py imports it
 │
 │ ── Configuration & data ─────────────────────────────────────────────────
 ├── configs/
@@ -495,8 +478,8 @@ CESAL/
 │ ── Tooling ──────────────────────────────────────────────────────────────
 └── tools/
     ├── download_checkpoints.py    # Fetch BAT / Q-BAT checkpoints
-    ├── download_data.py           # Fetch ExecuTorch runtime + raw logs
-    └── deploy/                    # Maintainer-only — Hugging Face Space deployment
+    ├── setup_executorch.py        # Fetch + install the ExecuTorch runtime the edge stage needs
+    └── download_data.py           # Fetch ExecuTorch runtime + raw logs
 </pre>
 
 ---
