@@ -282,22 +282,7 @@ python run.py train hdfs
 
 Each `train` invocation runs a hyperparameter sweep over `(num_epochs, k, e_layer_num, batch_size)` and writes **81 BAT checkpoints** to `checkpoints/bat/<dataset>/`.
 
-Training reports as two steps, with a progress bar across the sweep and one line per model and per epoch, so a long run always shows which model is being built and how the loss is moving:
-
-```
-──────────────────────────────────────────────────────────────────
- STEP 2/2 · Train the EM-AT base learners
-──────────────────────────────────────────────────────────────────
-   Each model learns what normal log activity looks like, so it can spot the abnormal.
-   parsed events ............... 52,289 train / 155,347 test (18,434 abnormal)
-      epoch 1/3 · train loss -8.566147 · check loss -8.501529 · 1.3s
-      epoch 2/3 · train loss -13.612495 · check loss -11.145834 · 1.0s
-      epoch 3/3 · train loss -14.872067 · check loss -11.644014 · 1.0s
-   model 1/2 · e3_k1_l3_b32       trained in 7.6s
-   ████████████░░░░░░░░░░░░░░  46.2%  37/81 models · ~18m 04s left · e6_k3_l6_b64
-```
-
-A model that fails does not abort the sweep — it is reported and the run continues, and the closing summary states how many of the 81 were trained.
+The run reports per-model and per-epoch progress with an estimate of the time left. A model that fails does not abort the sweep — it is reported and the run continues, and the closing summary states how many of the 81 were trained.
 
 ### Quantize and export Q-BAT (edge models)
 
@@ -309,18 +294,8 @@ python run.py convert hdfs
 
 Quantizes the trained EM-AT checkpoints and exports each as an ExecuTorch program under `checkpoints/qbat/{dataset}/`. The command converts every grid point, so you can pick which learners to deploy; the `edge_models` list in `configs/inference/<dataset>.yaml` names the **3** that make up Q-BAT. Skip this if you already downloaded Q-BAT checkpoints via `python run.py download <dataset> qbat`.
 
-Conversion reports as two steps. The first says how many trained models were found and how much space they take; the second walks through them with a progress bar that names the current model and its sub-stage (loading → quantizing → exporting → writing), and reports the size each one dropped to:
+Conversion reports the size each model drops to and the total before and after, so the benefit of quantization is visible rather than implied.
 
-```
-──────────────────────────────────────────────────────────────────
- STEP 2/2 · Quantize and export for the edge device
-──────────────────────────────────────────────────────────────────
-   Each model is quantized and repackaged so it can run on small edge hardware.
-   e3_k1_l3_b32         28.0 MB →   4.2 MB  (85% smaller)
-   ████████░░░░░░░░░░░░░░░░░░  33.3%  27/81 models · ~4m 12s left · Openstack_e3_k3_l3_b64 — quantizing
-```
-
-The closing summary gives the total before and after, so the benefit of quantization is visible rather than implied.
 ### Evaluate the ensemble
 
 ```bash
@@ -329,14 +304,7 @@ python run.py eval os            # per-model scores, then incremental ensemble
 python run.py eval os majority   # a single voting method instead of all three
 ```
 
-Scores each checkpoint alone, then adds them one at a time — weakest first — reporting F1 at a few ensemble sizes so the gain from ensembling is visible without 81 lines per voting method:
-
-```
-   ├─ how the ensemble grows
-   majority       F1 by ensemble size — 1:96.30  5:98.02  10:99.11  20:99.40  40:99.55  81:99.99
-   best voting method .......... consensus (F1 99.91)
-   gain over best single model .. +1.37 F1
-```
+Scores each checkpoint alone, then adds them one at a time — weakest first — reporting F1 at a few ensemble sizes, the best voting method, and the gain over the strongest single model. This is where the **cloud-only** row of Table 3 comes from.
 
 > **Note.** `eval` recalibrates every model's EM-GMM threshold and **overwrites the bundled `outputs/<dataset>/thresholds_cloud.yaml` in place**, which changes what later `infer` runs do. The step says so as it happens. Back the file up first if you want to keep the shipped thresholds.
 
