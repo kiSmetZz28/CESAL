@@ -50,7 +50,7 @@ CESAL is a security-aware cloud-edge framework for log-based incident detection,
 | Edge-side inference with Q-BAT (Sec. 3.6, Algorithm 2)                                                                    | [cesal_inference_pipeline/lad_qbat_edge.py](cesal_inference_pipeline/lad_qbat_edge.py)                                                                           |
 | Mahalanobis distance-based routing policy (Sec. 3.6.1, Algorithm 3)                                                       | [cesal_inference_pipeline/routing.py](cesal_inference_pipeline/routing.py)                                                                                       |
 | Cloud-side verification with BAT (Sec. 3.6, Algorithm 2)                                                                  | [cesal_inference_pipeline/lad_bat_cloud.py](cesal_inference_pipeline/lad_bat_cloud.py)                                                                           |
-| Cloud–edge collaborative inference pipeline (Sec. 3.6)                                                                    | [cesal_inference_pipeline/run.py](cesal_inference_pipeline/run.py), [dashboard/cloud_runner.py](dashboard/cloud_runner.py)                                       |
+| Cloud–edge collaborative inference pipeline (Sec. 3.6)                                                                    | [cesal_inference_pipeline/run.py](cesal_inference_pipeline/run.py), [cesal_inference_pipeline/cloud_runner.py](cesal_inference_pipeline/cloud_runner.py)                                       |
 | Edge-side and cloud-side anomaly queues Q_E / Q_C (Sec. 3.1)                                                              | [incident_response/queues.py](incident_response/queues.py)                                                                                                       |
 | RAG-based evidence retrieval and LLM open-set incident classification (Sec. 3.7)                                          | [incident_response/classifier.py](incident_response/classifier.py)                                                                                               |
 | Predefined response workflows and escalation policy (Sec. 3.7, Table 1)                                                   | [incident_response/workflows.py](incident_response/workflows.py)                                                                                                 |
@@ -91,16 +91,34 @@ Far less than the paper's testbed ([Hardware setup](#hardware-setup-section-41) 
 | LLM incident classification          | One CUDA GPU, 16 GB VRAM (verified on an RTX 2000 Ada). Models larger than VRAM are partly offloaded to CPU RAM — slower, but it works. |
 | Edge resource measurements (Table 6) | Physical Raspberry Pi 3B+/4B/5. Not reproducible without that hardware.                                                                 |
 
-**Disk** — budget about **40 GB** for a full HDFS + OpenStack run:
+**Disk** — what you need depends on how far down the pipeline you go. Detection alone is modest; the LLM backbones are what fill a disk.
 
-| Item                                         | Size                |
-| -------------------------------------------- | ------------------- |
-| Repository clone                             | ~31 MB              |
-| BAT checkpoints (81 `.pth` per dataset)      | ~3.5 GB per dataset |
-| ExecuTorch runtime + build tree              | ~1.4 GB             |
-| Raw HDFS logs (dashboard log browser only)   | ~1.6 GB             |
-| Dashboard SQLite database (built at runtime) | ~5.4 GB             |
-| Prediction outputs per dataset               | ~1.2 GB             |
+**Steps 1-3, the detection evaluation path — about 12 GB:**
+
+| Item                                    | Size                |
+| --------------------------------------- | ------------------- |
+| Repository clone                        | ~31 MB              |
+| BAT checkpoints (81 `.pth` per dataset) | ~3.5 GB per dataset |
+| Q-BAT checkpoints (both datasets)       | ~160 MB             |
+| ExecuTorch runtime + build tree         | ~3.1 GB             |
+| Prediction outputs per dataset          | ~1.2 GB             |
+
+**Step 4, incident classification — the model weights dominate.** They are pulled from Hugging Face on first use and cached outside the repository in `~/.cache/huggingface/hub`:
+
+| Backbone                              | Size    |
+| ------------------------------------- | ------- |
+| Qwen2.5-14B-Instruct (default)        | ~28 GB  |
+| Qwen2.5-7B-Instruct                   | ~15 GB  |
+| gemma-2-9b-it                         | ~18 GB  |
+| Meta-Llama-3.1-8B-Instruct            | ~15 GB  |
+| **All four** (what `run.py classify` evaluates) | **~76 GB** |
+
+**Optional dashboard — about 7 GB more:**
+
+| Item                                         | Size    |
+| -------------------------------------------- | ------- |
+| Raw HDFS logs (log-browsing panels only)     | ~1.6 GB |
+| Dashboard SQLite database (built at runtime) | ~5.5 GB |
 
 ### Step 1 — Set up environments
 
@@ -361,7 +379,7 @@ If the edge phase has already been run and you only want to re-run the cloud-sid
 
 ```bash
 conda activate cesal-cloud
-python dashboard/cloud_runner.py --config configs/inference/os.yaml
+python cesal_inference_pipeline/cloud_runner.py --config configs/inference/os.yaml
 ```
 
 ---
@@ -445,6 +463,8 @@ CESAL/
 │   ├── routing.py                 #    Mahalanobis distance-based routing (uncertain → cloud)
 │   ├── lad_bat_cloud.py           #    Cloud-side LAD using BAT for reevaluation
 │   ├── run.py                     #    Pipeline driver: runs stages 1–4
+│   ├── cloud_runner.py            #    Cloud stage, spawned in the cloud env by run.py
+│   ├── sweep.py                   #    Routing-ratio sweep (edge scan reused across ratios)
 │   └── executorch/                #    Pre-built ExecuTorch runtime (fetched by `run.py download`)
 │
 ├── dashboard/                     # 4. Front-end UI for visualization

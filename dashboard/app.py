@@ -1622,7 +1622,7 @@ def _build_infer_cmd(ds: str, tolerance: float, distance: str,
             f'set -euo pipefail\n'
             f'export CESAL_STEP_HANDOFF={handoff}\n'
             f'{EDGE_PYTHON} -m cesal_inference_pipeline.run --config {edge_cfg}\n'
-            f'{CLOUD_PYTHON} dashboard/cloud_runner.py --config {cloud_cfg}\n'
+            f'{CLOUD_PYTHON} cesal_inference_pipeline/cloud_runner.py --config {cloud_cfg}\n'
         )
     else:
         # No cloud section, or same env — run everything in the edge env

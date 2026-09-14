@@ -276,7 +276,7 @@ def run_inference(
     rep.export(handoff)
 
     cloud_py     = _detect_cloud_python()
-    runner       = str(Path(__file__).parent.parent / "dashboard" / "cloud_runner.py")
+    runner       = str(Path(__file__).parent / "cloud_runner.py")
     project_root = str(Path(__file__).parent.parent)
 
     logging.info("")

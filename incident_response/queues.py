@@ -62,7 +62,7 @@ def load_sessions(data_path: str) -> Tuple[List[List[str]], np.ndarray]:
 def final_predictions(out_dir: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Per-event edge predictions, final hybrid predictions, and the routed-to-cloud mask.
 
-    Mirrors dashboard/cloud_runner.py without the ground-truth point adjustment.
+    Mirrors cesal_inference_pipeline/cloud_runner.py without the ground-truth point adjustment.
     """
     edge = np.load(os.path.join(out_dir, "edge_preds_raw.npy")).astype(np.int8)
     routed = np.zeros(len(edge), dtype=bool)

@@ -1,6 +1,6 @@
 """Uniform step-by-step progress reporting for the CESAL pipelines.
 
-Every runner — :mod:`cesal_inference_pipeline.run`, ``dashboard/cloud_runner.py``
+Every runner — :mod:`cesal_inference_pipeline.run`, ``cesal_inference_pipeline/cloud_runner.py``
 and ``dashboard/demo_runner.py`` — reports through a single :class:`StepReporter`
 so that:
 

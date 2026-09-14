@@ -5,7 +5,7 @@ Reads intermediate files saved by the edge phase and runs the BAT ensemble.
 Called automatically by the dashboard when using split environments.
 
 Usage (from project root):
-    python dashboard/cloud_runner.py --config configs/inference/os.yaml
+    python cesal_inference_pipeline/cloud_runner.py --config configs/inference/os.yaml
 """
 import argparse
 import logging
