@@ -69,7 +69,7 @@ conda activate cesal-edge
 python run.py all hdfs
 ```
 
-That fetches the published checkpoints (skipped if you already have them), runs detection end to end, then classifies every detected incident and selects its response workflow. Allow roughly **1.5 h** for HDFS detection on a 28-core CPU; the response stage takes seconds once classifications are cached. Use `os` instead of `hdfs` for OpenStack — detection only, since the anomaly types and knowledge base are HDFS-specific.
+That fetches the published checkpoints (skipped if you already have them), runs detection end to end, then classifies every detected incident and selects its response workflow. Detection is the long stage — see [Step 3](#step-3--run-the-detection-pipeline) for what drives it. Use `os` instead of `hdfs` for OpenStack: detection only, since the anomaly types and knowledge base are HDFS-specific.
 
 **Steps 1-4 below are the same pipeline, one stage at a time.** Follow them to run only part of it, to change a setting, or to see exactly what each stage reads and writes. Nothing else is required, and the optional dashboard at the end changes none of it.
 
@@ -90,13 +90,15 @@ Step 2 produces the models; Steps 3 and 4 run them:
 
 Training is the expensive stage, so the checkpoints behind the paper's numbers are published as well — **to reproduce Table 3, download them**; to rebuild the system from scratch, train and quantize instead. Everything from Step 3 on is the same either way.
 
-### What you need to run CESAL
+### Requirements
 
-Far less than the paper's testbed ([Hardware setup](#hardware-setup-section-41) records what the published numbers were measured on).
+**Software.** Linux or macOS (Windows via WSL2), Conda, and Python 3.10. The edge environment runs PyTorch 2.6 (CPU) with ExecuTorch 0.5.0; the cloud environment runs PyTorch 2.4 with CUDA 12.4 and transformers 4.47. Exact pins are in [environment/edge/requirements.txt](environment/edge/requirements.txt) and [environment/cloud/requirements.txt](environment/cloud/requirements.txt); Step 1 creates both environments.
 
-**Hardware.** The edge stage, the dashboard and the unit tests need only an x86-64 CPU with 16 GB RAM — **no GPU**. One CUDA GPU with **16 GB VRAM** covers everything else: the 81-model BAT ensemble and the LLM classification (verified on an RTX 2000 Ada; models larger than VRAM are partly offloaded to CPU RAM — slower, but it works). The edge resource measurements in Table 6 need physical Raspberry Pi 3B+/4B/5 hardware and are not reproducible without it.
+**GPU.** Not a spec to match, just which stages call CUDA. The edge detection stage, the dashboard and the unit tests run on CPU alone. The BAT ensemble (training and cloud verification) and the LLM classification need an NVIDIA GPU; a backbone larger than the available VRAM is partly offloaded to CPU RAM — slower, but it works. Only the Table 6 edge resource measurements need particular hardware: a physical Raspberry Pi 3B+/4B/5.
 
 **Disk.** Detection (Steps 1-3) needs about **12 GB** — BAT checkpoints ~3.5 GB per dataset, the ExecuTorch runtime and build tree ~3.1 GB, prediction outputs ~1.2 GB per dataset, everything else under 250 MB. Step 4 is dominated by the LLM weights, pulled from Hugging Face on first use into `~/.cache/huggingface/hub`: **~28 GB** for the default Qwen2.5-14B-Instruct, or **~76 GB** for all four backbones that `run.py classify` evaluates. The optional dashboard adds ~7 GB (raw HDFS logs plus the SQLite database it builds).
+
+The hardware our experiments ran on is listed under [Hardware setup](#hardware-setup-section-41); it is what the published numbers were measured on, not a requirement for reproducing them.
 
 ### Step 1 — Set up environments
 
@@ -150,7 +152,7 @@ python run.py download hdfs bat       # HDFS full-precision only (no ExecuTorch 
 python run.py download hdfs qbat      # HDFS quantized Q-BAT + ExecuTorch runtime
 ```
 
-**or train them yourself** — 81 models per dataset, so budget hours (see [Train the BAT ensemble](#train-the-bat-ensemble-from-scratch) and [Quantize and export Q-BAT](#quantize-and-export-q-bat-edge-models)):
+**or train them yourself** — 81 models per dataset, the most expensive stage in the pipeline (see [Train the BAT ensemble](#train-the-bat-ensemble-from-scratch) and [Quantize and export Q-BAT](#quantize-and-export-q-bat-edge-models)):
 
 ```bash
 conda activate cesal-cloud
@@ -165,7 +167,7 @@ Whenever Q-BAT is in the download set, `run.py download` also installs the **Exe
 
 **In → out.** Reads `data/<dataset>/` (bundled). Writes `checkpoints/bat/<dataset>/` (81 `.pth`, the BAT ensemble), `checkpoints/qbat/<dataset>/` (`.pte`; the 3 listed under `edge_models` in the inference config are Q-BAT), and `cesal_inference_pipeline/executorch/` (the runtime).
 
-**Check the install** — no checkpoints or GPU needed, a few seconds:
+**Check the install** — no checkpoints or GPU needed:
 
 ```bash
 conda activate cesal-edge
@@ -197,7 +199,7 @@ The run closes with precision / recall / F1 for two of the three [Table 3](#log-
 | `hybrid_preds.npy`                          | the merged CESAL prediction                     |
 | `ground_truth.npy`                          | labels, for scoring                             |
 
-**How long it takes.** The edge scan dominates — one ExecuTorch CPU pass per Q-BAT model over every window. A measured OpenStack run on a 28-core i7-14700 took **1 h 30 m**: 1 h 29 m edge scan, 27 s cloud verification. To sweep routing ratios without repeating the scan, see [Vary the routing ratio](#vary-the-routing-ratio).
+**What takes the time.** The edge scan dominates — one ExecuTorch CPU pass per Q-BAT model over every window, so it scales with the number of test windows and the cores available, and the models run in parallel. Cloud verification touches only the routed fraction (10% by default) on the GPU and is comparatively quick; routing and the merge are negligible. To sweep routing ratios without repeating the scan, see [Vary the routing ratio](#vary-the-routing-ratio).
 
 **Where the edge tier runs.** In the paper's deployment the edge tier runs on a Raspberry Pi and only the routed windows cross the network to the cloud tier. A reviewer cannot be assumed to own one, so here both tiers run on one machine — but the separation is real rather than simulated: separate Conda environments, separate processes, the edge stage using only quantized `.pte` models on CPU, and [run.py](cesal_inference_pipeline/run.py) never loading a BAT checkpoint inside `cesal-edge`. Only the physical device and the network hop are missing, and neither affects accuracy: Table 3 depends on the models and the routing policy, not on which machine runs them. The Table 6 edge resource measurements are the part that genuinely needs the hardware.
 
@@ -213,7 +215,7 @@ python run.py classify                          # all four backbones in configs/
 python run.py classify qwen2.5-14b-instruct     # CESAL's default backbone only
 ```
 
-Reads `data/HDFS/open_set/` (the 4,124-sequence test set and knowledge base, bundled) and writes to `outputs/hdfs/llm/`: `results_<model>.csv` (per sequence: type, retrieved evidence, raw output), `model_summary.csv` (the **Table 7** macro scores), `per_class_metrics_long.csv`, and `report_<model>.txt`. Compare against `table7_reference_metrics.csv` beside them; per-backbone settings live in `model_overrides` of `configs/llm/hdfs.yaml`. One backbone takes roughly **1 h 50 m** on a 16 GB RTX 2000 Ada (measured: Qwen2.5-14B-Instruct, 1.62 s per sequence), and results are written only when it finishes — run one at a time on an interruptible machine.
+Reads `data/HDFS/open_set/` (the 4,124-sequence test set and knowledge base, bundled) and writes to `outputs/hdfs/llm/`: `results_<model>.csv` (per sequence: type, retrieved evidence, raw output), `model_summary.csv` (the **Table 7** macro scores), `per_class_metrics_long.csv`, and `report_<model>.txt`. Compare against `table7_reference_metrics.csv` beside them; per-backbone settings live in `model_overrides` of `configs/llm/hdfs.yaml`. Cost is one LLM generation per sequence — 4,124 of them per backbone, so a full `run.py classify` over all four is long on any machine. Results are written only when a backbone finishes, so run one at a time if yours may be interrupted.
 
 **Response (Table 1)** — connect detection to the module: queue every detected session, classify it, and assign its workflow:
 
@@ -239,7 +241,7 @@ The LAD test data has no block IDs or timestamps, so records are keyed by sessio
 
 ### Optional — the web dashboard
 
-Everything above runs from the terminal, and the terminal is the evaluation path. A browser UI is also included for demonstration: `python launch_dashboard.py` fetches any missing assets (the same download as `run.py download`, plus raw log files for its log-browsing panels) and serves **http://localhost:8765**; afterwards `python dashboard/app.py` starts it directly in seconds. It runs the same pipeline stages as the CLI and shows the detection, classification and response results, with `--status`, `--setup-only` and `--no-bat` flags on the launcher for asset management. Set `EDGE_PYTHON` / `CLOUD_PYTHON` if your environments are not named `cesal-edge` / `cesal-cloud`; otherwise it falls back to the interpreter it is running under and says so. Nothing in `run.py` depends on it — skip this section entirely and the artifact still reproduces every number in the paper.
+Everything above runs from the terminal, and the terminal is the evaluation path. A browser UI is also included for demonstration: `python launch_dashboard.py` fetches any missing assets (the same download as `run.py download`, plus raw log files for its log-browsing panels) and serves **http://localhost:8765**; afterwards `python dashboard/app.py` starts it directly, skipping all asset checks. It runs the same pipeline stages as the CLI and shows the detection, classification and response results, with `--status`, `--setup-only` and `--no-bat` flags on the launcher for asset management. Set `EDGE_PYTHON` / `CLOUD_PYTHON` if your environments are not named `cesal-edge` / `cesal-cloud`; otherwise it falls back to the interpreter it is running under and says so. Nothing in `run.py` depends on it — skip this section entirely and the artifact still reproduces every number in the paper.
 
 ---
 
@@ -327,7 +329,7 @@ Numbers from the paper (Section 4), which also reports baselines, the BAT ensemb
 
 ### Hardware setup (Section 4.1)
 
-What the published numbers were measured on. **Running CESAL needs far less** — see [What you need to run CESAL](#what-you-need-to-run-cesal).
+The hardware used in our experiments — what the published numbers were measured on. It is **not** a requirement for running CESAL: see [Requirements](#requirements) for what the code actually needs.
 
 | Platform                      | Hardware profile                                                     | OS                          | Role                               |
 | ----------------------------- | -------------------------------------------------------------------- | --------------------------- | ---------------------------------- |
