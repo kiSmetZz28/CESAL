@@ -59,73 +59,6 @@ CESAL is a security-aware cloud-edge framework for log-based incident detection,
 
 ---
 
-## Repository Structure
-
-`run.py` is the entry point — one CLI dispatching every stage (download, train, eval, convert, infer, classify, respond). `launch_dashboard.py` optionally bundles asset download with launching the web UI. Everything else is a **shared library**, a **pipeline stage**, or a **supporting asset**.
-
-<pre>
-CESAL/
-│
-│ ── Entry points (run from project root) ─────────────────────────────────
-├── run.py                         # Main CLI: download | train | eval | convert | infer | classify | respond
-├── launch_dashboard.py            # Optional local helper: fetch assets + start the web UI
-│
-│ ── Shared library ───────────────────────────────────────────────────────
-├── cesal_core/                    # Imported by every pipeline below
-│   ├── models/                    #   EM-AT architecture (attention, embedding)
-│   ├── data/                      #   Dataset loaders + log preprocessor
-│   └── utils/                     #   Energy scoring, voting, config I/O, metrics
-│
-│ ── Pipeline stages ──────────────────────────────────────────────────────
-├── training_pipeline/             # 1. Train BAT ensemble (81 EM-AT models)
-│   ├── train.py                   #    Hyperparameter sweep
-│   ├── solver.py                  #    EM-AT base model training
-│   └── evaluate.py                #    Per-model evaluation
-│
-├── quantization/                  # 2. Convert BAT → Q-BAT
-│   └── qbat_export.py             #    A8W4 quantize, export to ExecuTorch .pte
-│
-├── <b>🔴 cesal_inference_pipeline/</b>      # 3. CESAL collaborative inference pipeline: Edge → routing → cloud
-│   ├── lad_qbat_edge.py           #    Edge-side LAD using Q-BAT via ExecuTorch
-│   ├── routing.py                 #    Mahalanobis distance-based routing (uncertain → cloud)
-│   ├── lad_bat_cloud.py           #    Cloud-side LAD using BAT for reevaluation
-│   ├── run.py                     #    Pipeline driver: runs stages 1–4
-│   └── executorch/                #    Pre-built ExecuTorch runtime (fetched by `run.py download`)
-│
-├── dashboard/                     # 4. Front-end UI for visualization
-│
-├── incident_response/             # 5. LLM-based open-set incident classification + controlled response
-│   ├── classifier.py              #    Lexical RAG retriever, open-set decision rules, LLM prompt/parsing
-│   ├── evaluate.py                #    Evaluate LLM backbones on HDFS abnormal sequences (Table 7)
-│   ├── data_prep.py               #    Build open-set test set + RAG knowledge base
-│   ├── workflows.py               #    Predefined response workflows (Table 1)
-│   ├── queues.py                  #    HDFS detections → edge/cloud anomaly queues
-│   └── process_queues.py          #    Classify queued incidents + select workflows
-│
-│ ── Configuration & data ─────────────────────────────────────────────────
-├── configs/
-│   ├── training/{hdfs,os}.yaml
-│   ├── inference/{hdfs,os}.yaml
-│   └── llm/hdfs.yaml
-│
-├── data/                          # Pre-processed log event sequences (+ HDFS/open_set/ for the LLM module)
-├── outputs/                       # Thresholds, predictions (+ hdfs/llm/table7_reference_metrics.csv)
-├── checkpoints/                   # bat/*.pth + qbat/*.pte — fetched by `run.py download`
-├── logs/                          # Training & inference logs
-│
-├── environment/                   # Python dependency lists
-│   ├── cloud/requirements.txt     #   Training, eval, cloud inference, LLM incident response
-│   └── edge/requirements.txt      #   ExecuTorch edge inference, dashboard
-│
-│ ── Tooling ──────────────────────────────────────────────────────────────
-└── tools/
-    ├── download_checkpoints.py    # Fetch BAT / Q-BAT checkpoints
-    ├── download_data.py           # Fetch ExecuTorch runtime + raw logs
-    └── deploy/                    # Maintainer-only — Hugging Face Space deployment
-</pre>
-
----
-
 ## Full Setup
 
 All commands run from the project root. CESAL uses **two Conda environments**, one for each inference tier:
@@ -136,6 +69,28 @@ All commands run from the project root. CESAL uses **two Conda environments**, o
 | `cesal-cloud` | **Cloud** | PyTorch 2.4 + CUDA 12.4 + transformers 4.47 | BAT ensemble training (81 models), cloud re-check inference, and LLM-based incident classification and response (`incident_response/`). GPU strongly recommended; the inference pipeline launches this env as a subprocess. |
 
 **Why two?** Edge runs ExecuTorch (compact, CPU-only, `.pte` quantized models); cloud runs full-precision PyTorch with CUDA. Separating them keeps each install minimal and avoids version conflicts between the two.
+
+### What you need to run CESAL
+
+Far less than the paper's testbed ([Hardware setup](#hardware-setup-section-41) records what the published numbers were measured on).
+
+| Purpose                              | Requirement                                                                                                                             |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Edge stage, dashboard, unit tests    | x86-64 CPU, 16 GB RAM. **No GPU needed.**                                                                                               |
+| Cloud BAT ensemble (81 EM-AT models) | One CUDA GPU; 16 GB VRAM is sufficient.                                                                                                 |
+| LLM incident classification          | One CUDA GPU, 16 GB VRAM (verified on an RTX 2000 Ada). Models larger than VRAM are partly offloaded to CPU RAM — slower, but it works. |
+| Edge resource measurements (Table 6) | Physical Raspberry Pi 3B+/4B/5. Not reproducible without that hardware.                                                                 |
+
+**Disk** — budget about **40 GB** for a full HDFS + OpenStack run:
+
+| Item                                         | Size                |
+| -------------------------------------------- | ------------------- |
+| Repository clone                             | ~31 MB              |
+| BAT checkpoints (81 `.pth` per dataset)      | ~3.5 GB per dataset |
+| ExecuTorch runtime + build tree              | ~1.4 GB             |
+| Raw HDFS logs (dashboard log browser only)   | ~1.6 GB             |
+| Dashboard SQLite database (built at runtime) | ~5.4 GB             |
+| Prediction outputs per dataset               | ~1.2 GB             |
 
 ### Step 1 — Set up environments
 
@@ -192,34 +147,6 @@ conda activate cesal-edge
 python run.py infer os                # edge scan → routing → cloud re-check → final prediction
 python run.py infer hdfs
 ```
-
-### What you need to run CESAL
-
-Far less than the paper's testbed ([Hardware setup](#hardware-setup-section-41) records what the published numbers were measured on).
-
-| Purpose                              | Requirement                                                                                                                             |
-| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
-| Edge stage, dashboard, unit tests    | x86-64 CPU, 16 GB RAM. **No GPU needed.**                                                                                               |
-| Cloud BAT ensemble (81 EM-AT models) | One CUDA GPU; 16 GB VRAM is sufficient.                                                                                                 |
-| LLM incident classification          | One CUDA GPU, 16 GB VRAM (verified on an RTX 2000 Ada). Models larger than VRAM are partly offloaded to CPU RAM — slower, but it works. |
-| Edge resource measurements (Table 6) | Physical Raspberry Pi 3B+/4B/5. Not reproducible without that hardware.                                                                 |
-
-**Disk** — budget about **40 GB** for a full HDFS + OpenStack run:
-
-| Item                                         | Size                |
-| -------------------------------------------- | ------------------- |
-| Repository clone                             | ~31 MB              |
-| BAT checkpoints (81 `.pth` per dataset)      | ~3.5 GB per dataset |
-| ExecuTorch runtime + build tree              | ~1.4 GB             |
-| Raw HDFS logs (dashboard log browser only)   | ~1.6 GB             |
-| Dashboard SQLite database (built at runtime) | ~5.4 GB             |
-| Prediction outputs per dataset               | ~1.2 GB             |
-
-### Datasets and provenance
-
-CESAL is evaluated on the **HDFS** and **OpenStack** log datasets, both public benchmarks distributed by [loghub](https://github.com/logpai/loghub). The parsed event-sequence splits the pipeline consumes are bundled under [`data/`](data/), so inference runs without downloading anything. The HDFS open-set test set and knowledge base can be rebuilt from loghub's `HDFS_v1/preprocessed/Event_traces.csv` with `python -m incident_response.data_prep`.
-
-Both datasets contain only machine-generated operational telemetry — block identifiers, execution states and error traces. They include no personal data and no human-subject data, and no user study was conducted. CESAL itself is released under the [MIT license](LICENSE).
 
 ### Optional — Launch the local dashboard
 
@@ -455,3 +382,78 @@ HDFS:
 | **Qwen2.5-14B-Instruct** |     79.71 |  92.07 | 83.03 |
 
 Per-class values are in [outputs/hdfs/llm/table7_reference_metrics.csv](outputs/hdfs/llm/table7_reference_metrics.csv).
+
+---
+
+## Repository Structure
+
+`run.py` is the entry point — one CLI dispatching every stage (download, train, eval, convert, infer, classify, respond). `launch_dashboard.py` optionally bundles asset download with launching the web UI. Everything else is a **shared library**, a **pipeline stage**, or a **supporting asset**.
+
+<pre>
+CESAL/
+│
+│ ── Entry points (run from project root) ─────────────────────────────────
+├── run.py                         # Main CLI: download | train | eval | convert | infer | classify | respond
+├── launch_dashboard.py            # Optional local helper: fetch assets + start the web UI
+│
+│ ── Shared library ───────────────────────────────────────────────────────
+├── cesal_core/                    # Imported by every pipeline below
+│   ├── models/                    #   EM-AT architecture (attention, embedding)
+│   ├── data/                      #   Dataset loaders + log preprocessor
+│   └── utils/                     #   Energy scoring, voting, config I/O, metrics
+│
+│ ── Pipeline stages ──────────────────────────────────────────────────────
+├── training_pipeline/             # 1. Train BAT ensemble (81 EM-AT models)
+│   ├── train.py                   #    Hyperparameter sweep
+│   ├── solver.py                  #    EM-AT base model training
+│   └── evaluate.py                #    Per-model evaluation
+│
+├── quantization/                  # 2. Convert BAT → Q-BAT
+│   └── qbat_export.py             #    A8W4 quantize, export to ExecuTorch .pte
+│
+├── <b>🔴 cesal_inference_pipeline/</b>      # 3. CESAL collaborative inference pipeline: Edge → routing → cloud
+│   ├── lad_qbat_edge.py           #    Edge-side LAD using Q-BAT via ExecuTorch
+│   ├── routing.py                 #    Mahalanobis distance-based routing (uncertain → cloud)
+│   ├── lad_bat_cloud.py           #    Cloud-side LAD using BAT for reevaluation
+│   ├── run.py                     #    Pipeline driver: runs stages 1–4
+│   └── executorch/                #    Pre-built ExecuTorch runtime (fetched by `run.py download`)
+│
+├── dashboard/                     # 4. Front-end UI for visualization
+│
+├── incident_response/             # 5. LLM-based open-set incident classification + controlled response
+│   ├── classifier.py              #    Lexical RAG retriever, open-set decision rules, LLM prompt/parsing
+│   ├── evaluate.py                #    Evaluate LLM backbones on HDFS abnormal sequences (Table 7)
+│   ├── data_prep.py               #    Build open-set test set + RAG knowledge base
+│   ├── workflows.py               #    Predefined response workflows (Table 1)
+│   ├── queues.py                  #    HDFS detections → edge/cloud anomaly queues
+│   └── process_queues.py          #    Classify queued incidents + select workflows
+│
+│ ── Configuration & data ─────────────────────────────────────────────────
+├── configs/
+│   ├── training/{hdfs,os}.yaml
+│   ├── inference/{hdfs,os}.yaml
+│   └── llm/hdfs.yaml
+│
+├── data/                          # Pre-processed log event sequences (+ HDFS/open_set/ for the LLM module)
+├── outputs/                       # Thresholds, predictions (+ hdfs/llm/table7_reference_metrics.csv)
+├── checkpoints/                   # bat/*.pth + qbat/*.pte — fetched by `run.py download`
+├── logs/                          # Training & inference logs
+│
+├── environment/                   # Python dependency lists
+│   ├── cloud/requirements.txt     #   Training, eval, cloud inference, LLM incident response
+│   └── edge/requirements.txt      #   ExecuTorch edge inference, dashboard
+│
+│ ── Tooling ──────────────────────────────────────────────────────────────
+└── tools/
+    ├── download_checkpoints.py    # Fetch BAT / Q-BAT checkpoints
+    ├── download_data.py           # Fetch ExecuTorch runtime + raw logs
+    └── deploy/                    # Maintainer-only — Hugging Face Space deployment
+</pre>
+
+---
+
+## Datasets and provenance
+
+CESAL is evaluated on the **HDFS** and **OpenStack** log datasets, both public benchmarks distributed by [loghub](https://github.com/logpai/loghub). The parsed event-sequence splits the pipeline consumes are bundled under [`data/`](data/), so inference runs without downloading anything. The HDFS open-set test set and knowledge base can be rebuilt from loghub's `HDFS_v1/preprocessed/Event_traces.csv` with `python -m incident_response.data_prep`.
+
+Both datasets contain only machine-generated operational telemetry — block identifiers, execution states and error traces. They include no personal data and no human-subject data, and no user study was conducted. CESAL itself is released under the [MIT license](LICENSE).
