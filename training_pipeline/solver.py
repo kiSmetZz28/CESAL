@@ -99,6 +99,17 @@ _THRESHOLD_OUTPUT = {
 }
 
 
+# Caching the per-model energy vectors turns any later threshold question — a
+# different EM-GMM setting, a different percentile rule — into a CPU-only job
+# over saved arrays instead of a full GPU re-scoring pass.
+CACHE_ENERGY = True
+
+# thre_energy feeds only the commented-out `np.concatenate([train_energy,
+# thre_energy])` below, so computing it is a full pass over the test data whose
+# result is discarded. Set True to restore it if that line is ever re-enabled.
+COMPUTE_THRE_ENERGY = False
+
+
 class Solver:
     DEFAULTS: dict = {}
 
@@ -307,10 +318,12 @@ class Solver:
             attens_energy.append(cri)
         attens_energy = np.concatenate(attens_energy, axis=0).reshape(-1)
         train_energy = np.array(attens_energy)
+        self._cache_energy('train', train_energy)
 
         # (2) Compute energy on thre set
         attens_energy = []
-        for i, (input_data, labels) in enumerate(self.thre_loader):
+        for i, (input_data, labels) in enumerate(
+                self.thre_loader if COMPUTE_THRE_ENERGY else []):
             input = input_data.float().to(self.device)
             output, series, prior, _ = self.model(input)
             loss = torch.mean(criterion(input, output), dim=-1)
@@ -337,8 +350,11 @@ class Solver:
             cri = metric * loss
             cri = cri.detach().cpu().numpy()
             attens_energy.append(cri)
-        attens_energy = np.concatenate(attens_energy, axis=0).reshape(-1)
-        thre_energy = np.array(attens_energy)
+        if COMPUTE_THRE_ENERGY:
+            attens_energy = np.concatenate(attens_energy, axis=0).reshape(-1)
+            thre_energy = np.array(attens_energy)
+        else:
+            thre_energy = np.empty(0, dtype=np.float32)
 
         # Combine train + thre energy for EM-GMM threshold selection
         # combined_energy = np.concatenate([train_energy, thre_energy])
@@ -390,6 +406,8 @@ class Solver:
         test_labels = np.concatenate(test_labels, axis=0).reshape(-1)
         test_energy = np.array(attens_energy)
         test_labels = np.array(test_labels)
+        self._cache_energy('test', test_energy)
+        self._cache_energy('labels', test_labels)
 
         pred = (test_energy > thresh).astype(int)
         gt = test_labels.astype(int)
@@ -429,6 +447,34 @@ class Solver:
         logging.debug("======================TEST MODE======================")
         pred, gt = self.singlemodelpred()
         _evaluate(gt, pred)
+
+    def _cache_energy(self, kind: str, values: np.ndarray) -> None:
+        """Save a per-model energy (or label) vector next to the thresholds.
+
+        Written once per model per scoring run, so that sweeping EM-GMM
+        settings later needs no GPU: the threshold is a pure function of the
+        train energy, and the prediction a pure function of the test energy.
+        """
+        if not CACHE_ENERGY:
+            return
+
+        dataset_name = str(self.dataset).strip('"')
+        if dataset_name not in _THRESHOLD_OUTPUT:
+            return
+
+        cfg_path, prefix = _THRESHOLD_OUTPUT[dataset_name]
+        fileparam = f"e{self.num_epochs}_k{self.k}_l{self.e_layer_num}_b{self.batch_size}"
+        model_name = f"{prefix}{fileparam}" if prefix else fileparam
+
+        out_dir = os.path.join(os.path.dirname(cfg_path), 'energies')
+        os.makedirs(out_dir, exist_ok=True)
+        path = os.path.join(out_dir, f"{model_name}_{kind}.npy")
+
+        dtype = np.int8 if kind == 'labels' else np.float32
+        try:
+            np.save(path, np.asarray(values).reshape(-1).astype(dtype))
+        except Exception as exc:
+            logging.warning("Could not cache %s energy for '%s': %s", kind, model_name, exc)
 
     def _update_threshold_config(self, thresh: float) -> None:
         """Write or update the per-model EM-GMM threshold in the dataset YAML."""

@@ -47,7 +47,7 @@ CESAL is a security-aware cloud-edge framework for log-based incident detection,
 | Edge-side inference with Q-BAT (Sec. 3.6, Algorithm 2)                                                                    | [cesal_inference_pipeline/lad_qbat_edge.py](cesal_inference_pipeline/lad_qbat_edge.py)                                                                           |
 | Mahalanobis distance-based routing policy (Sec. 3.6.1, Algorithm 3)                                                       | [cesal_inference_pipeline/routing.py](cesal_inference_pipeline/routing.py)                                                                                       |
 | Cloud-side verification with BAT (Sec. 3.6, Algorithm 2)                                                                  | [cesal_inference_pipeline/lad_bat_cloud.py](cesal_inference_pipeline/lad_bat_cloud.py)                                                                           |
-| Cloud–edge collaborative inference pipeline (Sec. 3.6)                                                                    | [cesal_inference_pipeline/run.py](cesal_inference_pipeline/run.py), [cesal_inference_pipeline/cloud_runner.py](cesal_inference_pipeline/cloud_runner.py)                                       |
+| Cloud–edge collaborative inference pipeline (Sec. 3.6)                                                                    | [cesal_inference_pipeline/run.py](cesal_inference_pipeline/run.py), [cesal_inference_pipeline/cloud_runner.py](cesal_inference_pipeline/cloud_runner.py)         |
 | Edge-side and cloud-side anomaly queues Q_E / Q_C (Sec. 3.1)                                                              | [incident_response/queues.py](incident_response/queues.py)                                                                                                       |
 | RAG-based evidence retrieval and LLM open-set incident classification (Sec. 3.7)                                          | [incident_response/classifier.py](incident_response/classifier.py)                                                                                               |
 | Predefined response workflows and escalation policy (Sec. 3.7, Table 1)                                                   | [incident_response/workflows.py](incident_response/workflows.py)                                                                                                 |
@@ -70,9 +70,6 @@ python run.py all hdfs
 ```
 
 That fetches the published checkpoints (skipped if you already have them), runs detection end to end, then classifies every detected incident and selects its response workflow. Use `os` instead of `hdfs` for OpenStack: detection only, since the anomaly types and knowledge base are HDFS-specific.
-
-> **Budget about 16 hours for `all hdfs`.** Detection dominates it — the HDFS edge scan alone is 12-14 hours of CPU work ([Step 3](#step-3--run-the-detection-pipeline) explains what drives it), followed by roughly two hours of LLM classification. `all os` is the same pipeline over a smaller test set and finishes in about an hour and a half. If you are reproducing the paper rather than deploying the framework, read [the short path](#the-short-path-about-two-hours) first: it reaches the same Table 3 claim in about two hours.
-
 
 **Steps 1-4 below are the same pipeline, one stage at a time.** Follow them to run only part of it, to change a setting, or to see exactly what each stage reads and writes. Nothing else is required, and the optional dashboard at the end changes none of it.
 
@@ -103,27 +100,33 @@ Training is the expensive stage, so the checkpoints behind the paper's numbers a
 
 **Time.** Wall-clock for each stage, measured on the i7-14700 workstation listed under [Hardware setup](#hardware-setup-section-41) (28 cores / 56 threads, RTX 2000 Ada). These are one machine's numbers — see [estimating it on your machine](#estimating-the-runtime-on-your-machine) below for what actually carries over.
 
-| Stage | Command | OpenStack | HDFS |
-| ----- | ------- | --------: | ---: |
-| Unit tests (no checkpoints needed) | `pytest tests` | 3s | 3s |
-| Download published checkpoints | `run.py download` | network-bound, ~5 GB | network-bound, ~9 GB |
-| **Detection, end to end** | `run.py infer` | **~1 h 35 m** | **~12-14 h** |
-| &nbsp;&nbsp;├─ edge Q-BAT scan | | 1 h 29 m | 12-14 h |
-| &nbsp;&nbsp;├─ Mahalanobis routing | | 0.4 s | ~4 s |
-| &nbsp;&nbsp;└─ cloud BAT verification + merge | | 26 s - 1 m 46 s | ~9 m |
-| Cloud-only ensemble scoring | `run.py eval` | ~8 min | ~42 min |
-| Routing-ratio sweep | `run.py sweep` | ~10 min | reuses the scan |
-| Incident classification, one backbone | `run.py classify qwen2.5-14b-instruct` | n/a | **~1 h 51 m** |
-| Incident classification, all four backbones | `run.py classify` | n/a | **~5 h 46 m** |
-| Queues → classification → response | `run.py respond` | n/a | ~2 s |
-| Train the BAT ensemble from scratch (81 models) | `run.py train` | ~23 min | many hours |
+| Stage                                           | Command                                |            OpenStack |                 HDFS |
+| ----------------------------------------------- | -------------------------------------- | -------------------: | -------------------: |
+| Unit tests (no checkpoints needed)              | `pytest tests`                         |                   3s |                   3s |
+| Download published checkpoints                  | `run.py download`                      | network-bound, ~5 GB | network-bound, ~9 GB |
+| **Detection, end to end**                       | `run.py infer`                         |        **~1 h 35 m** |   **~4.6-12 days †** |
+| &nbsp;&nbsp;├─ edge Q-BAT scan                  |                                        |             1 h 29 m |     ~4.6-12 days † |
+| &nbsp;&nbsp;├─ Mahalanobis routing              |                                        |                0.4 s |                ~30 s |
+| &nbsp;&nbsp;└─ cloud BAT verification + merge   |                                        |      26 s - 1 m 46 s |         not measured |
+| Cloud-only ensemble scoring                     | `run.py eval`                          |               ~8 min |              ~6.5 h |
+| Routing-ratio sweep                             | `run.py sweep`                         |              ~10 min |      reuses the scan |
+| Incident classification, one backbone           | `run.py classify qwen2.5-14b-instruct` |                  n/a |        **~1 h 51 m** |
+| Incident classification, all four backbones     | `run.py classify`                      |                  n/a |        **~5 h 46 m** |
+| Queues → classification → response              | `run.py respond`                       |                  n/a |                 ~2 s |
+| Train the BAT ensemble from scratch (81 models) | `run.py train`                         |              ~23 min |           many hours |
 
-Two entries dominate everything else and decide how you should plan a run:
+**† HDFS detection is not a practical target, and we have not run it to completion.** The HDFS test split parses to 11,077,032 timesteps, which at `win_size: 50` is **221,540 windows** — 143× OpenStack's 1,553. The figure above is a projection from measured per-window cost, not an end-to-end measurement:
 
-- **The HDFS edge scan is 12-14 hours.** It is one ExecuTorch CPU pass per Q-BAT model over 12,741 test windows (1.27 M events). OpenStack asks the same question of the same code over 1,553 windows and answers it in about an hour and a half.
-- **HDFS BAT training is the one stage we do not recommend reproducing.** Its training split is 3.4 M events against OpenStack's 52 K. The published checkpoints exist so this stage can be skipped entirely; `run.py download` fetches exactly the weights the paper's numbers were measured on.
+| Edge model set | Measured s/window | 221,540 windows |
+| -------------- | ----------------: | --------------: |
+| Three `l3` models (fastest available) | 1.81 | ~4.6 days |
+| `l8`, `l8`, `l6` (current `configs/inference/hdfs.yaml`) | 4.74 | ~12 days |
 
-If you only want to confirm the framework runs end to end, start with [the short path](#the-short-path-about-two-hours) rather than `run.py all hdfs`.
+Depth drives the cost: `l3` ≈ 0.036, `l6` ≈ 0.070, `l8` ≈ 0.094 single-core seconds per timestep. No choice of three models brings HDFS under a day.
+
+**HDFS BAT training is likewise not a reproduction target.** The published checkpoints exist so it can be skipped; `run.py download` fetches exactly the weights the paper's numbers were measured on.
+
+**Reproduce detection on OpenStack.** It exercises the identical code path, routing policy and scoring protocol in about an hour and a half — see [the short path](#the-short-path-about-two-hours).
 
 #### Estimating the runtime on your machine
 
@@ -131,17 +134,19 @@ The figures above come from one workstation, so the question is which of them ca
 
 **The edge scan always uses exactly three cores.** It runs one single-threaded ExecuTorch process per Q-BAT model, three of them in parallel ([lad_qbat_edge.py](cesal_inference_pipeline/lad_qbat_edge.py)), and nothing in the stage is threaded beyond that. A 28-core workstation and an 8-core laptop devote the same three cores to it. What moves the number is **single-core speed and the number of test windows — not core count**, so a machine with three free cores and comparable per-core performance should land near the times above. Two caveats: a 2-vCPU VM (Colab's free tier) has to serialise one of the three models and will run roughly half again as slow, and the stage is pure CPU — a faster GPU does not speed it up at all.
 
-**The cost is linear in test windows.** On the reference machine one model processes a window in about **3.4 single-core seconds**, and because the three models run concurrently that is also the per-window wall-clock:
+**The cost is linear in timesteps, and scales with model depth.** Measured on the reference machine, per window and per timestep:
 
-| Dataset | Test windows | Predicted | Measured |
-| ------- | -----------: | --------: | -------: |
-| OpenStack | 1,553 | 1 h 28 m | 1 h 29 m |
-| HDFS | 12,741 | 12 h 10 m | 12-14 h |
+| Encoder depth | s/window @ `win_size` 50 | s/window @ `win_size` 100 | s/timestep |
+| ------------- | -----------------------: | ------------------------: | ---------: |
+| `l3`          |                     1.81 |                      3.44 |      0.036 |
+| `l6`          |                     3.60 |                      6.80 |      0.070 |
+| `l8`          |                     4.74 |                      8.92 |      0.094 |
 
-So you can calibrate against your own hardware rather than trusting ours. Start `run.py infer os` and time the first milestone — the scan logs one at every 25% of the windows. Four times that is the OpenStack scan; multiply by a further 8.2 for HDFS.
+Because the three models run concurrently, the slowest of the three sets the wall-clock. OpenStack's configured edge set is three `l3` models over 1,553 windows: 1,553 × 3.44 s ≈ 1 h 29 m, which is what it actually takes.
+
+So you can calibrate against your own hardware rather than trusting ours. Start `run.py infer os` and time the first milestone — the scan logs one at every 25% of the windows. Four times that is the whole OpenStack scan. For any other configuration, multiply your measured per-timestep rate by the dataset's timestep count (OpenStack 155,347; HDFS 11,077,032).
 
 The GPU stages behave the opposite way. Cloud BAT verification touches only the routed 10% and is minutes at most on any modern card. LLM classification is dominated by the backbone: the ~1 h 51 m figure is Qwen2.5-14B-Instruct on the RTX 2000 Ada listed above, where the backbone exceeds available VRAM and is partly offloaded to CPU RAM. A card that holds the whole model in VRAM will be considerably faster; a smaller one, slower.
-
 
 The hardware our experiments ran on is listed under [Hardware setup](#hardware-setup-section-41); it is what the published numbers were measured on, not a requirement for reproducing them.
 
@@ -235,14 +240,14 @@ The run closes with precision / recall / F1 for two of the three [Table 3](#log-
 
 **In → out.** Reads `data/<dataset>/`, the checkpoints from Step 2, and `outputs/<dataset>/thresholds_{edge,cloud}.yaml`. Writes to `outputs/<dataset>/`:
 
-| File                                        | Contents                                        |
-| ------------------------------------------- | ----------------------------------------------- |
-| `edge_preds.npy` / `edge_preds_raw.npy`     | Q-BAT predictions, with and without point adjustment |
-| `energy_matrix.npy`                         | per-model scores — the input to the routing decision |
-| `routed_indices.npy` / `routed_lines.npy`   | which events were escalated, and what was sent  |
-| `cloud_preds.npy`                           | BAT verdicts on the routed events               |
-| `hybrid_preds.npy`                          | the merged CESAL prediction                     |
-| `ground_truth.npy`                          | labels, for scoring                             |
+| File                                      | Contents                                             |
+| ----------------------------------------- | ---------------------------------------------------- |
+| `edge_preds.npy` / `edge_preds_raw.npy`   | Q-BAT predictions, with and without point adjustment |
+| `energy_matrix.npy`                       | per-model scores — the input to the routing decision |
+| `routed_indices.npy` / `routed_lines.npy` | which events were escalated, and what was sent       |
+| `cloud_preds.npy`                         | BAT verdicts on the routed events                    |
+| `hybrid_preds.npy`                        | the merged CESAL prediction                          |
+| `ground_truth.npy`                        | labels, for scoring                                  |
 
 **What takes the time.** The edge scan dominates — one ExecuTorch CPU pass per Q-BAT model over every window, so it scales with the number of test windows and the cores available, and the models run in parallel. Cloud verification touches only the routed fraction (10% by default) on the GPU and is comparatively quick; routing and the merge are negligible. To sweep routing ratios without repeating the scan, see [Vary the routing ratio](#vary-the-routing-ratio).
 
@@ -271,7 +276,7 @@ python -m incident_response.workflows --label "Replica immediately deleted"
 python -m incident_response.workflows --results outputs/hdfs/llm/results_Qwen_Qwen2.5-14B-Instruct.csv
 ```
 
-Reads the Step 3 outputs and queues every session whose final prediction (edge Q-BAT with routed events replaced by cloud BAT, before point adjustment) flagged an event. Writes to `outputs/hdfs/llm/queues/`: `queue_edge.csv` / `queue_cloud.csv` (the queues Q_E and Q_C, split by which tier caught the session), `classified_<model>.csv` (per-sequence cache, appended as it goes, so an interrupted run resumes), `incidents_<model>.csv` (each incident with its type, workflow and approval / escalation counts), and `evaluation_<model>.csv`.
+Reads the Step 3 outputs and queues every session whose final prediction (edge Q-BAT with routed events replaced by cloud BAT, before point adjustment) flagged an event. Writes to `outputs/hdfs/llm/queues/`: `queue_edge.csv` / `queue_cloud.csv` (the queues Q*E and Q_C, split by which tier caught the session), `classified*<model>.csv`(per-sequence cache, appended as it goes, so an interrupted run resumes),`incidents*<model>.csv`(each incident with its type, workflow and approval / escalation counts), and`evaluation*<model>.csv`.
 
 <p align="center">
   <img src="pictures/llm_module.png" width="850">
@@ -280,7 +285,6 @@ Reads the Step 3 outputs and queues every session whose final prediction (edge Q
 **How it works.** Detected sequences are buffered in an anomaly queue — edge-side `Q_E` or cloud-side `Q_C` — rather than classified inline, so analysis can wait for connectivity and cloud capacity. Each queued sequence is matched against a knowledge base of reference sequences; the retrieved evidence, the sequence and the candidate labels form a structured prompt. The LLM returns exactly one label, choosing a known type only when the evidence supports it and otherwise **"Unknown Anomaly Types"**, so unfamiliar patterns are never forced into an existing category. The label then selects a predefined workflow ([workflows.py](incident_response/workflows.py) implements Table 1 verbatim): low-impact steps can run automatically, high-impact ones need administrator approval, and unknown anomalies trigger no mitigation at all — they are preserved for human investigation.
 
 > **Implementation note.** The paper describes the knowledge base as indexed in a vector database; this implementation retrieves lexically (TF-IDF plus token and bigram overlap) in [classifier.py](incident_response/classifier.py), so no embedding model or vector store is required.
-
 
 The LAD test data has no block IDs or timestamps, so records are keyed by session index. Its HDFS sessions come from a different log-key extraction than loghub's `Event_traces.csv` — most exception events (e.g. E7) are absent — so about 20% of abnormal sessions match no knowledge-base or test sequence exactly and are excluded from the classification score.
 
@@ -489,7 +493,7 @@ CESAL/
 
 ### The short path (about two hours)
 
-`run.py all hdfs` runs the framework the way it is meant to be deployed, and takes about 16 hours. The path below reaches the paper's central claim in about two hours by running the same code over the smaller of the two datasets. Each tier stands on its own — stop at any of them.
+`run.py all hdfs` runs the framework the way it is meant to be deployed, but its detection stage alone is a multi-day job (see [Time](#requirements)). The path below reaches the paper's central claim in about two hours by running the same code over the smaller of the two datasets. Each tier stands on its own — stop at any of them.
 
 **Tier 0 — does it work at all? (3 seconds, no checkpoints, no GPU)**
 
@@ -522,21 +526,21 @@ Reproduces the best-backbone row of [Table 7](#open-set-incident-classification-
 
 ### Claims and how to check them
 
-| Paper claim | Command | Where the number appears | Expected |
-| ----------- | ------- | ------------------------ | -------- |
-| Q-BAT alone detects anomalies at the edge (Table 3, Edge row) | `run.py infer os` | printed at the end of the run | P 98.09 / R 100.00 / F1 99.03 |
-| BAT alone is the accuracy ceiling (Table 3, cloud-only row) | `run.py eval os` | printed at the end of the run | P 99.99 / R 100.00 / F1 99.99 |
-| **Routing 10% to the cloud recovers cloud-level accuracy (Table 3, CESAL row)** | `run.py infer os` | printed at the end of the run | P 99.90 / R 100.00 / F1 99.95 |
-| The same holds on HDFS | `run.py infer hdfs` (12-14 h) | printed at the end of the run | P 99.96 / R 100.00 / F1 99.98 |
-| Accuracy vs. routing ratio | `run.py sweep os` | `outputs/os/routing_ratio_sweep.csv` | F1 rises with the routed fraction |
-| **RAG + LLM classifies open-set incidents (Table 7)** | `run.py classify qwen2.5-14b-instruct` | `outputs/hdfs/llm/model_summary.csv` | P 79.71 / R 92.07 / F1 83.03 |
-| Detected incidents map to response workflows (Table 1) | `run.py respond` | printed per incident | each incident gets a workflow |
+| Paper claim                                                                     | Command                                | Where the number appears             | Expected                          |
+| ------------------------------------------------------------------------------- | -------------------------------------- | ------------------------------------ | --------------------------------- |
+| Q-BAT alone detects anomalies at the edge (Table 3, Edge row)                   | `run.py infer os`                      | printed at the end of the run        | P 98.09 / R 100.00 / F1 99.03     |
+| BAT alone is the accuracy ceiling (Table 3, cloud-only row)                     | `run.py eval os`                       | printed at the end of the run        | P 99.99 / R 100.00 / F1 99.99     |
+| **Routing 10% to the cloud recovers cloud-level accuracy (Table 3, CESAL row)** | `run.py infer os`                      | printed at the end of the run        | P 99.90 / R 100.00 / F1 99.95     |
+| The same holds on HDFS *(not offered for evaluation — multi-day; see [Time](#requirements))* | `run.py infer hdfs`                    | printed at the end of the run        | P 99.96 / R 100.00 / F1 99.98     |
+| Accuracy vs. routing ratio                                                      | `run.py sweep os`                      | `outputs/os/routing_ratio_sweep.csv` | F1 rises with the routed fraction |
+| **RAG + LLM classifies open-set incidents (Table 7)**                           | `run.py classify qwen2.5-14b-instruct` | `outputs/hdfs/llm/model_summary.csv` | P 79.71 / R 92.07 / F1 83.03      |
+| Detected incidents map to response workflows (Table 1)                          | `run.py respond`                       | printed per incident                 | each incident gets a workflow     |
 
 Scores are deterministic given the published checkpoints, so the detection rows should land on the printed values rather than near them. LLM classification decodes greedily, but backbone and kernel versions still move macro-F1 by a few tenths; treat Table 7 as reproduced within ±1 F1.
 
 ### What is scaled down, and why it still supports the paper
 
-- **OpenStack instead of HDFS for detection.** Identical code path, routing policy, thresholding and point-adjustment protocol — only the test set differs, and the paper reports Table 3 on both. The claim under test is that escalating 10% of windows recovers cloud-level F1 from edge-level F1, and that gap is present on both datasets. HDFS costs 12-14 hours to say the same thing.
+- **OpenStack instead of HDFS for detection.** Identical code path, routing policy, thresholding and point-adjustment protocol — only the test set differs, and the paper reports Table 3 on both. The claim under test is that escalating 10% of windows recovers cloud-level F1 from edge-level F1, and that gap is present on both datasets. HDFS needs 221,540 windows — days of CPU — to say the same thing.
 - **One LLM backbone instead of four.** Table 7's headline is the best backbone, Qwen2.5-14B-Instruct at 83.03 macro-F1. The other three support the secondary claim that the result is not backbone-specific; run the full sweep only if that claim is what you want to check.
 - **Both tiers on one machine.** The separation is real rather than simulated — separate Conda environments, separate processes, quantized `.pte` models on CPU for the edge tier — but the physical device and the network hop are absent. See [Step 3](#step-3--run-the-detection-pipeline); neither affects accuracy.
 - **Table 6 is not reproducible without hardware.** The edge resource measurements (latency, memory, power) were taken on physical Raspberry Pi 3B+/4B/5 boards. Nothing in this repository can stand in for them.
