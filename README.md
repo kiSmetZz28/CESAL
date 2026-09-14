@@ -70,6 +70,16 @@ All commands run from the project root. CESAL uses **two Conda environments**, o
 
 **Why two?** Edge runs ExecuTorch (compact, CPU-only, `.pte` quantized models); cloud runs full-precision PyTorch with CUDA. Separating them keeps each install minimal and avoids version conflicts between the two.
 
+**Two ways through the artifact.** The full lifecycle runs left to right; the trained checkpoints are published, so the numbered steps below skip the two most expensive stages:
+
+```
+  train BAT ensemble ──▶ convert to Q-BAT ──▶ detection ──▶ classification ──▶ response
+      (81 models)          (quantize)          Step 3         Step 4            Step 4
+           └────────── replaced by Step 2: download ──────────┘
+```
+
+**To reproduce the paper**, follow Steps 1–4: the published BAT and Q-BAT checkpoints go straight from install to results. **To rebuild the models from scratch**, do [Train the BAT ensemble](#train-the-bat-ensemble-from-scratch) and [Convert BAT to Q-BAT](#convert-bat-to-q-bat-edge-models) in place of Step 2, then rejoin at Step 3 — the rest of the pipeline is identical.
+
 ### What you need to run CESAL
 
 Far less than the paper's testbed ([Hardware setup](#hardware-setup-section-41) records what the published numbers were measured on).
@@ -157,7 +167,7 @@ python run.py infer hdfs
 
 One command runs the whole framework: Q-BAT scores every event on the edge, the Mahalanobis policy escalates the most uncertain 10%, the 81-model BAT ensemble re-evaluates those, and the two are merged into the final prediction. The cloud stage is spawned as a `cesal-cloud` subprocess automatically — you never switch environments by hand.
 
-**What it prints.** Every step states its inputs, what it is doing and its outcome, and the run closes with precision / recall / F1 for the edge-only, cloud-only and collaborative predictions — the three rows of [Table 3](#log-based-incident-detection-table-3), scored under the point-adjustment protocol the paper uses.
+**What it prints.** Every step states its inputs, what it is doing and its outcome, and the run closes with precision / recall / F1 for two of the three [Table 3](#log-based-incident-detection-table-3) rows — **Edge** (Q-BAT alone) and **Hybrid** (CESAL, after cloud verification), scored under the point-adjustment protocol the paper uses. The cloud-only row comes from [Evaluate the ensemble](#evaluate-the-ensemble), which scores the BAT ensemble on its own.
 
 **What it writes** to `outputs/<dataset>/`:
 
@@ -172,7 +182,7 @@ One command runs the whole framework: Q-BAT scores every event on the edge, the 
 | `hybrid_preds.npy`      | the merged CESAL prediction                                   |
 | `ground_truth.npy`      | labels, for scoring                                           |
 
-To reproduce the routing-ratio table without repeating the edge scan for every ratio, see [Vary the routing ratio](#vary-the-routing-ratio).
+**How long it takes.** The edge scan dominates: it runs the `.pte` models through ExecuTorch on CPU, one pass per Q-BAT model over every window. A measured OpenStack run on a 28-core i7-14700 took **1 h 30 m** — 1 h 29 m of it the edge scan, 27 s the cloud BAT verification, the rest negligible. Budget accordingly, and to reproduce the routing-ratio table without repeating the edge scan for every ratio, see [Vary the routing ratio](#vary-the-routing-ratio).
 
 ### Step 4 — Incident classification and controlled response (HDFS)
 
@@ -199,6 +209,8 @@ python -m incident_response.workflows --results outputs/hdfs/llm/results_Qwen_Qw
 ```
 
 Results land in `outputs/hdfs/llm/` — per-sequence predictions with retrieval evidence, plus `model_summary.csv` and `per_class_metrics_long.csv` — to compare against `table7_reference_metrics.csv` in the same directory. Per-backbone settings live in `model_overrides` of `configs/llm/hdfs.yaml`.
+
+**How long it takes.** One backbone labels all 4,124 sequences in roughly **1 h 50 m** on a 16 GB RTX 2000 Ada (measured: Qwen2.5-14B-Instruct, 1.62 s per sequence), so `python run.py classify` with all four is most of a working day. Results are written once the backbone finishes, so run one model at a time if the machine may be interrupted.
 
 #### From detection to response
 
@@ -246,6 +258,76 @@ The dashboard opens on **HDFS** when its logs have been ingested and falls back 
 
 ## Advanced Options
 
+Rebuilding the models, scoring the ensemble, and the ablations behind the paper's tables.
+
+### Train the BAT ensemble from scratch
+
+```bash
+conda activate cesal-cloud
+python run.py train os
+python run.py train hdfs
+```
+
+Each `train` invocation runs a hyperparameter sweep over `(num_epochs, k, e_layer_num, batch_size)` and writes **81 BAT checkpoints** to `checkpoints/bat/<dataset>/`.
+
+Training reports as two steps, with a progress bar across the sweep and one line per model and per epoch, so a long run always shows which model is being built and how the loss is moving:
+
+```
+──────────────────────────────────────────────────────────────────
+ STEP 2/2 · Train base models
+──────────────────────────────────────────────────────────────────
+   Each model learns what normal log activity looks like, so it can spot the abnormal.
+   parsed events ............... 52,289 train / 155,347 test (18,434 abnormal)
+      epoch 1/3 · train loss -8.566147 · check loss -8.501529 · 1.3s
+      epoch 2/3 · train loss -13.612495 · check loss -11.145834 · 1.0s
+      epoch 3/3 · train loss -14.872067 · check loss -11.644014 · 1.0s
+   model 1/2 · e3_k1_l3_b32       trained in 7.6s
+   ████████████░░░░░░░░░░░░░░  46.2%  37/81 models · ~18m 04s left · e6_k3_l6_b64
+```
+
+A model that fails does not abort the sweep — it is reported and the run continues, and the closing summary states how many of the 81 were trained.
+
+### Convert BAT to Q-BAT (edge models)
+
+```bash
+conda activate cesal-edge
+python run.py convert os
+python run.py convert hdfs
+```
+
+Applies quantization techniques and exports `.pte` files to `checkpoints/qbat/{dataset}/`. Skip if you already downloaded Q-BAT checkpoints via `python run.py download <dataset> qbat`.
+
+Conversion reports as two steps. The first says how many trained models were found and how much space they take; the second walks through them with a progress bar that names the current model and its sub-stage (loading → quantizing → exporting → writing), and reports the size each one dropped to:
+
+```
+──────────────────────────────────────────────────────────────────
+ STEP 2/2 · Shrink models for the device
+──────────────────────────────────────────────────────────────────
+   Each model is compressed and repackaged so it can run on small edge hardware.
+   e3_k1_l3_b32         28.0 MB →   4.2 MB  (85% smaller)
+   ████████░░░░░░░░░░░░░░░░░░  33.3%  27/81 models · ~4m 12s left · Openstack_e3_k3_l3_b64 — quantizing
+```
+
+The closing summary gives the total before and after, so the benefit of quantization is visible rather than implied.
+### Evaluate the ensemble
+
+```bash
+conda activate cesal-cloud
+python run.py eval os            # per-model scores, then incremental ensemble
+python run.py eval os majority   # a single voting method instead of all three
+```
+
+Scores each checkpoint alone, then adds them one at a time — weakest first — reporting F1 at a few ensemble sizes so the gain from ensembling is visible without 81 lines per voting method:
+
+```
+   ├─ how the ensemble grows
+   majority       F1 by ensemble size — 1:96.30  5:98.02  10:99.11  20:99.40  40:99.55  81:99.99
+   best voting method .......... consensus (F1 99.91)
+   gain over best single model .. +1.37 F1
+```
+
+> **Note.** `eval` recalibrates every model's EM-GMM threshold and **overwrites the bundled `outputs/<dataset>/thresholds_cloud.yaml` in place**, which changes what later `infer` runs do. The step says so as it happens. Back the file up first if you want to keep the shipped thresholds.
+
 ### Vary the routing ratio
 
 The routing ratio — the share of events the edge escalates to the cloud — is the pipeline's main trade-off knob. It defaults to `routing_tolerance: 0.1` in the inference config and can be overridden per run:
@@ -273,25 +355,6 @@ Only routing, cloud verification and the merge depend on the ratio — the edge 
 
 A ratio that fails (for example, the cloud stage running out of GPU memory) is reported as `(no result)` and the sweep continues with the rest. Every run also writes the exact settings it used to `effective_config.yaml` beside its outputs.
 
-### Evaluate the ensemble
-
-```bash
-conda activate cesal-cloud
-python run.py eval os            # per-model scores, then incremental ensemble
-python run.py eval os majority   # a single voting method instead of all three
-```
-
-Scores each checkpoint alone, then adds them one at a time — weakest first — reporting F1 at a few ensemble sizes so the gain from ensembling is visible without 81 lines per voting method:
-
-```
-   ├─ how the ensemble grows
-   majority       F1 by ensemble size — 1:96.30  5:98.02  10:99.11  20:99.40  40:99.55  81:99.99
-   best voting method .......... consensus (F1 99.91)
-   gain over best single model .. +1.37 F1
-```
-
-> **Note.** `eval` recalibrates every model's EM-GMM threshold and **overwrites the bundled `outputs/<dataset>/thresholds_cloud.yaml` in place**, which changes what later `infer` runs do. The step says so as it happens. Back the file up first if you want to keep the shipped thresholds.
-
 ### Cloud-side re-check only
 
 If the edge phase has already been run and you only want to re-run the cloud-side BAT re-prediction step:
@@ -300,56 +363,6 @@ If the edge phase has already been run and you only want to re-run the cloud-sid
 conda activate cesal-cloud
 python dashboard/cloud_runner.py --config configs/inference/os.yaml
 ```
-
-### Train from scratch
-
-```bash
-conda activate cesal-cloud
-python run.py train os
-python run.py train hdfs
-```
-
-Each `train` invocation runs a hyperparameter sweep over `(num_epochs, k, e_layer_num, batch_size)` and writes **81 BAT checkpoints** to `checkpoints/bat/<dataset>/`.
-
-Training reports as two steps, with a progress bar across the sweep and one line per model and per epoch, so a long run always shows which model is being built and how the loss is moving:
-
-```
-──────────────────────────────────────────────────────────────────
- STEP 2/2 · Train base models
-──────────────────────────────────────────────────────────────────
-   Each model learns what normal log activity looks like, so it can spot the abnormal.
-   parsed events ............... 52,289 train / 155,347 test (18,434 abnormal)
-      epoch 1/3 · train loss -8.566147 · check loss -8.501529 · 1.3s
-      epoch 2/3 · train loss -13.612495 · check loss -11.145834 · 1.0s
-      epoch 3/3 · train loss -14.872067 · check loss -11.644014 · 1.0s
-   model 1/2 · e3_k1_l3_b32       trained in 7.6s
-   ████████████░░░░░░░░░░░░░░  46.2%  37/81 models · ~18m 04s left · e6_k3_l6_b64
-```
-
-A model that fails does not abort the sweep — it is reported and the run continues, and the closing summary states how many of the 81 were trained.
-
-### Convert to edge models
-
-```bash
-conda activate cesal-edge
-python run.py convert os
-python run.py convert hdfs
-```
-
-Applies quantization techniques and exports `.pte` files to `checkpoints/qbat/{dataset}/`. Skip if you already downloaded Q-BAT checkpoints via `python run.py download <dataset> qbat`.
-
-Conversion reports as two steps. The first says how many trained models were found and how much space they take; the second walks through them with a progress bar that names the current model and its sub-stage (loading → quantizing → exporting → writing), and reports the size each one dropped to:
-
-```
-──────────────────────────────────────────────────────────────────
- STEP 2/2 · Shrink models for the device
-──────────────────────────────────────────────────────────────────
-   Each model is compressed and repackaged so it can run on small edge hardware.
-   e3_k1_l3_b32         28.0 MB →   4.2 MB  (85% smaller)
-   ████████░░░░░░░░░░░░░░░░░░  33.3%  27/81 models · ~4m 12s left · Openstack_e3_k3_l3_b64 — quantizing
-```
-
-The closing summary gives the total before and after, so the benefit of quantization is visible rather than implied.
 
 ---
 
