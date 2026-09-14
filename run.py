@@ -2,6 +2,7 @@
 
 Usage
 -----
+  python run.py all      [DATASET]          # everything, start to finish
   python run.py download [DATASET] [TYPE]
   python run.py train    [DATASET]
   python run.py eval     [DATASET] [VOTING]
@@ -14,6 +15,7 @@ Usage
 
 Examples
 --------
+  python run.py all hdfs                  # checkpoints → detection → classification → response
   python run.py download                  # Download all pre-trained checkpoints
   python run.py download hdfs             # Download HDFS checkpoints only
   python run.py download hdfs bat         # Download HDFS full-precision only
@@ -131,6 +133,56 @@ def main() -> None:
             sys.exit(rc)
         _run_module("incident_response.process_queues", "--config", "configs/llm/hdfs.yaml",
                     *(["--model", model] if model else []))
+
+    elif command == "all":
+        # One command from a clean checkout to the paper's numbers: fetch the
+        # published checkpoints, run detection, then classify each detected
+        # incident and select its response workflow. Each stage is the same
+        # command documented separately below, run in order.
+        dataset = argv[1] if len(argv) > 1 else "hdfs"
+        print(f"[run] Full pipeline — dataset: {dataset}\n")
+
+        sys.path.insert(0, str(_ROOT))
+        from tools.setup_executorch import executorch_present, setup_executorch
+
+        bat  = _ROOT / "checkpoints" / "bat" / dataset
+        qbat = _ROOT / "checkpoints" / "qbat" / dataset
+        have = (len(list(bat.glob("*.pth"))) >= 81 if bat.is_dir() else False) and \
+               (len(list(qbat.glob("*.pte"))) >= 3 if qbat.is_dir() else False) and \
+               executorch_present()
+
+        if have:
+            # Checking here rather than inside the fetcher keeps the common case
+            # fast: re-listing the remote folder takes minutes even when every
+            # file is already on disk.
+            print("[run] 1/3  Checkpoints and edge runtime — already present, skipping")
+        else:
+            print("[run] 1/3  Checkpoints and edge runtime")
+            rc = _run_keep_going(str(_ROOT / "tools" / "download_checkpoints.py"),
+                                 "--dataset", dataset)
+            if rc != 0:
+                sys.exit(rc)
+            if not setup_executorch():
+                sys.exit(1)
+
+        print("\n[run] 2/3  Detection")
+        rc = _run_keep_going("-m", "cesal_inference_pipeline.run",
+                             "--config", f"configs/inference/{dataset}.yaml")
+        if rc != 0:
+            sys.exit(rc)
+
+        if dataset != "hdfs":
+            print(f"\n[run] 3/3  Classification and response — skipped: the open-set "
+                  f"anomaly types and knowledge base are HDFS-only.")
+            sys.exit(0)
+
+        # respond needs torch + transformers, so it runs in the cloud environment.
+        from cesal_inference_pipeline.run import _detect_cloud_python
+        cloud_py = _detect_cloud_python()
+        print(f"\n[run] 3/3  Classification and response  ({cloud_py})")
+        rc = subprocess.run([cloud_py, str(_ROOT / "run.py"), "respond"],
+                            cwd=str(_ROOT)).returncode
+        sys.exit(rc)
 
     elif command in ("help", "--help", "-h"):
         print(__doc__)
