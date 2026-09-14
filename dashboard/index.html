@@ -367,6 +367,8 @@ select:focus{outline:none;border-color:var(--blue);}
 .wf-tl li.esc::before {background:#fef2f2;border-color:#f87171;color:var(--red);}
 .wf-tl li.man::before {background:#fffbeb;border-color:#fde68a;color:var(--amber);}
 .wf-tl-act{font-size:12.5px;line-height:1.6;color:var(--text);}
+.wf-tl-act::first-letter,
+.wf-steps li::first-letter{text-transform:uppercase;}
 .wf-tl-tag{display:block;margin-top:3px;font-size:9.5px;font-weight:700;
   text-transform:uppercase;letter-spacing:.05em;color:var(--muted);}
 .wf-tl li.gate .wf-tl-tag{color:var(--amber);}
@@ -2860,8 +2862,7 @@ function openWfModal(i) {
         <div class="wf-modal-name">${esc(l.label)}
           ${l.automated_response?'<span class="pill-ok">automated</span>'
                                 :'<span class="pill-warn">human investigation</span>'}</div>
-        <div class="wf-modal-sub">Predefined response workflow · paper Table 1
-          · ${l.count.toLocaleString()} incidents</div>
+        <div class="wf-modal-sub">Predefined response workflow</div>
       </div>
     </div>
     ${steps.length ? `<ol class="wf-tl" style="margin-top:18px">
@@ -2891,7 +2892,7 @@ function wfTipHtml(l) {
   return `<div class="wf-tip-name">${esc(l.label)}
       ${l.automated_response?'<span class="pill-ok">automated</span>'
                             :'<span class="pill-warn">human investigation</span>'}</div>
-    <div class="wf-tip-src">Predefined response workflow · paper Table 1</div>
+    <div class="wf-tip-src">Predefined response workflow</div>
     ${steps ? `<ol class="wf-steps">${steps}</ol>`
             : `<div style="color:var(--muted)">${esc(l.description||'No workflow text available.')}</div>`}`;
 }
@@ -3040,7 +3041,7 @@ async function irOpenDetail(sessionId) {
               <span style="font-family:monospace;font-size:11px;word-break:break-word">${esc(d.raw_output)}</span></div>`:''}
         </div>
         <div class="wf-hero${wf.automated?'':' manual'}">
-          <span class="wf-hero-eyebrow">Selected response workflow · paper Table 1, word for word</span>
+          <span class="wf-hero-eyebrow">Selected response workflow</span>
           <div class="wf-hero-name">${esc(wf.anomaly_type||'—')}</div>
           <div class="wf-hero-meta">
             ${wf.automated?'<span class="pill-ok">automated</span>'
