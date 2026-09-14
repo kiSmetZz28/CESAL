@@ -56,34 +56,34 @@ __all__ = [
 # who does not know the system can still follow what it is doing.
 
 INFER_STEPS: List[Tuple[str, str, str]] = [
-    ("edge",   "Edge Q-BAT scan",
+    ("edge",   "Edge-side detection with Q-BAT",
      "Small on-device models read every log window and flag anything unusual."),
-    ("route",  "Uncertainty routing",
+    ("route",  "Mahalanobis uncertainty routing",
      "Windows the device was least sure about are picked out for a second opinion."),
-    ("cloud",  "Cloud BAT verification",
+    ("cloud",  "Cloud-side verification with BAT",
      "A much larger ensemble in the cloud re-examines only those uncertain windows."),
-    ("hybrid", "Hybrid merge & scoring",
+    ("hybrid", "Collaborative merge and scoring",
      "Cloud answers replace the device's for those windows, and the result is scored."),
 ]
 
 TRAIN_STEPS: List[Tuple[str, str, str]] = [
-    ("plan",  "Plan the ensemble",
+    ("plan",  "Plan the BAT ensemble",
      "Work out how many models to build and what settings each one gets."),
-    ("sweep", "Train base models",
+    ("sweep", "Train the EM-AT base learners",
      "Each model learns what normal log activity looks like, so it can spot the abnormal."),
 ]
 
 CONVERT_STEPS: List[Tuple[str, str, str]] = [
-    ("locate",  "Find trained models",
-     "Check which trained models are on disk and ready to be shrunk."),
-    ("convert", "Shrink models for the device",
-     "Each model is compressed and repackaged so it can run on small edge hardware."),
+    ("locate",  "Locate the trained EM-AT checkpoints",
+     "Check which trained models are on disk and ready to be quantized."),
+    ("convert", "Quantize and export for the edge device",
+     "Each model is quantized and repackaged so it can run on small edge hardware."),
 ]
 
 EVAL_STEPS: List[Tuple[str, str, str]] = [
-    ("score",    "Score each model on its own",
+    ("score",    "Score each EM-AT model on its own",
      "Every trained model is run over the test logs to see how well it does alone."),
-    ("ensemble", "Combine them into an ensemble",
+    ("ensemble", "Grow the BAT ensemble",
      "Models are added one at a time to show what the group gains over any single one."),
 ]
 
@@ -97,23 +97,23 @@ DOWNLOAD_STEPS: List[Tuple[str, str, str]] = [
 
 # `run.py classify` — benchmark the LLM incident classifier (paper Table 7).
 CLASSIFY_STEPS: List[Tuple[str, str, str]] = [
-    ("prepare",  "Build the evidence base",
+    ("prepare",  "Build the RAG knowledge base",
      "Load the abnormal log sequences and the reference library they are matched against."),
-    ("classify", "Ask each language model to label them",
+    ("classify", "Open-set classification with the LLM",
      "For every sequence, similar known incidents are retrieved and the model names the type."),
-    ("score",    "Score the labels",
+    ("score",    "Score against the ground-truth types",
      "Compare the labels against the known answers and write the per-class results."),
 ]
 
 # `run.py respond` — detections → queues → classification → response workflows.
 RESPOND_STEPS: List[Tuple[str, str, str]] = [
-    ("queue",    "Queue the detected incidents",
+    ("queue",    "Fill the anomaly queues Q_E / Q_C",
      "Sessions the detector flagged are filed by who caught them — the device or the cloud."),
-    ("classify", "Identify each incident's type",
+    ("classify", "Open-set classification of each incident",
      "Each queued sequence is matched to a known incident type, or marked as an unknown one."),
-    ("workflow", "Choose a response for each",
+    ("workflow", "Select the response workflow",
      "Known types map to a predefined response plan; unknown ones are held for a human."),
-    ("score",    "Score the identifications",
+    ("score",    "Score the classification",
      "Check the identified types against the known answers for the sessions that have them."),
 ]
 

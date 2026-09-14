@@ -151,6 +151,14 @@ python run.py download hdfs qbat      # HDFS quantized Q-BAT + ExecuTorch runtim
 
 Whenever Q-BAT is in the set, `run.py download` also installs the **ExecuTorch 0.5.0 runtime** and its bundled `torchao` build, which `run.py infer` and `run.py convert` both need.
 
+**In → out.** Either option consumes `data/<dataset>/` (the parsed event sequences, already in the repo) and produces:
+
+| Path                            | Contents                                                          |
+| ------------------------------- | ----------------------------------------------------------------- |
+| `checkpoints/bat/<dataset>/`    | 81 EM-AT `.pth` checkpoints — the cloud-tier BAT ensemble         |
+| `checkpoints/qbat/<dataset>/`   | quantized `.pte` programs — the 3 named in `edge_models` are Q-BAT |
+| `cesal_inference_pipeline/executorch/` | the runtime that executes the `.pte` files                 |
+
 > **Note:** raw log files are _not_ fetched here. They are only needed by the optional dashboard's log-browsing panels, and `launch_dashboard.py` fetches them.
 
 **Check the install before the long run.** The unit suite needs no checkpoints and no GPU, and covers the pieces the pipeline's numbers depend on — EM-GMM thresholding, anomaly-energy scoring, ensemble voting, thresholded prediction, the routing-ratio sweep and the Table 1 workflow mapping:
@@ -174,7 +182,7 @@ One command runs the whole framework: Q-BAT scores every event on the edge, the 
 
 **What it prints.** Every step states its inputs, what it is doing and its outcome, and the run closes with precision / recall / F1 for two of the three [Table 3](#log-based-incident-detection-table-3) rows — **Edge** (Q-BAT alone) and **Hybrid** (CESAL, after cloud verification), scored under the point-adjustment protocol the paper uses. The cloud-only row comes from [Evaluate the ensemble](#evaluate-the-ensemble), which scores the BAT ensemble on its own.
 
-**What it writes** to `outputs/<dataset>/`:
+**In → out.** Reads `data/<dataset>/` (parsed event sequences), `checkpoints/qbat/<dataset>/` and `checkpoints/bat/<dataset>/` (Step 2), and the bundled thresholds in `outputs/<dataset>/thresholds_{edge,cloud}.yaml`. Writes to `outputs/<dataset>/`:
 
 | File                    | Contents                                                      |
 | ----------------------- | ------------------------------------------------------------- |
@@ -188,6 +196,12 @@ One command runs the whole framework: Q-BAT scores every event on the edge, the 
 | `ground_truth.npy`      | labels, for scoring                                           |
 
 **How long it takes.** The edge scan dominates: it runs the `.pte` models through ExecuTorch on CPU, one pass per Q-BAT model over every window. A measured OpenStack run on a 28-core i7-14700 took **1 h 30 m** — 1 h 29 m of it the edge scan, 27 s the cloud BAT verification, the rest negligible. Budget accordingly, and to reproduce the routing-ratio table without repeating the edge scan for every ratio, see [Vary the routing ratio](#vary-the-routing-ratio).
+
+**Where the edge tier actually runs.** CESAL is a cloud-edge framework: in the deployment the paper describes, the edge tier (Q-BAT through ExecuTorch) runs on resource-constrained devices — Raspberry Pi 3B+/4B/5 — and only the routed, uncertain windows cross the network to the cloud tier (BAT) on a server.
+
+**This repository runs both tiers on one machine.** A reproducible artifact cannot assume a reviewer owns a Raspberry Pi, and the repo cannot ship a device image, so `run.py infer` executes the edge stage locally through the same ExecuTorch CPU runtime the device would use, then spawns the cloud stage as a subprocess. The tier separation is still real rather than simulated: the two stages run in **separate Conda environments and separate processes**, the edge stage uses only the quantized `.pte` models on CPU, and [cesal_inference_pipeline/run.py](cesal_inference_pipeline/run.py) never loads a BAT checkpoint inside `cesal-edge`. What is missing is the physical device and the network hop between them.
+
+This affects nothing in the detection results: **Table 3 depends on the models and the routing policy, not on which machine executes them**, so the accuracy reproduces exactly on one host. What genuinely needs the hardware is the edge resource measurements in Table 6 — latency, memory and energy on the Pi — which is why they are listed as not reproducible without it.
 
 ### Step 4 — Incident classification and controlled response (HDFS)
 
@@ -213,7 +227,16 @@ python -m incident_response.workflows --label "Replica immediately deleted"
 python -m incident_response.workflows --results outputs/hdfs/llm/results_Qwen_Qwen2.5-14B-Instruct.csv
 ```
 
-Results land in `outputs/hdfs/llm/` — per-sequence predictions with retrieval evidence, plus `model_summary.csv` and `per_class_metrics_long.csv` — to compare against `table7_reference_metrics.csv` in the same directory. Per-backbone settings live in `model_overrides` of `configs/llm/hdfs.yaml`.
+**In → out (classification).** Reads `data/HDFS/open_set/` — the 4,124-sequence test set and the retrieval knowledge base — and writes to `outputs/hdfs/llm/`:
+
+| File                          | Contents                                                     |
+| ----------------------------- | ------------------------------------------------------------ |
+| `results_<model>.csv`         | one row per sequence: predicted type, retrieved evidence, raw LLM output |
+| `model_summary.csv`           | one row per backbone — the **Table 7** macro scores          |
+| `per_class_metrics_long.csv`  | per-anomaly-type precision / recall / F1                     |
+| `report_<model>.txt`          | the sklearn classification report                            |
+
+Compare against `table7_reference_metrics.csv` in the same directory. Per-backbone settings live in `model_overrides` of `configs/llm/hdfs.yaml`.
 
 **How long it takes.** One backbone labels all 4,124 sequences in roughly **1 h 50 m** on a 16 GB RTX 2000 Ada (measured: Qwen2.5-14B-Instruct, 1.62 s per sequence), so `python run.py classify` with all four is most of a working day. Results are written once the backbone finishes, so run one model at a time if the machine may be interrupted.
 
@@ -228,7 +251,16 @@ conda activate cesal-cloud
 python run.py respond         # queues → classification → workflows
 ```
 
-The LAD test data has no block IDs or timestamps, so records are keyed by session index. Its HDFS sessions come from a different log-key extraction than loghub's `Event_traces.csv` — most exception events (e.g. E7) are absent — so about 20% of abnormal sessions match no knowledge-base or test sequence exactly and are excluded from the classification score. Classifications are cached per unique sequence in `classified_<model>.csv`, so an interrupted run resumes.
+**In → out (response).** Reads `outputs/hdfs/*.npy` from Step 3 plus the same knowledge base, and writes to `outputs/hdfs/llm/queues/`:
+
+| File                          | Contents                                                        |
+| ----------------------------- | --------------------------------------------------------------- |
+| `queue_edge.csv` / `queue_cloud.csv` | the anomaly queues Q_E and Q_C — one row per detected session |
+| `classified_<model>.csv`      | classification cache, one row per unique sequence (appended as it goes, so an interrupted run resumes) |
+| `incidents_<model>.csv`       | every incident with its type, selected workflow, and approval / escalation counts |
+| `evaluation_<model>.csv`      | per-type scores over the sessions whose true type is known      |
+
+The LAD test data has no block IDs or timestamps, so records are keyed by session index. Its HDFS sessions come from a different log-key extraction than loghub's `Event_traces.csv` — most exception events (e.g. E7) are absent — so about 20% of abnormal sessions match no knowledge-base or test sequence exactly and are excluded from the classification score.
 
 ### Optional — the web dashboard
 
@@ -254,7 +286,7 @@ Training reports as two steps, with a progress bar across the sweep and one line
 
 ```
 ──────────────────────────────────────────────────────────────────
- STEP 2/2 · Train base models
+ STEP 2/2 · Train the EM-AT base learners
 ──────────────────────────────────────────────────────────────────
    Each model learns what normal log activity looks like, so it can spot the abnormal.
    parsed events ............... 52,289 train / 155,347 test (18,434 abnormal)
@@ -281,9 +313,9 @@ Conversion reports as two steps. The first says how many trained models were fou
 
 ```
 ──────────────────────────────────────────────────────────────────
- STEP 2/2 · Shrink models for the device
+ STEP 2/2 · Quantize and export for the edge device
 ──────────────────────────────────────────────────────────────────
-   Each model is compressed and repackaged so it can run on small edge hardware.
+   Each model is quantized and repackaged so it can run on small edge hardware.
    e3_k1_l3_b32         28.0 MB →   4.2 MB  (85% smaller)
    ████████░░░░░░░░░░░░░░░░░░  33.3%  27/81 models · ~4m 12s left · Openstack_e3_k3_l3_b64 — quantizing
 ```
