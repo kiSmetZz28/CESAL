@@ -12,7 +12,7 @@ models:
 - name: HDFS_e10_k3_l6_b96
   threshold: 0.026679591015203577
 - name: HDFS_e10_k3_l8_b32
-  threshold: 0.03819462138060507
+  threshold: 0.06971916555418223
 - name: HDFS_e10_k3_l8_b64
   threshold: 0.04697712707972045
 - name: HDFS_e10_k3_l8_b96
@@ -84,7 +84,7 @@ models:
 - name: HDFS_e3_k4_l6_b96
   threshold: 0.031211036397848186
 - name: HDFS_e3_k4_l8_b32
-  threshold: 0.05345689674049345
+  threshold: 0.04269343174512802
 - name: HDFS_e3_k4_l8_b64
   threshold: 0.014697002624237319
 - name: HDFS_e3_k4_l8_b96
@@ -100,7 +100,7 @@ models:
 - name: HDFS_e3_k5_l6_b64
   threshold: 0.06222961210444618
 - name: HDFS_e3_k5_l6_b96
-  threshold: 0.03943023357914121
+  threshold: 0.034440286113904726
 - name: HDFS_e3_k5_l8_b32
   threshold: 0.057848862535083
 - name: HDFS_e3_k5_l8_b64

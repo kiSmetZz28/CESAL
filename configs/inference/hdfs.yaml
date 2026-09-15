@@ -12,12 +12,14 @@ routing_tolerance: 0.1
 routing_distance: "ma"
 
 edge_models:
-  - name: "qbat_e10_k3_l8_b32"
-    checkpoint: "checkpoints/qbat/hdfs/HDFS_e10_k3_l8_b32.pte"
-  - name: "qbat_e3_k4_l8_b32"
-    checkpoint: "checkpoints/qbat/hdfs/HDFS_e3_k4_l8_b32.pte"
-  - name: "qbat_e3_k5_l6_b96"
-    checkpoint: "checkpoints/qbat/hdfs/HDFS_e3_k5_l6_b96.pte"
+  # One model per encoder depth (l8 / l6 / l3), selected over all 85,320
+  # three-model combinations by majority-vote F1 on the BAT energies.
+  - name: "qbat_e10_k3_l8_b96"
+    checkpoint: "checkpoints/qbat/hdfs/HDFS_e10_k3_l8_b96.pte"
+  - name: "qbat_e6_k4_l6_b32"
+    checkpoint: "checkpoints/qbat/hdfs/HDFS_e6_k4_l6_b32.pte"
+  - name: "qbat_e6_k5_l3_b32"
+    checkpoint: "checkpoints/qbat/hdfs/HDFS_e6_k5_l3_b32.pte"
 
 cloud:
   model_save_path: "checkpoints/bat/hdfs"
