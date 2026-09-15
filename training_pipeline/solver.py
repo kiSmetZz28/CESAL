@@ -104,10 +104,10 @@ _THRESHOLD_OUTPUT = {
 # over saved arrays instead of a full GPU re-scoring pass.
 CACHE_ENERGY = True
 
-# thre_energy feeds only the commented-out `np.concatenate([train_energy,
-# thre_energy])` below, so computing it is a full pass over the test data whose
-# result is discarded. Set True to restore it if that line is ever re-enabled.
-COMPUTE_THRE_ENERGY = False
+# thre_energy is concatenated with train_energy for EM-GMM threshold selection
+# (the original CECO-LAD behaviour). Setting this False skips that pass and
+# thresholds are then fitted on train energy alone.
+COMPUTE_THRE_ENERGY = True
 
 
 class Solver:
@@ -353,14 +353,27 @@ class Solver:
         if COMPUTE_THRE_ENERGY:
             attens_energy = np.concatenate(attens_energy, axis=0).reshape(-1)
             thre_energy = np.array(attens_energy)
+            self._cache_energy('thre', thre_energy)
         else:
             thre_energy = np.empty(0, dtype=np.float32)
 
         # Combine train + thre energy for EM-GMM threshold selection
-        # combined_energy = np.concatenate([train_energy, thre_energy])
-        combined_energy = train_energy
+        if COMPUTE_THRE_ENERGY:
+            combined_energy = np.concatenate([train_energy, thre_energy])
+        else:
+            combined_energy = train_energy
 
-        em_pred = _fit_gmm(combined_energy.reshape(-1, 1), 7, 'tied', 100, 'k-means++', 10)
+        # EM-GMM settings are per-dataset (configs/training/<dataset>.yaml); the
+        # defaults below are the original values. Note the energy is 1-D, so
+        # 'full', 'diag' and 'spherical' are equivalent — only 'tied' differs.
+        em_pred = _fit_gmm(
+            combined_energy.reshape(-1, 1),
+            getattr(self, 'gmm_n_components',   7),
+            getattr(self, 'gmm_covariance_type', 'tied'),
+            getattr(self, 'gmm_max_iter',       100),
+            getattr(self, 'gmm_init_params',    'k-means++'),
+            getattr(self, 'gmm_n_init',          10),
+        )
         sorted_pct = _log_cluster_percentages(em_pred)
         normal_ratio = sorted_pct[0][1]
         logging.debug("Normal data ratio: %s", normal_ratio)

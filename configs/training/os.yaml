@@ -12,3 +12,13 @@ num_epochs: [3, 6, 10]
 k: [1, 3, 5]
 e_layer_num: [3, 6, 8]
 batch_size: [32, 64, 96]
+
+# ── EM-GMM automated thresholding (Sec. 3.5.1) ───────────────────────────────
+# The energy passed to the GMM is 1-D, so 'full', 'diag' and 'spherical' behave
+# identically; only 'tied' (one shared variance) differs. Values below are the
+# originals — see the sweep in the README before changing them.
+gmm_n_components: 7
+gmm_covariance_type: "tied"
+gmm_max_iter: 100
+gmm_init_params: "k-means++"
+gmm_n_init: 10
