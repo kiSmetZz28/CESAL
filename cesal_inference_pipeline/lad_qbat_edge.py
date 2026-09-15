@@ -172,6 +172,11 @@ def _run_via_runner(pte_path: str, windows: np.ndarray, model_name: str) -> np.n
                 f"--data_path={rel_data}",
                 f"--model_name={model_name}",
                 "--mode=test",
+                # The runner defaults to win_size=100. The windows were built
+                # from the dataset's configured win_size, so pass it explicitly:
+                # otherwise a dataset using any other value is silently
+                # regrouped and returns the wrong number of energies.
+                f"--win_size={windows.shape[1]}",
             ],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -209,7 +214,21 @@ def _run_via_runner(pte_path: str, windows: np.ndarray, model_name: str) -> np.n
             )
 
         score_file = pred_dir / f"{model_name}_test_score.txt"
-        return np.loadtxt(str(score_file), dtype=np.float32)
+        energy = np.loadtxt(str(score_file), dtype=np.float32)
+
+        # One score per timestep: N windows x win_size. A mismatch means the
+        # runner grouped the flat values differently from how they were
+        # written — usually a .pte exported for a different win_size than the
+        # config asks for — which would otherwise misalign silently.
+        expected = windows.shape[0] * windows.shape[1]
+        if energy.size != expected:
+            raise RuntimeError(
+                f"'{model_name}' returned {energy.size:,} energy values but "
+                f"{expected:,} were expected ({windows.shape[0]:,} windows x "
+                f"{windows.shape[1]} timesteps). The checkpoint was probably "
+                f"exported for a different win_size than the config specifies."
+            )
+        return energy
     finally:
         try:
             os.unlink(tmp_path)

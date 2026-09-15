@@ -22,7 +22,8 @@ import torch
 import torch.nn as nn
 from torch.export import export, ExportedProgram
 from executorch.exir import EdgeProgramManager, ExecutorchBackendConfig, to_edge
-from torchao.quantization.quant_api import Int8DynActInt4WeightQuantizer
+from torchao.quantization import quantize_, int8_dynamic_activation_int4_weight
+from torchao.utils import unwrap_tensor_subclass
 
 # Run directly as a script (as run.py does), so put the project root on the path
 # the way the other entry points do rather than relying on `pip install -e .`.
@@ -34,15 +35,6 @@ from cesal_core.utils.energy import my_kl_loss
 from cesal_core.utils.config import load_config, setup_logging
 from cesal_core.utils.io import mkdir
 from cesal_core.utils.steps import StepReporter
-
-_ABOUT = """
-Shrinking the trained models so they can run on a small edge device.
-A trained model stores its numbers at full precision, which is fine on a server
-but too large and too slow for hardware like a Raspberry Pi. Each model is
-re-encoded at lower precision and repackaged into a self-contained file the
-device can execute directly. The result is a much smaller model that gives
-nearly the same answers.
-"""
 
 
 class _ExportableEMAT(nn.Module):
@@ -109,14 +101,19 @@ def convert_one(
     model = _ExportableEMAT(emat, win_size=win_size)
     model.eval().to(dtype=dtype, device=device)
 
-    # A8W4: int8 dynamic activations, int4 weights (ExecuTorch 0.3 API).
-    # This is the step that shrinks the model: weights drop from 32-bit floats
-    # to 4-bit integers, trading a little numeric precision for ~8x less space.
+    # A8W4: int8 dynamic activations, int4 weights. This is the step that
+    # shrinks the model: weights drop from 32-bit floats to 4-bit integers,
+    # trading a little numeric precision for ~8x less space.
+    #
+    # Uses torchao's quantize_ API. The older Int8DynActInt4WeightQuantizer
+    # cannot be used here: its _create_quantized_state_dict asserts
+    # `not mod.bias`, and every one of EMAT's 16 Linear layers carries a bias
+    # (torchao drops bias entirely — see its own "TODO: support bias?").
     step.progress_note(f"{Path(dst_pte).stem} — quantizing")
-    model = Int8DynActInt4WeightQuantizer(
-        precision=dtype,
-        groupsize=-1,
-    ).quantize(model)
+    quantize_(model, int8_dynamic_activation_int4_weight())
+    # quantize_ replaces weights with tensor subclasses; torch.export needs
+    # them unwrapped back into plain tensors first.
+    model = unwrap_tensor_subclass(model)
 
     sample_input = (torch.randn(1, win_size, input_c, dtype=dtype, device=device),)
 
@@ -175,8 +172,7 @@ if __name__ == "__main__":
             args.batch_size  or cfg["batch_size"][0],
         )]
 
-    rep = StepReporter("convert", dataset=dataset, steps=steps.CONVERT_STEPS,
-                       about=_ABOUT)
+    rep = StepReporter("convert", dataset=dataset, steps=steps.CONVERT_STEPS)
 
     # ── Step 1: see what is available to convert ──────────────────────────
     with rep.step("locate") as st:
