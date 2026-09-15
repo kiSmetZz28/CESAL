@@ -100,17 +100,13 @@ Training is the expensive stage, so the checkpoints behind the paper's numbers a
 
 **Time.** Measured on the i7-14700 workstation listed under [Hardware setup](#hardware-setup-section-41).
 
-| Stage                                | Command           |     OpenStack |                     HDFS |
-| ------------------------------------ | ----------------- | ------------: | -----------------------: |
-| Unit tests                           | `pytest tests`    |           3 s |                      3 s |
-| **Detection, end to end**            | `run.py infer`    | **~1 h 35 m** |               **days †** |
-| Cloud-only ensemble scoring          | `run.py eval`     |        ~8 min |                   ~6.5 h |
-| Incident classification, one backbone| `run.py classify` |           n/a |              ~1 h 51 m   |
-| Train the BAT ensemble (81 models)   | `run.py train`    |       ~23 min |              many hours  |
-
-**† HDFS detection is not a practical target.** Its test split yields 221,540 edge windows against OpenStack's 1,553, so the CPU-bound edge scan takes days rather than hours, and we have not run it to completion. Reproduce detection on OpenStack instead — identical code path, routing policy and scoring protocol. See [the short path](#the-short-path-about-two-hours).
-
-The hardware our experiments ran on is listed under [Hardware setup](#hardware-setup-section-41); it is what the published numbers were measured on, not a requirement for reproducing them.
+| Stage                                 | Command           |     OpenStack |       HDFS |
+| ------------------------------------- | ----------------- | ------------: | ---------: |
+| Unit tests                            | `pytest tests`    |           3 s |        3 s |
+| **Detection, end to end**             | `run.py infer`    | **~1 h 35 m** | **days †** |
+| Cloud-only ensemble scoring           | `run.py eval`     |        ~8 min |     ~6.5 h |
+| Incident classification, one backbone | `run.py classify` |           n/a |  ~1 h 51 m |
+| Train the BAT ensemble (81 models)    | `run.py train`    |       ~23 min | many hours |
 
 ### Step 1 — Set up environments
 
