@@ -98,55 +98,17 @@ Training is the expensive stage, so the checkpoints behind the paper's numbers a
 
 **Disk.** Detection (Steps 1-3) needs about **12 GB** — BAT checkpoints ~3.5 GB per dataset, the ExecuTorch runtime and build tree ~3.1 GB, prediction outputs ~1.2 GB per dataset, everything else under 250 MB. Step 4 is dominated by the LLM weights, pulled from Hugging Face on first use into `~/.cache/huggingface/hub`: **~28 GB** for the default Qwen2.5-14B-Instruct, or **~76 GB** for all four LLM backbones.
 
-**Time.** Wall-clock for each stage, measured on the i7-14700 workstation listed under [Hardware setup](#hardware-setup-section-41) (28 cores / 56 threads, RTX 2000 Ada). These are one machine's numbers — see [estimating it on your machine](#estimating-the-runtime-on-your-machine) below for what actually carries over.
+**Time.** Measured on the i7-14700 workstation listed under [Hardware setup](#hardware-setup-section-41).
 
-| Stage                                           | Command                                |            OpenStack |                 HDFS |
-| ----------------------------------------------- | -------------------------------------- | -------------------: | -------------------: |
-| Unit tests (no checkpoints needed)              | `pytest tests`                         |                   3s |                   3s |
-| Download published checkpoints                  | `run.py download`                      | network-bound, ~5 GB | network-bound, ~9 GB |
-| **Detection, end to end**                       | `run.py infer`                         |        **~1 h 35 m** |   **~4.6-12 days †** |
-| &nbsp;&nbsp;├─ edge Q-BAT scan                  |                                        |             1 h 29 m |       ~4.6-12 days † |
-| &nbsp;&nbsp;├─ Mahalanobis routing              |                                        |                0.4 s |                ~30 s |
-| &nbsp;&nbsp;└─ cloud BAT verification + merge   |                                        |      26 s - 1 m 46 s |         not measured |
-| Cloud-only ensemble scoring                     | `run.py eval`                          |               ~8 min |               ~6.5 h |
-| Routing-ratio sweep                             | `run.py sweep`                         |              ~10 min |      reuses the scan |
-| Incident classification, one backbone           | `run.py classify qwen2.5-14b-instruct` |                  n/a |        **~1 h 51 m** |
-| Incident classification, all four backbones     | `run.py classify`                      |                  n/a |        **~5 h 46 m** |
-| Queues → classification → response              | `run.py respond`                       |                  n/a |                 ~2 s |
-| Train the BAT ensemble from scratch (81 models) | `run.py train`                         |              ~23 min |           many hours |
+| Stage                                | Command           |     OpenStack |                     HDFS |
+| ------------------------------------ | ----------------- | ------------: | -----------------------: |
+| Unit tests                           | `pytest tests`    |           3 s |                      3 s |
+| **Detection, end to end**            | `run.py infer`    | **~1 h 35 m** |               **days †** |
+| Cloud-only ensemble scoring          | `run.py eval`     |        ~8 min |                   ~6.5 h |
+| Incident classification, one backbone| `run.py classify` |           n/a |              ~1 h 51 m   |
+| Train the BAT ensemble (81 models)   | `run.py train`    |       ~23 min |              many hours  |
 
-**† HDFS detection is not a practical target, and we have not run it to completion.** The HDFS test split parses to 11,077,032 timesteps, which at `win_size: 50` is **221,540 windows** — 143× OpenStack's 1,553. The figure above is a projection from measured per-window cost, not an end-to-end measurement:
-
-| Edge model set                                           | Measured s/window | 221,540 windows |
-| -------------------------------------------------------- | ----------------: | --------------: |
-| Three `l3` models (fastest available)                    |              1.81 |       ~4.6 days |
-| `l8`, `l8`, `l6` (current `configs/inference/hdfs.yaml`) |              4.74 |        ~12 days |
-
-Depth drives the cost: `l3` ≈ 0.036, `l6` ≈ 0.070, `l8` ≈ 0.094 single-core seconds per timestep. No choice of three models brings HDFS under a day.
-
-**HDFS BAT training is likewise not a reproduction target.** The published checkpoints exist so it can be skipped; `run.py download` fetches exactly the weights the paper's numbers were measured on.
-
-**Reproduce detection on OpenStack.** It exercises the identical code path, routing policy and scoring protocol in about an hour and a half — see [the short path](#the-short-path-about-two-hours).
-
-#### Estimating the runtime on your machine
-
-The figures above come from one workstation, so the question is which of them carry over. For the stage that dominates — the edge Q-BAT scan — more of it carries over than you might expect.
-
-**The edge scan always uses exactly three cores.** It runs one single-threaded ExecuTorch process per Q-BAT model, three of them in parallel ([lad_qbat_edge.py](cesal_inference_pipeline/lad_qbat_edge.py)), and nothing in the stage is threaded beyond that. A 28-core workstation and an 8-core laptop devote the same three cores to it. What moves the number is **single-core speed and the number of test windows — not core count**, so a machine with three free cores and comparable per-core performance should land near the times above. Two caveats: a 2-vCPU VM (Colab's free tier) has to serialise one of the three models and will run roughly half again as slow, and the stage is pure CPU — a faster GPU does not speed it up at all.
-
-**The cost is linear in timesteps, and scales with model depth.** Measured on the reference machine, per window and per timestep:
-
-| Encoder depth | s/window @ `win_size` 50 | s/window @ `win_size` 100 | s/timestep |
-| ------------- | -----------------------: | ------------------------: | ---------: |
-| `l3`          |                     1.81 |                      3.44 |      0.036 |
-| `l6`          |                     3.60 |                      6.80 |      0.070 |
-| `l8`          |                     4.74 |                      8.92 |      0.094 |
-
-Because the three models run concurrently, the slowest of the three sets the wall-clock. OpenStack's configured edge set is three `l3` models over 1,553 windows: 1,553 × 3.44 s ≈ 1 h 29 m, which is what it actually takes.
-
-So you can calibrate against your own hardware rather than trusting ours. Start `run.py infer os` and time the first milestone — the scan logs one at every 25% of the windows. Four times that is the whole OpenStack scan. For any other configuration, multiply your measured per-timestep rate by the dataset's timestep count (OpenStack 155,347; HDFS 11,077,032).
-
-The GPU stages behave the opposite way. Cloud BAT verification touches only the routed 10% and is minutes at most on any modern card. LLM classification is dominated by the backbone: the ~1 h 51 m figure is Qwen2.5-14B-Instruct on the RTX 2000 Ada listed above, where the backbone exceeds available VRAM and is partly offloaded to CPU RAM. A card that holds the whole model in VRAM will be considerably faster; a smaller one, slower.
+**† HDFS detection is not a practical target.** Its test split yields 221,540 edge windows against OpenStack's 1,553, so the CPU-bound edge scan takes days rather than hours, and we have not run it to completion. Reproduce detection on OpenStack instead — identical code path, routing policy and scoring protocol. See [the short path](#the-short-path-about-two-hours).
 
 The hardware our experiments ran on is listed under [Hardware setup](#hardware-setup-section-41); it is what the published numbers were measured on, not a requirement for reproducing them.
 
