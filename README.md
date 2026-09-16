@@ -66,10 +66,12 @@ Set up the environments once ([Step 1](#step-1--set-up-environments)), then run 
 
 ```bash
 conda activate cesal-edge
-python run.py all hdfs
+python run.py all os
 ```
 
-That fetches the published checkpoints (skipped if you already have them), runs detection end to end, then classifies every detected incident and selects its response workflow. Use `os` instead of `hdfs` for OpenStack: detection only, since the anomaly types and knowledge base are HDFS-specific.
+That fetches the published checkpoints (skipped if you already have them) and runs detection end to end on OpenStack — the edge scan, uncertainty routing, cloud verification and the merge — in about three hours.
+
+**OpenStack is the default detection dataset**, because HDFS detection cannot be run in a reasonable time: see [Why HDFS detection takes days](#why-hdfs-detection-takes-days). Incident classification and controlled response (Step 4) are HDFS-only, since the anomaly types and knowledge base are specific to it — `run.py all hdfs` runs those, but its detection stage is the multi-day one.
 
 **Steps 1-4 below are the same pipeline, one stage at a time.** Follow them to run only part of it, to change a setting, or to see exactly what each stage reads and writes. Nothing else is required, and the optional dashboard at the end changes none of it.
 
@@ -100,13 +102,37 @@ Training is the expensive stage, so the checkpoints behind the paper's numbers a
 
 **Time.** Measured on the i7-14700 workstation listed under [Hardware setup](#hardware-setup-section-41).
 
-| Stage                                 | Command           |     OpenStack |       HDFS |
-| ------------------------------------- | ----------------- | ------------: | ---------: |
-| Unit tests                            | `pytest tests`    |           3 s |        3 s |
-| **Detection, end to end**             | `run.py infer`    | **~1 h 35 m** | **days †** |
-| Cloud-only ensemble scoring           | `run.py eval`     |        ~8 min |     ~6.5 h |
-| Incident classification, one backbone | `run.py classify` |           n/a |  ~1 h 51 m |
-| Train the BAT ensemble (81 models)    | `run.py train`    |       ~23 min | many hours |
+| Stage                                 | Command           |  OpenStack |            HDFS |
+| ------------------------------------- | ----------------- | ---------: | --------------: |
+| Unit tests                            | `pytest tests`    |        3 s |             3 s |
+| **Detection, end to end**             | `run.py infer`    | **~3 h**   | **~15 days †** |
+| Cloud-only ensemble scoring           | `run.py eval`     |     ~8 min |          ~6.5 h |
+| Incident classification, one backbone | `run.py classify` |        n/a |       ~1 h 51 m |
+| Train the BAT ensemble (81 models)    | `run.py train`    |    ~23 min |      many hours |
+
+#### Why HDFS detection takes days
+
+**† HDFS detection is not offered for evaluation.** The reason is the size of its test split, not the method:
+
+| | OpenStack | HDFS |
+| --- | ---: | ---: |
+| Parsed test timesteps | 155,347 | **11,077,032** |
+| `win_size` | 100 | 50 |
+| **Edge windows to scan** | **1,553** | **221,540** |
+
+The edge tier runs one ExecuTorch CPU pass per Q-BAT model over every window. The three models run in parallel, so the **deepest** one sets the wall-clock cost, and the scan is linear in windows:
+
+| Encoder depth | measured | HDFS scan |
+| ------------- | -------: | --------: |
+| `l3` | 1.81 s/window | ~4.6 days |
+| `l6` | 3.60 s/window | ~9.2 days |
+| `l8` | 4.74 s/window | ~15 days |
+
+That is 143× OpenStack's window count, and no choice of three models brings it under a day — the fastest possible trio is still 4.6 days. The cost is inherent to scanning 11 M timesteps on a CPU edge tier, which is the deployment CESAL models.
+
+**Reproduce detection on OpenStack instead.** It exercises the identical code path, models, routing policy, thresholding and scoring protocol, and the paper reports Table 3 on both datasets. The claim under test — that escalating the most uncertain 10% of windows to the cloud recovers cloud-level accuracy from edge-level accuracy — is present in both columns.
+
+The other HDFS stages are unaffected: cloud-only scoring (~6.5 h) and incident classification (~1 h 51 m) both fit comfortably inside a day. Only the edge scan is out of reach.
 
 ### Step 1 — Set up environments
 
@@ -189,8 +215,9 @@ python -m pytest tests -q             # 88 tests
 ```bash
 conda activate cesal-edge
 python run.py infer os                # edge scan → routing → cloud re-check → final prediction
-python run.py infer hdfs
 ```
+
+OpenStack is the dataset to use here. `run.py infer hdfs` runs the identical pipeline but scans 221,540 windows instead of 1,553, which takes about 15 days — see [Why HDFS detection takes days](#why-hdfs-detection-takes-days).
 
 One command runs the whole framework: Q-BAT scores every event on the edge, the Mahalanobis policy escalates the most uncertain 10%, BAT re-evaluates those, and the two are merged. The cloud stage is spawned as a `cesal-cloud` subprocess automatically — you never switch environments by hand.
 
@@ -449,9 +476,9 @@ CESAL/
 
 ## Artifact evaluation
 
-### The short path (about two hours)
+### The short path (about three hours)
 
-`run.py all hdfs` runs the framework the way it is meant to be deployed, but its detection stage alone is a multi-day job (see [Time](#requirements)). The path below reaches the paper's central claim in about two hours by running the same code over the smaller of the two datasets. Each tier stands on its own — stop at any of them.
+The path below reaches the paper's central claim on OpenStack, the default detection dataset. HDFS detection is excluded because its edge scan takes about 15 days ([why](#why-hdfs-detection-takes-days)); every other HDFS stage is included. Each tier stands on its own — stop at any of them.
 
 **Tier 0 — does it work at all? (3 seconds, no checkpoints, no GPU)**
 
@@ -462,12 +489,12 @@ pytest tests
 
 88 tests covering the EM-GMM thresholding, the energy and voting logic, the routing policy and the response workflows. This needs neither the checkpoints nor the ExecuTorch runtime, so it is the fastest way to confirm an environment is sound.
 
-**Tier 1 — the detection claim (about 1 h 45 m, CPU + one GPU)**
+**Tier 1 — the detection claim (about 3 h 10 m, CPU + one GPU)**
 
 ```bash
 conda activate cesal-edge
 python run.py download os      # ~10 min, ~5 GB
-python run.py infer os         # ~1 h 35 m
+python run.py infer os         # ~3 h
 python run.py eval os          # ~8 min, cloud-only row
 ```
 
