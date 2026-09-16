@@ -77,7 +77,7 @@ What is missing is the physical device and the network hop between the tiers. Ne
 
 ### Quick start
 
-Set up the environments once ([Step 1](#step-1--set-up-environments)), then run the whole framework with one command:
+Set up the environments once ([Step 1](#step-1--set-up-environments)), or skip that by using the [Docker image](#run-in-docker-no-environment-setup), then run the whole framework with one command:
 
 ```bash
 conda activate cesal-edge
@@ -89,6 +89,24 @@ That fetches the published checkpoints (skipped if you already have them) and ru
 **OpenStack is the default detection dataset**, because HDFS detection cannot be run in a reasonable time: see [Why HDFS detection takes days](#why-hdfs-detection-takes-days). Incident classification and controlled response (Step 4) are HDFS-only, since the anomaly types and knowledge base are specific to it — `run.py all hdfs` runs those, but its detection stage is the multi-day one.
 
 **Steps 1-4 below are the same pipeline, one stage at a time.** Follow them to run only part of it, to change a setting, or to see exactly what each stage reads and writes. Nothing else is required, and the optional dashboard at the end changes none of it.
+
+### Run in Docker (no environment setup)
+
+The Docker image has both environments from [Step 1](#step-1--set-up-environments) and the ExecuTorch runtime already installed, built from this repository's [Dockerfile](Dockerfile) by the same commands. Inside the container every command in this README runs as written; skip Step 1.
+
+**Host requirements.** x86-64 Linux with Docker. The GPU stages (cloud verification, `run.py eval`, `run.py train`, LLM classification) also need an NVIDIA driver and the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html). Without them, drop `--gpus all`: the unit tests, edge inference and `run.py convert` still run on CPU.
+
+```bash
+docker pull ghcr.io/kismetzz28/cesal:v1.0        # ~10 GB
+docker run -it --gpus all --name cesal \
+    -v cesal-checkpoints:/app/checkpoints \
+    -v cesal-hf:/root/.cache/huggingface \
+    ghcr.io/kismetzz28/cesal:v1.0
+```
+
+The shell opens in `/app` with `cesal-edge` active; `conda activate cesal-cloud` switches environments as usual, and the edge stage finds `cesal-cloud` on its own. Checkpoints and LLM weights are not in the image: `run.py download` and the first `run.py classify` fetch them into the two named volumes, which outlive the container. `docker start -ai cesal` returns to the same container later, and `docker cp cesal:/app/outputs ./outputs` copies results out. For the gated Llama and Gemma backbones, add `-e HF_TOKEN=<your token>` to `docker run`.
+
+To build the image instead of pulling it, run `docker build -t cesal .` from the repository root (about 10 minutes, mostly package downloads).
 
 ### Pipeline overview
 
@@ -109,7 +127,7 @@ Training is the expensive stage, so the checkpoints behind the paper's numbers a
 
 ### Requirements
 
-**Software.** Linux, Conda, and Python 3.10. The edge environment runs PyTorch 2.6 (CPU) with ExecuTorch 0.5.0; the cloud environment runs PyTorch 2.4 with CUDA 12.4 and transformers 4.47. Exact pins are in [environment/edge/requirements.txt](environment/edge/requirements.txt) and [environment/cloud/requirements.txt](environment/cloud/requirements.txt); Step 1 creates both environments.
+**Software.** Linux, Conda, and Python 3.10. The edge environment runs PyTorch 2.6 (CPU) with ExecuTorch 0.5.0; the cloud environment runs PyTorch 2.4 with CUDA 12.4 and transformers 4.47. Exact pins are in [environment/edge/requirements.txt](environment/edge/requirements.txt) and [environment/cloud/requirements.txt](environment/cloud/requirements.txt); Step 1 creates both environments, or use the [Docker image](#run-in-docker-no-environment-setup), which already contains them.
 
 **GPU.** Not a spec to match, just which stages call CUDA. The edge detection stage, the dashboard and the unit tests run on CPU alone. The BAT ensemble (training and cloud verification) and the LLM classification need an NVIDIA GPU; a backbone larger than the available VRAM is partly offloaded to CPU RAM — slower, but it works.
 
@@ -170,7 +188,7 @@ pip install -r environment/edge/requirements.txt \
 pip install -e .
 ```
 
-ExecuTorch **0.5.0** ([docs](https://docs.pytorch.org/executorch/0.5/)) and its bundled `torchao` build are downloaded and installed automatically in Step 2 below by [tools/setup_executorch.py](tools/setup_executorch.py) — no manual compilation needed (they carry PEP 440 local version labels and are not on PyPI, hence commented out in `requirements.txt`). **Linux/macOS only**; Windows users: use WSL2.
+ExecuTorch **0.5.0** ([docs](https://docs.pytorch.org/executorch/0.5/)) and its bundled `torchao` build are downloaded and installed automatically in Step 2 below by [tools/setup_executorch.py](tools/setup_executorch.py) — no manual compilation needed (they carry PEP 440 local version labels and are not on PyPI, hence commented out in `requirements.txt`). **Linux x86-64 only**, because the pre-built runtime is an x86-64 Linux binary; on Windows, use WSL2.
 
 #### Cloud environment (`cesal-cloud`)
 
@@ -213,6 +231,8 @@ python run.py convert hdfs            # quantize → .pte in checkpoints/qbat/hd
 **What these models are.** Both tiers are ensembles of the same base learner, **EM-AT**, trained over a 3×3×3×3 grid. **BAT** (cloud) uses all 81 at full precision; **Q-BAT** (edge) keeps **3** of them, quantized to 8-bit activations / 4-bit weights and exported as ExecuTorch `.pte` programs — a separate, smaller ensemble from the same checkpoints, not a quantized copy of BAT.
 
 Whenever Q-BAT is in the download set, `run.py download` also installs the **ExecuTorch 0.5.0 runtime** and its bundled `torchao`, which `infer` and `convert` both need. Raw log files are _not_ fetched — only the optional dashboard needs those.
+
+**If a download stops** with `Cannot retrieve the public link of the file`, Google Drive is temporarily refusing requests from your network after many downloads. Wait a while and run the same command again; files that finished downloading are kept.
 
 **In → out.** Reads `data/<dataset>/` (bundled). Writes `checkpoints/bat/<dataset>/` (81 `.pth`, the BAT ensemble), `checkpoints/qbat/<dataset>/` (`.pte`; the 3 listed under `edge_models` in the inference config are Q-BAT), and `cesal_inference_pipeline/executorch/` (the runtime).
 
@@ -257,6 +277,8 @@ The run closes with precision / recall / F1 for two of the three [Table 3](#log-
 
 Runs in `cesal-cloud` and needs a CUDA GPU. Llama-3.1-8B and gemma-2-9b are gated on Hugging Face — accept their licenses and run `hf auth login` first.
 
+**On a 16 GB GPU**, especially one that also drives a display, Qwen2.5-14B-Instruct is partly offloaded to CPU RAM and can run out of GPU memory on its first sequence. Run `export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` before `run.py classify` or `run.py respond`; the Docker image sets it already.
+
 **Classification (Table 7)** — label each abnormal sequence as one of the 10 known HDFS anomaly types or `Other anomaly type`:
 
 ```bash
@@ -265,7 +287,7 @@ python run.py classify                          # all four backbones in configs/
 python run.py classify qwen2.5-14b-instruct     # CESAL's default backbone only
 ```
 
-Reads `data/HDFS/open_set/` (the 4,124-sequence test set and knowledge base, bundled) and writes to `outputs/hdfs/llm/`: `results_<model>.csv` (per sequence: type, retrieved evidence, raw output), `model_summary.csv` (the **Table 7** macro scores), `per_class_metrics_long.csv`, and `report_<model>.txt`. Compare against `table7_reference_metrics.csv` beside them; per-backbone settings live in `model_overrides` of `configs/llm/hdfs.yaml`. Cost is one LLM generation per sequence — 4,124 of them per backbone, so a full `run.py classify` over all four is long on any machine. Results are written only when a backbone finishes, so run one at a time if yours may be interrupted.
+Reads `data/HDFS/open_set/` (the 4,124-sequence test set and knowledge base, bundled) and writes to `outputs/hdfs/llm/`: `results_<model>.csv` (per sequence: type, retrieved evidence, raw output), `model_summary.csv` (the **Table 7** macro scores), `per_class_metrics_long.csv`, and `report_<model>.txt`. Compare against `table7_reference_metrics.csv` beside them; per-backbone settings live in `model_overrides` of `configs/llm/hdfs.yaml`. Cost is one LLM generation per sequence — 4,124 of them per backbone, so a full `run.py classify` over all four is long on any machine. Results are written only when a backbone finishes, so run one at a time if yours may be interrupted. Note that each run rewrites `model_summary.csv`, `per_class_metrics_long.csv` and `per_class_f1_table.csv` with only that run's backbones, while `results_<model>.csv` and `report_<model>.txt` are kept per backbone.
 
 **Response (Table 1)** — connect detection to the module: queue every detected session, classify it, and assign its workflow:
 
@@ -276,7 +298,9 @@ python -m incident_response.workflows --label "Replica immediately deleted"
 python -m incident_response.workflows --results outputs/hdfs/llm/results_Qwen_Qwen2.5-14B-Instruct.csv
 ```
 
-Reads the Step 3 outputs and queues every session whose final prediction (edge Q-BAT with routed events replaced by cloud BAT, before point adjustment) flagged an event. Writes to `outputs/hdfs/llm/queues/`: `queue_edge.csv` / `queue_cloud.csv` (the queues Q*E and Q_C, split by which tier caught the session), `classified*<model>.csv`(per-sequence cache, appended as it goes, so an interrupted run resumes),`incidents*<model>.csv`(each incident with its type, workflow and approval / escalation counts), and`evaluation*<model>.csv`.
+Reads the Step 3 outputs and queues every session whose final prediction (edge Q-BAT with routed events replaced by cloud BAT, before point adjustment) flagged an event. Writes to `outputs/hdfs/llm/queues/`: `queue_edge.csv` / `queue_cloud.csv` (the queues Q_E and Q_C, split by which tier caught the session), `classified_<model>.csv` (per-sequence cache, appended as it goes, so an interrupted run resumes), `incidents_<model>.csv` (each incident with its type, workflow and approval / escalation counts), and `evaluation_<model>.csv`.
+
+**`run.py respond` needs the HDFS detection outputs**, which come from `run.py infer hdfs`, the ~15-day scan, so it cannot start from a fresh checkout within an evaluation window. The workflow mapping itself needs no detection run and no GPU: `workflows --results` on the output of `run.py classify`, as above, assigns every classified sequence its Table 1 workflow in seconds.
 
 <p align="center">
   <img src="pictures/llm_module.png" width="850">
@@ -479,6 +503,7 @@ CESAL/
 ├── environment/                   # Python dependency lists
 │   ├── cloud/requirements.txt     #   Training, eval, cloud inference, LLM incident response
 │   └── edge/requirements.txt      #   ExecuTorch edge inference, dashboard
+├── Dockerfile                     # Image with both environments + ExecuTorch pre-installed
 │
 │ ── Tooling ──────────────────────────────────────────────────────────────
 └── tools/
@@ -493,7 +518,7 @@ CESAL/
 
 ### The short path (about three hours)
 
-The path below reaches the paper's central claim on OpenStack, the default detection dataset. HDFS detection is excluded because its edge scan takes about 15 days ([why](#why-hdfs-detection-takes-days)); every other HDFS stage is included. Each tier stands on its own — stop at any of them.
+The path below reaches the paper's central claim on OpenStack, the default detection dataset. HDFS detection is excluded because its edge scan takes about 15 days ([why](#why-hdfs-detection-takes-days)); every other HDFS stage is included. Each tier stands on its own — stop at any of them. Every command below also runs unchanged inside the [Docker container](#run-in-docker-no-environment-setup).
 
 **Tier 0 — does it work at all? (3 seconds, no checkpoints, no GPU)**
 
@@ -522,7 +547,7 @@ conda activate cesal-cloud
 python run.py classify qwen2.5-14b-instruct
 ```
 
-Reproduces the best-backbone row of [Table 7](#open-set-incident-classification-on-hdfs-table-7-macro-average). Running `run.py classify` with no argument evaluates all four backbones and takes about 5 h 46 m instead.
+Reproduces the best-backbone row of [Table 7](#open-set-incident-classification-on-hdfs-table-7-macro-average). Running `run.py classify` with no argument evaluates all four backbones and takes about 5 h 46 m instead. On a 16 GB GPU, set `PYTORCH_CUDA_ALLOC_CONF` first, as described in [Step 4](#step-4--incident-classification-and-controlled-response-hdfs).
 
 ### Claims and how to check them
 
@@ -534,7 +559,7 @@ Reproduces the best-backbone row of [Table 7](#open-set-incident-classification-
 | The same holds on HDFS _(not offered for evaluation — multi-day; see [Time](#requirements))_ | `run.py infer hdfs`                    | printed at the end of the run        | P 99.96 / R 100.00 / F1 99.98     |
 | Accuracy vs. routing ratio                                                                   | `run.py sweep os`                      | `outputs/os/routing_ratio_sweep.csv` | F1 rises with the routed fraction |
 | **RAG + LLM classifies open-set incidents (Table 7)**                                        | `run.py classify qwen2.5-14b-instruct` | `outputs/hdfs/llm/model_summary.csv` | P 79.71 / R 92.07 / F1 83.03      |
-| Detected incidents map to response workflows (Table 1)                                       | `run.py respond`                       | printed per incident                 | each incident gets a workflow     |
+| Detected incidents map to response workflows (Table 1)                                       | `incident_response.workflows --results` on the Table 7 output | printed per anomaly type | every type gets its workflow; unknown types go to human investigation |
 
 Scores are deterministic given the published checkpoints, so the detection rows should land on the printed values rather than near them. LLM classification decodes greedily, but backbone and kernel versions still move macro-F1 by a few tenths; treat Table 7 as reproduced within ±1 F1.
 
