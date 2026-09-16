@@ -153,7 +153,7 @@ Training is the expensive stage, so the checkpoints behind the paper's numbers a
 | `win_size` | 100 | 50 |
 | **Edge windows to scan** | **1,553** | **221,540** |
 
-The edge tier runs one ExecuTorch CPU pass per Q-BAT model over every window. The three models run in parallel, so the **deepest** one sets the wall-clock cost, and the scan is linear in windows:
+The edge tier runs one ExecuTorch CPU pass per Q-BAT learner over every window. The three learners run in parallel, so the **deepest** one sets the wall-clock cost, and the scan is linear in windows:
 
 | Encoder depth | measured | HDFS scan |
 | ------------- | -------: | --------: |
@@ -269,7 +269,7 @@ The run closes with precision / recall / F1 for two of the three [Table 3](#log-
 | `hybrid_preds.npy`                        | the merged CESAL prediction                          |
 | `ground_truth.npy`                        | labels, for scoring                                  |
 
-**What takes the time.** The edge scan dominates — one ExecuTorch CPU pass per Q-BAT model over every window, so it scales with the number of test windows and the cores available, and the models run in parallel. Cloud verification touches only the routed fraction (10% by default) on the GPU and is comparatively quick; routing and the merge are negligible. To sweep routing ratios without repeating the scan, see [Vary the routing ratio](#vary-the-routing-ratio).
+**What takes the time.** The edge scan dominates — one ExecuTorch CPU pass per Q-BAT learner over every window, so it scales with the number of test windows and the cores available, and the learners run in parallel. Cloud verification touches only the routed fraction (10% by default) on the GPU and is comparatively quick; routing and the merge are negligible. To sweep routing ratios without repeating the scan, see [Vary the routing ratio](#vary-the-routing-ratio).
 
 **Where the edge tier runs.** Both tiers run on one machine here, while the paper deploys the edge tier on a Raspberry Pi. The separation is real — separate environments, separate processes, quantized `.pte` on CPU only — and does not affect detection accuracy, but it does mean the edge resource measurements cannot be reproduced. See [How this artifact differs from the paper's deployment](#how-this-artifact-differs-from-the-papers-deployment).
 

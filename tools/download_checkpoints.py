@@ -3,8 +3,8 @@
 Drive folder: https://drive.google.com/drive/folders/16nz-irtjK2vURmSdlurYq7dd8jZUJnio
   pretrained_models/bat/ensemble_hdfs/  — 81 BAT .pth files   → checkpoints/bat/hdfs/
   pretrained_models/bat/ensemble_os/    — 81 BAT .pth files   → checkpoints/bat/os/
-  pretrained_models/qbat/hdfs/          — 3 Q-BAT .pte files  → checkpoints/qbat/hdfs/
-  pretrained_models/qbat/os/            — 3 Q-BAT .pte files  → checkpoints/qbat/os/
+  pretrained_models/qbat/hdfs/          — 3 Q-BAT learners (.pte) → checkpoints/qbat/hdfs/
+  pretrained_models/qbat/os/            — 3 Q-BAT learners (.pte) → checkpoints/qbat/os/
 
 Each Drive subfolder is downloaded file by file into its checkpoints/ directory.
 

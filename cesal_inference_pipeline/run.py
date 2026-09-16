@@ -2,7 +2,7 @@
 
 Stages
 ------
-1. edge   : Q-BAT models compute per-model energy scores  [cesal-edge env]
+1. edge   : Q-BAT computes a per-learner energy score      [cesal-edge env]
 2. route  : Mahalanobis routing selects uncertain windows  [cesal-edge env]
 3. cloud  : BAT ensemble re-predicts routed windows        [cesal-cloud env — subprocess]
 4. hybrid : Merge edge and cloud predictions, log metrics  [cesal-cloud env — subprocess]

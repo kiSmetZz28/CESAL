@@ -44,7 +44,7 @@ def compute_edge_ensemble(
     edge_pred_files: list,
     label_file: str,
 ) -> tuple:
-    """Majority-vote across Q-BAT model predictions and evaluate.
+    """Majority-vote across Q-BAT learner predictions and evaluate.
 
     Returns
     -------
@@ -127,7 +127,7 @@ def main() -> None:
         type=str,
         nargs="+",
         required=True,
-        help="Paths to edge prediction files to ensemble (e.g., three Q-BAT models).",
+        help="Paths to edge prediction files to ensemble (the Q-BAT learners).",
     )
     parser.add_argument(
         "--label",

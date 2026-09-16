@@ -17,7 +17,7 @@ Typical use::
 
     rep = StepReporter("infer", dataset="HDFS", steps=INFER_STEPS)
     with rep.step("edge") as st:
-        st.detail("models", "3 Q-BAT (.pte)")
+        st.detail("Q-BAT learners", "3 quantized EM-AT (.pte)")
         st.expect("models", 3)
         ...
         st.tick("models")

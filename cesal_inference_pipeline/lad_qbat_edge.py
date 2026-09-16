@@ -258,7 +258,7 @@ def _run_one_edge_model(
     test_windows: np.ndarray,
     thresh_path: str,
 ) -> Optional[Tuple[np.ndarray, float]]:
-    """Run one Q-BAT model against all test windows.
+    """Run one Q-BAT learner against all test windows.
 
     Returns (energy_col, threshold) on success, or None if the checkpoint
     or threshold is missing. Called concurrently for all edge models.
@@ -278,7 +278,6 @@ def _run_one_edge_model(
 
     test_energy = _infer_model(ckpt, test_windows, name)
     logging.debug("Edge agent: model '%s' done.", name)
-    steps.current().tick("models")
     return (test_energy.reshape(-1, 1), thresh)
 
 
@@ -330,16 +329,15 @@ def run(config: dict) -> EdgeResult:
 
     step.detail("test windows", len(test_windows))
     step.detail("window size", win_size)
-    step.detail("Q-BAT models", f"{len(model_cfgs)} running in parallel")
+    step.detail("Q-BAT learners", f"{len(model_cfgs)} quantized EM-AT")
     step.detail("runtime", "ExecuTorch Python bindings" if _EXECUTORCH_AVAILABLE
                 else "ExecuTorch C++ executor_runner")
-    step.expect("models", len(model_cfgs))
-    # Declared last so the dashboard's progress bar tracks the fine-grained work
-    # (every model scores every window) rather than the 3-model counter.
+    # Progress is reported as window scans (every learner scores every window);
+    # a separate learner counter would only duplicate it at coarser resolution.
     if not _EXECUTORCH_AVAILABLE and _RUNNER_AVAILABLE:
         step.expect("window scans", len(test_windows) * len(model_cfgs))
 
-    step.phase(f"scoring every window with {len(model_cfgs)} Q-BAT models")
+    step.phase("scoring every window with Q-BAT")
 
     # All models score the same read-only array concurrently.
     # ExecuTorch (C inference) releases the GIL, so threads run in true parallel.
@@ -357,13 +355,13 @@ def run(config: dict) -> EdgeResult:
     valid = [r for r in raw_results if r is not None]
     if not valid:
         raise RuntimeError(
-            f"No valid Q-BAT models with thresholds found. "
+            f"No valid Q-BAT learners with thresholds found. "
             f"Check checkpoint paths and '{thresh_path}'."
         )
 
     if len(valid) < len(model_cfgs):
         step.warn(
-            f"{len(model_cfgs) - len(valid)} of {len(model_cfgs)} Q-BAT models were "
+            f"{len(model_cfgs) - len(valid)} of {len(model_cfgs)} Q-BAT learners were "
             f"skipped (missing checkpoint or threshold) — scoring with {len(valid)}."
         )
 
