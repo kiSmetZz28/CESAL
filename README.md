@@ -35,6 +35,21 @@ CESAL is a security-aware cloud-edge framework for log-based incident detection,
 
 **LLM classifier.** Qwen2.5-14B-Instruct by default. Retrieved reference sequences plus open-set decision rules label each detected sequence as one of 10 known HDFS anomaly types or unknown, which then selects a response workflow.
 
+### How this artifact differs from the paper's deployment
+
+**In the paper, the edge tier runs on a physical Raspberry Pi.** Q-BAT is quantized and exported specifically so it fits on one, and only the windows the routing policy escalates cross the network to the cloud tier.
+
+**In this artifact, both tiers run on a single machine.** A reviewer cannot be assumed to own a Raspberry Pi, and requiring one would make the artifact unrunnable for most people. The separation is nonetheless real rather than simulated:
+
+- two separate Conda environments, `cesal-edge` (CPU) and `cesal-cloud` (GPU);
+- two separate processes — the edge stage spawns the cloud stage as a subprocess;
+- the edge stage loads only quantized `.pte` models and executes them through the ExecuTorch C++ runtime on CPU;
+- [cesal_inference_pipeline/run.py](cesal_inference_pipeline/run.py) never loads a full-precision BAT checkpoint inside the edge environment.
+
+What is missing is the physical device and the network hop between the tiers. Neither affects detection accuracy: Table 3 depends on the models, the thresholds and the routing policy, not on which machine executes them. Running the edge tier on a workstation CPU instead of an ARM board changes how long it takes, not what it decides.
+
+**What cannot be reproduced here: the edge resource measurements.** The latency, memory-footprint and power figures the paper reports for Raspberry Pi 3B+, 4B and 5 are properties of that hardware. They cannot be measured on a workstation, and nothing in this repository stands in for them — the numbers in that table are reported from the physical boards and are not reproducible without the same devices. Every other result in the paper is reproducible here, subject to the runtime limits described under [Requirements](#requirements).
+
 ### Paper ↔ Code Mapping
 
 | Paper component                                                                                                           | Code location                                                                                                                                                    |
@@ -100,7 +115,7 @@ Training is the expensive stage, so the checkpoints behind the paper's numbers a
 
 **Disk.** Detection (Steps 1-3) needs about **12 GB** — BAT checkpoints ~3.5 GB per dataset, the ExecuTorch runtime and build tree ~3.1 GB, prediction outputs ~1.2 GB per dataset, everything else under 250 MB. Step 4 is dominated by the LLM weights, pulled from Hugging Face on first use into `~/.cache/huggingface/hub`: **~28 GB** for the default Qwen2.5-14B-Instruct, or **~76 GB** for all four LLM backbones.
 
-**Time.** Measured on the i7-14700 workstation listed under [Hardware setup](#hardware-setup-section-41).
+**Time.** All figures below were measured on one machine: an **i7-14700 workstation — 28 cores / 56 threads, NVIDIA RTX 2000 Ada, 32 GB RAM, Ubuntu 24.04.2**. The edge stage is CPU-only and runs three single-threaded ExecuTorch processes in parallel, so it is bound by single-core speed rather than core count; the cloud and LLM stages use the GPU. The full list of machines used in the paper is under [Hardware setup](#hardware-setup-section-41).
 
 | Stage                                 | Command           |  OpenStack |            HDFS |
 | ------------------------------------- | ----------------- | ---------: | --------------: |
@@ -236,7 +251,7 @@ The run closes with precision / recall / F1 for two of the three [Table 3](#log-
 
 **What takes the time.** The edge scan dominates — one ExecuTorch CPU pass per Q-BAT model over every window, so it scales with the number of test windows and the cores available, and the models run in parallel. Cloud verification touches only the routed fraction (10% by default) on the GPU and is comparatively quick; routing and the merge are negligible. To sweep routing ratios without repeating the scan, see [Vary the routing ratio](#vary-the-routing-ratio).
 
-**Where the edge tier runs.** In the paper's deployment the edge tier runs on a Raspberry Pi and only the routed windows cross the network to the cloud tier. A reviewer cannot be assumed to own one, so here both tiers run on one machine — but the separation is real rather than simulated: separate Conda environments, separate processes, the edge stage using only quantized `.pte` models on CPU, and [run.py](cesal_inference_pipeline/run.py) never loading a BAT checkpoint inside `cesal-edge`. Only the physical device and the network hop are missing, and neither affects accuracy: Table 3 depends on the models and the routing policy, not on which machine runs them. The Table 6 edge resource measurements are the part that genuinely needs the hardware.
+**Where the edge tier runs.** Both tiers run on one machine here, while the paper deploys the edge tier on a Raspberry Pi. The separation is real — separate environments, separate processes, quantized `.pte` on CPU only — and does not affect detection accuracy, but it does mean the edge resource measurements cannot be reproduced. See [How this artifact differs from the paper's deployment](#how-this-artifact-differs-from-the-papers-deployment).
 
 ### Step 4 — Incident classification and controlled response (HDFS)
 
