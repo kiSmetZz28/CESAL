@@ -139,13 +139,13 @@ Training is the expensive stage, so the checkpoints behind the paper's numbers a
 | ------------------------------------- | ----------------- | ---------: | --------------: |
 | Unit tests                            | `pytest tests`    |        3 s |             3 s |
 | **Detection, end to end**             | `run.py infer`    | **~3 h**   | **~15 days †** |
-| Cloud-only ensemble scoring           | `run.py eval`     |     ~8 min |          ~6.5 h |
+| Cloud-only ensemble scoring           | `run.py eval`     |     ~8 min |            ~9 h |
 | Incident classification, one backbone | `run.py classify` |        n/a |       ~1 h 51 m |
 | Train the BAT ensemble (81 models)    | `run.py train`    |    ~23 min |      many hours |
 
 #### Why HDFS detection takes days
 
-**† HDFS detection is not offered for evaluation.** The reason is the size of its test split, not the method:
+**† HDFS detection is fully supported — it simply takes a long time.** The command runs exactly as OpenStack's does and produces the same outputs; the cost is the size of the test split, not any limitation of the method:
 
 | | OpenStack | HDFS |
 | --- | ---: | ---: |
@@ -163,7 +163,7 @@ The edge tier runs one ExecuTorch CPU pass per Q-BAT learner over every window. 
 
 That is 143× OpenStack's window count, and no choice of three models brings it under a day — the fastest possible trio is still 4.6 days. The cost is inherent to scanning 11 M timesteps on a CPU edge tier, which is the deployment CESAL models.
 
-**Reproduce detection on OpenStack instead.** It exercises the identical code path, models, routing policy, thresholding and scoring protocol, and the paper reports Table 3 on both datasets. The claim under test — that escalating the most uncertain 10% of windows to the cloud recovers cloud-level accuracy from edge-level accuracy — is present in both columns.
+**For evaluation we suggest OpenStack**, which exercises the identical code path, models, routing policy, thresholding and scoring protocol, and which the paper reports alongside HDFS in Table 3. Run HDFS detection too if you have the time for it — nothing about it is unsupported. The claim under test — that escalating the most uncertain 10% of windows to the cloud recovers cloud-level accuracy from edge-level accuracy — is present in both columns.
 
 The other HDFS stages are unaffected: cloud-only scoring (~6.5 h) and incident classification (~1 h 51 m) both fit comfortably inside a day. Only the edge scan is out of reach.
 
@@ -567,7 +567,7 @@ Reproduces the best-backbone row of [Table 7](#open-set-incident-classification-
 | Q-BAT alone detects anomalies at the edge (Table 3, Edge row)                                | `run.py infer os`                      | printed at the end of the run        | P 98.09 / R 100.00 / F1 99.03     |
 | BAT alone is the accuracy ceiling (Table 3, cloud-only row)                                  | `run.py eval os`                       | printed at the end of the run        | P 99.99 / R 100.00 / F1 99.99     |
 | **Routing 10% to the cloud recovers cloud-level accuracy (Table 3, CESAL row)**              | `run.py infer os`                      | printed at the end of the run        | P 99.90 / R 100.00 / F1 99.95     |
-| The same holds on HDFS _(not offered for evaluation — multi-day; see [Time](#requirements))_ | `run.py infer hdfs`                    | printed at the end of the run        | P 99.96 / R 100.00 / F1 99.98     |
+| The same holds on HDFS _(supported, but a multi-day run; see [Time](#requirements))_ | `run.py infer hdfs`                    | printed at the end of the run        | P 99.96 / R 100.00 / F1 99.98     |
 | Accuracy vs. routing ratio                                                                   | `run.py sweep os`                      | `outputs/os/routing_ratio_sweep.csv` | F1 rises with the routed fraction |
 | **RAG + LLM classifies open-set incidents (Table 7)**                                        | `run.py classify qwen2.5-14b-instruct` | `outputs/hdfs/llm/model_summary.csv` | P 79.71 / R 92.07 / F1 83.03      |
 | Detected incidents map to response workflows (Table 1)                                       | `incident_response.workflows --results` on the Table 7 output | printed per anomaly type | every type gets its workflow; unknown types go to human investigation |
