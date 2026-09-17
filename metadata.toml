@@ -32,7 +32,7 @@ license_url = "https://github.com/kiSmetZz28/CESAL/blob/main/LICENSE"
 infrastructure_constraints = "Evaluation needs a Linux x86-64 machine with an NVIDIA GPU. The experiments were developed and measured on local workstations (i7-14700, NVIDIA RTX 2000 Ada 16 GB, 32 GB RAM, Ubuntu 24.04.2), not on public infrastructure. The paper's edge resource measurements (Table 6) were taken on physical Raspberry Pi 3B+/4B/5 boards and are not offered for evaluation."
 infrastructure_access = ""
 
-install_script = "https://github.com/kiSmetZz28/CESAL/blob/main/README.md#run-in-docker-no-environment-setup"
+install_script = "https://github.com/kiSmetZz28/CESAL/blob/main/install.sh"
 
 use = "Research artifact for reproducing the paper's detection results (Table 3), open-set incident classification (Table 7) and response-workflow mapping (Table 1) on the public HDFS and OpenStack log benchmarks. It is not a production intrusion-detection or incident-response system: the response module selects and prints workflows but never executes them. Detection is evaluated on OpenStack because the HDFS edge scan takes about 15 days of CPU time. Edge latency, memory and power figures need Raspberry Pi hardware and cannot be reproduced on a workstation."
 
@@ -40,15 +40,15 @@ destructive = "None. The artifact reads the bundled data and writes inside the r
 
 claim1 = "On OpenStack, Q-BAT alone detects anomalies at the edge (Table 3, Edge row), and routing the most uncertain 10% of windows to the cloud BAT ensemble recovers cloud-level accuracy (Table 3, CESAL row)."
 script1 = "https://github.com/kiSmetZz28/CESAL/blob/main/README.md#the-short-path-about-three-hours"
-expected1 = "`python run.py download os` then `python run.py infer os` (in cesal-edge, about 3 h 20 m) prints at the end of the run: Edge P 98.09 / R 100.00 / F1 99.04 and Hybrid (CESAL) P 99.93 / R 100.00 / F1 99.97. These are the values measured on the shipped configuration; Table 3 reports 98.09 / 100.00 / 99.03 and 99.90 / 100.00 / 99.95, so both rows agree to within 0.03. Scores are deterministic with the published checkpoints."
+expected1 = "`python run.py download os` then `python run.py infer os` (in cesal-edge, about 3 h 20 m) prints Table 3's OpenStack rows at the end of the run: Q-BAT edge only P 98.09 / R 100.00 / F1 99.03, and CESAL with 10% routed to the cloud P 99.90 / R 100.00 / F1 99.95. Scores are deterministic with the published checkpoints; treat agreement within 0.1 F1 as reproduced."
 
 claim2 = "The full-precision BAT ensemble alone is the accuracy ceiling on OpenStack (Table 3, BAT cloud-only row)."
 script2 = "https://github.com/kiSmetZz28/CESAL/blob/main/README.md#evaluate-the-ensemble"
-expected2 = "`python run.py eval os` (about 8 min on one GPU, after the download in claim 1) prints, for majority voting across all 81 models, P 100.00 / R 100.00 / F1 100.00. Table 3 reports 99.99 / 100.00 / 99.99; the 0.01 difference comes from the EM-GMM thresholds being fitted on train+threshold energy, as the code does."
+expected2 = "`python run.py eval os` (about 8 min on one GPU, after the download in claim 1) prints Table 3's BAT cloud-only row on OpenStack: P 99.99 / R 100.00 / F1 99.99, for majority voting across all 81 models. Treat agreement within 0.1 F1 as reproduced."
 
 claim3 = "Retrieval-augmented LLM open-set classification labels detected HDFS incidents as one of 10 known anomaly types or unknown, with Qwen2.5-14B-Instruct as the best backbone (Table 7)."
 script3 = "https://github.com/kiSmetZz28/CESAL/blob/main/README.md#step-4--incident-classification-and-controlled-response-hdfs"
-expected3 = "`python run.py classify qwen2.5-14b-instruct` (in cesal-cloud, about 1 h 51 m on one GPU, ~28 GB of weights) writes outputs/hdfs/llm/model_summary.csv with macro P 79.71 / R 92.07 / F1 83.03, within +/-1 F1; per-class reference values are in outputs/hdfs/llm/table7_reference_metrics.csv."
+expected3 = "`python run.py classify qwen2.5-14b-instruct` (in cesal-cloud, about 1 h 51 m on one GPU, ~28 GB of weights) writes outputs/hdfs/llm/model_summary.csv, whose Qwen/Qwen2.5-14B-Instruct row gives Table 7's best-backbone result: macro P 79.71 / R 92.07 / F1 83.03. LLM decoding is greedy, but backbone and kernel versions can move macro-F1 by a few tenths; treat agreement within 1 F1 as reproduced. Per-class reference values are in outputs/hdfs/llm/table7_reference_metrics.csv."
 
 claim4 = "Each classified incident is mapped to its predefined response workflow, and unknown anomaly types map to human investigation with no automated mitigation (Table 1)."
 script4 = "https://github.com/kiSmetZz28/CESAL/blob/main/README.md#step-4--incident-classification-and-controlled-response-hdfs"

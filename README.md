@@ -169,6 +169,17 @@ The other HDFS stages are unaffected: cloud-only scoring (~6.5 h) and incident c
 
 ### Step 1 — Set up environments
 
+**One command does all of it:**
+
+```bash
+./install.sh
+```
+
+That creates both Conda environments, installs their pinned requirements, installs CESAL into each, fetches the ExecuTorch 0.5.0 runtime, and finishes by running the unit tests. It is safe to re-run — existing environments are reused. Skip it entirely if you are using the [Docker image](#run-in-docker-no-environment-setup), which already contains everything.
+
+The rest of this section is what the script does, step by step, if you would rather run it by hand or need to change something.
+
+
 CESAL uses **two Conda environments**, one for each inference tier:
 
 | Environment   | Tier      | Stack                                       | What runs in it                                                                                                                                                                                                             |
