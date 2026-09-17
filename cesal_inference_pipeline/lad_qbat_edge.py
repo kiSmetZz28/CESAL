@@ -194,7 +194,7 @@ def _run_via_runner(pte_path: str, windows: np.ndarray, model_name: str) -> np.n
                     continue
                 logging.debug("[%s] %s", model_name, line)
                 if _WINDOW_LINE.match(line):
-                    step.tick("window scans")
+                    step.tick("Q-BAT scan")
                 else:
                     # Keep a short tail of non-progress output to explain a failure.
                     tail.append(line)
@@ -332,10 +332,11 @@ def run(config: dict) -> EdgeResult:
     step.detail("Q-BAT learners", f"{len(model_cfgs)} quantized EM-AT")
     step.detail("runtime", "ExecuTorch Python bindings" if _EXECUTORCH_AVAILABLE
                 else "ExecuTorch C++ executor_runner")
-    # Progress is reported as window scans (every learner scores every window);
-    # a separate learner counter would only duplicate it at coarser resolution.
+    # Progress is reported as one combined percentage across all learners
+    # (each scores every window); a per-learner counter would only duplicate it
+    # at coarser resolution and sit at 0 until the very end.
     if not _EXECUTORCH_AVAILABLE and _RUNNER_AVAILABLE:
-        step.expect("window scans", len(test_windows) * len(model_cfgs))
+        step.expect("Q-BAT scan", len(test_windows) * len(model_cfgs))
 
     step.phase("scoring every window with Q-BAT")
 

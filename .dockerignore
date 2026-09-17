@@ -1,50 +1,31 @@
-# ── Checkpoints ──────────────────────────────────────────────────────────────
-# BAT full-precision checkpoints (3.5 GB) — downloaded at first launch
-checkpoints/bat/
-# Q-BAT quantized checkpoints (218 MB) — bundled in image via COPY
-# (no exclusion needed; the default includes them)
+# The image carries the tracked repository only. Everything below is either fetched at
+# run time (checkpoints, LLM weights), installed during the build (ExecuTorch), or local state.
 
-# ── ExecuTorch source (3 GB C++ build tree) ───────────────────────────────────
-# Only the compiled binary is included (explicit COPY in Dockerfile).
-cesal_inference_pipeline/executorch/
-cesal_inference_pipeline/executorch.zip
-
-# ── Training and conversion pipelines ────────────────────────────────────────
-training_pipeline/
-edge_pipeline/
-
-# ── Unused legacy directories ─────────────────────────────────────────────────
-cloud/
-edge/
-tests/
-environment/
-
-# ── tools/ — only the two files explicitly COPY'd into the image are kept ────
-# (download_checkpoints.py: helper invoked at runtime;
-#  deploy/spaces_startup.py: the container entrypoint set via CMD)
-tools/
-!tools/download_checkpoints.py
-!tools/deploy/
-!tools/deploy/spaces_startup.py
-
-# ── Runtime artefacts ────────────────────────────────────────────────────────
-logs/
-__pycache__/
-**/__pycache__/
-*.pyc
-.pytest_cache/
-.mypy_cache/
-
-# ── Local database — too large; app creates a fresh one on startup ─────────────
-dashboard/cesal.db
-
-# ── Git and IDE ───────────────────────────────────────────────────────────────
+# ── Git and editor state ─────────────────────────────────────────────────────
 .git/
-.gitignore
+.claude/
 .vscode/
 .idea/
 
-# ── Docs ──────────────────────────────────────────────────────────────────────
-pictures/
-*.md
-LICENSE
+# ── Checkpoints — fetched by `run.py download` into a mounted volume ─────────
+checkpoints/
+
+# ── ExecuTorch — installed during the build by tools/setup_executorch.py ─────
+cesal_inference_pipeline/executorch/
+cesal_inference_pipeline/executorch.zip
+
+# ── Run outputs — keep only the tracked thresholds and Table 7 reference ─────
+outputs/*/*
+!outputs/*/thresholds_cloud.yaml
+!outputs/*/thresholds_edge.yaml
+!outputs/hdfs/llm/table7_reference_metrics.csv
+
+# ── Runtime artefacts ────────────────────────────────────────────────────────
+logs/
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+dashboard/cesal.db
+dashboard/*.bak
+**/*.mp4
+data/OpenStack/raw/

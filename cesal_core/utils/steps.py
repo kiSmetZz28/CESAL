@@ -43,6 +43,11 @@ import threading
 import time
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+# Progress milestone interval, in percent. Small enough that a slow stage
+# (the edge scan runs for hours) visibly advances, so it is never mistaken
+# for a hang; large enough not to flood the terminal.
+_STEP_PCT = 5
+
 __all__ = [
     "StepReporter", "Step", "INFER_STEPS", "TRAIN_STEPS", "CONVERT_STEPS",
     "EVAL_STEPS", "DOWNLOAD_STEPS", "CLASSIFY_STEPS", "RESPOND_STEPS",
@@ -380,9 +385,11 @@ class Step:
         """Count ``n`` completed items.
 
         Thread-safe: the edge and cloud stages tick from worker threads. To keep
-        the terminal readable a milestone line is printed at each 25% of the
-        expected total rather than once per item — per-item records stay in the
-        log file at DEBUG level. The dashboard receives every tick as an event.
+        the terminal readable a milestone line is printed at each ``_STEP_PCT``
+        percent of the expected total rather than once per item — per-item
+        records stay in the log file at DEBUG level. The interval is small
+        enough that a slow stage still shows movement, so a long scan is never
+        mistaken for a hang. The dashboard receives every tick as an event.
         """
         with self._lock:
             c = self._counters.setdefault(unit, {"done": 0, "total": 0,
@@ -394,8 +401,8 @@ class Step:
             emit = False   # send a progress event to the dashboard
             if total > 0:
                 pct = done * 100 // total
-                if pct >= c["mark"] + 25 or done == total:
-                    c["mark"] = (pct // 25) * 25
+                if pct >= c["mark"] + _STEP_PCT or done == total:
+                    c["mark"] = (pct // _STEP_PCT) * _STEP_PCT
                     show = True
                 # Events are throttled to whole-percent changes: a long stage can
                 # tick thousands of times, and one event each would swamp the
@@ -406,6 +413,7 @@ class Step:
             else:
                 show = done % 25 == 0
                 emit = done % 25 == 0
+
         with _bar_lock:
             if _active_bar is not None and unit == getattr(self, "_bar_unit", None):
                 _active_bar.done = done
@@ -413,8 +421,10 @@ class Step:
                 show = False  # the bar already conveys progress
         if show:
             if total:
-                logging.info("   %s/%s %s  (%d%%)", f"{done:,}", f"{total:,}",
-                             unit, done * 100 // total)
+                # Percentage only: the raw counts are an internal unit (for the
+                # edge scan, windows x learners) and reading them as "windows"
+                # is misleading.
+                logging.info("   %s  %d%%", unit, done * 100 // total)
             else:
                 logging.info("   %s %s", f"{done:,}", unit)
         if emit:

@@ -52,6 +52,12 @@ def extract_zip(zip_path: Path, out_dir: Path) -> None:
     print(f"  Extracting → {out_dir} …")
     with zipfile.ZipFile(zip_path, "r") as zf:
         zf.extractall(str(out_dir))
+        # ZipFile drops Unix permissions; restore them, or cmake-out/executor_runner
+        # is left non-executable and the edge stage finds no runtime.
+        for info in zf.infolist():
+            mode = (info.external_attr >> 16) & 0o777
+            if mode and not info.is_dir():
+                (out_dir / info.filename).chmod(mode)
     zip_path.unlink(missing_ok=True)
 
 
