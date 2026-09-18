@@ -7,6 +7,7 @@ from sklearn.utils import resample
 from torch.utils.data import DataLoader
 
 from cesal_core.data.preprocessor import Preprocessor
+from cesal_core.data.reporting import report_preprocessing, report_windows
 from cesal_core.utils import steps
 from cesal_core.utils.random_state import get_random_state
 
@@ -27,9 +28,9 @@ class HDFSSegLoader(object):
         path_test_abnormal = os.path.join(data_path, 'hdfs_test_abnormal.txt')
 
         bars = not steps.bars_suppressed()
-        X_train, _, _, _ = preprocessor.text(path_train, verbose=bars, desc='Parsing train logs')
-        X_test, _, _, _ = preprocessor.text(path_test_normal, verbose=bars, desc='Parsing test (normal)')
-        X_test_anomaly, _, _, _ = preprocessor.text(path_test_abnormal, verbose=bars, desc='Parsing test (abnormal)')
+        X_train, _, _, _ = preprocessor.text(path_train, verbose=bars, desc='Building train contexts')
+        X_test, _, _, _ = preprocessor.text(path_test_normal, verbose=bars, desc='Building normal test contexts')
+        X_test_anomaly, _, _, _ = preprocessor.text(path_test_abnormal, verbose=bars, desc='Building abnormal test contexts')
 
         data = X_train.numpy()
         self.scaler.fit(data)
@@ -57,10 +58,9 @@ class HDFSSegLoader(object):
         logging.debug(f"test data shape: {self.test.shape}")
         logging.debug(f"train data shape: {self.train.shape}")
         logging.debug(f"test_labels shape: {self.test_labels.shape}")
-        steps.current().detail(
-            'parsed events',
-            f"{self.train.shape[0]:,} train / {self.test.shape[0]:,} test "
-            f"({int(self.test_labels.sum()):,} abnormal)",
+        report_preprocessing(
+            'HDFS', (path_train, path_test_normal, path_test_abnormal),
+            (len(X_train), len(X_test), len(X_test_anomaly)), data_seq_len, mode,
         )
 
     def __len__(self):
@@ -102,9 +102,9 @@ class OpenStackSegLoader(object):
         path_test_abnormal = os.path.join(data_path, 'test_abnormal.txt')
 
         bars = not steps.bars_suppressed()
-        X_train, _, _, _ = preprocessor.text(path_train, verbose=bars, desc='Parsing train logs')
-        X_test, _, _, _ = preprocessor.text(path_test_normal, verbose=bars, desc='Parsing test (normal)')
-        X_test_anomaly, _, _, _ = preprocessor.text(path_test_abnormal, verbose=bars, desc='Parsing test (abnormal)')
+        X_train, _, _, _ = preprocessor.text(path_train, verbose=bars, desc='Building train contexts')
+        X_test, _, _, _ = preprocessor.text(path_test_normal, verbose=bars, desc='Building normal test contexts')
+        X_test_anomaly, _, _, _ = preprocessor.text(path_test_abnormal, verbose=bars, desc='Building abnormal test contexts')
 
         data = X_train.numpy()
         self.scaler.fit(data)
@@ -132,10 +132,9 @@ class OpenStackSegLoader(object):
         logging.debug(f"test data shape: {self.test.shape}")
         logging.debug(f"train data shape: {self.train.shape}")
         logging.debug(f"test_labels shape: {self.test_labels.shape}")
-        steps.current().detail(
-            'parsed events',
-            f"{self.train.shape[0]:,} train / {self.test.shape[0]:,} test "
-            f"({int(self.test_labels.sum()):,} abnormal)",
+        report_preprocessing(
+            'Openstack', (path_train, path_test_normal, path_test_abnormal),
+            (len(X_train), len(X_test), len(X_test_anomaly)), data_seq_len, mode,
         )
 
     def __len__(self):
@@ -181,4 +180,6 @@ def get_loader_segment(
         raise ValueError(f"Unknown dataset '{dataset}'. Expected one of {list(_DATASET_MAP)}.")
     ds = _DATASET_MAP[dataset](ensemble_param, data_path, win_size, step, data_seq_len, mode)
     shuffle = mode == 'train'
-    return DataLoader(dataset=ds, batch_size=batch_size, shuffle=shuffle, num_workers=0)
+    loader = DataLoader(dataset=ds, batch_size=batch_size, shuffle=shuffle, num_workers=0)
+    report_windows(ds, batch_size)
+    return loader

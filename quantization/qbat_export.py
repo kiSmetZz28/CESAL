@@ -147,8 +147,7 @@ def _mb(path: str) -> float:
         return 0.0
 
 
-if __name__ == "__main__":
-    setup_logging("convert_qbat")
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Convert EMAT .pth checkpoints to ExecuTorch .pte files."
     )
@@ -252,6 +251,14 @@ if __name__ == "__main__":
                 f"above name the cause; a mismatch between the installed torchao "
                 f"and the model is the usual one."
             )
+        elif failed or missing:
+            st.fail(f"Conversion is incomplete: {failed} failed and {len(missing)} missing "
+                    "learners. Successfully exported models have been kept.")
 
     rep.finish(outputs=dst_dir)
-    sys.exit(0 if converted else 1)
+    sys.exit(0 if converted and not failed and not missing else 1)
+
+
+if __name__ == "__main__":
+    setup_logging("convert_qbat")
+    main()

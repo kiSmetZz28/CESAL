@@ -56,7 +56,17 @@ def _scores(out_dir: str):
     return p * 100, r * 100, f * 100, n_routed, len(gt)
 
 
-def sweep(config_path: str, ratios: List[float]) -> None:
+def _file_stamp(path):
+    """Identify a file version without reading large saved prediction arrays."""
+    try:
+        stat = os.stat(path)
+    except FileNotFoundError:
+        return None
+    return stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns
+
+
+def sweep(config_path: str, ratios: List[float]) -> bool:
+    """Run every ratio; return True only when each produced a fresh result."""
     cfg = load_config(config_path)
     dataset = cfg['dataset']
     base = cfg.get('output_dir', str(Path('outputs') / dataset.lower()))
@@ -76,15 +86,36 @@ def sweep(config_path: str, ratios: List[float]) -> None:
 
     edge_source = None
     rows = []
-    for i, r in enumerate(ratios):
+    edge_files = ('edge_preds.npy', 'edge_preds_raw.npy', 'ground_truth.npy', 'energy_matrix.npy')
+    for r in ratios:
         out_dir = os.path.join(base, f"ratio_{int(round(r * 100)):02d}")
         logging.info("")
         logging.info("═══ routing ratio %.0f%%  →  %s ═══", r * 100, out_dir)
-        run_inference(config_path, ratio=r, output_dir=out_dir,
-                      reuse_edge_from=edge_source)
-        # Every later ratio reuses the first run's edge scan.
-        edge_source = edge_source or out_dir
-        rows.append((r, _scores(out_dir)))
+        hybrid_path = os.path.join(out_dir, 'hybrid_preds.npy')
+        before_hybrid = _file_stamp(hybrid_path)
+        before_edge = {name: _file_stamp(os.path.join(out_dir, name)) for name in edge_files}
+        score = None
+        try:
+            run_inference(config_path, ratio=r, output_dir=out_dir,
+                          reuse_edge_from=edge_source)
+            after_hybrid = _file_stamp(hybrid_path)
+            if after_hybrid is not None and after_hybrid != before_hybrid:
+                score = _scores(out_dir)
+            if score is None:
+                logging.error("Ratio %.0f%% produced no new hybrid result.", r * 100)
+        except Exception as exc:
+            # Keep successful ratios, but never score an older result left in
+            # this directory by a previous sweep (or an interrupted rerun).
+            logging.error("Ratio %.0f%% failed: %s", r * 100, exc)
+
+        # A completed edge scan is reusable even if its subsequent cloud stage
+        # failed. Require all four files to be fresh to reject partial scans.
+        if edge_source is None:
+            after_edge = {name: _file_stamp(os.path.join(out_dir, name)) for name in edge_files}
+            if all(after_edge[name] is not None and after_edge[name] != before_edge[name]
+                   for name in edge_files):
+                edge_source = out_dir
+        rows.append((r, score))
 
     # ── The table ─────────────────────────────────────────────────────────
     logging.info("")
@@ -116,6 +147,11 @@ def sweep(config_path: str, ratios: List[float]) -> None:
                 p, rec, f, n_routed, n_total = sc
                 w.writerow([r, n_routed, n_total, f"{p:.4f}", f"{rec:.4f}", f"{f:.4f}"])
     logging.info("%s", steps.leader("table written to", csv_path))
+    complete = bool(rows) and all(sc is not None for _, sc in rows)
+    if not complete:
+        logging.error("Sweep incomplete: %d of %d ratios produced results. See the failures above.",
+                      sum(sc is not None for _, sc in rows), len(rows))
+    return complete
 
 
 def main() -> None:
@@ -127,10 +163,13 @@ def main() -> None:
     args, _ = parser.parse_known_args()
 
     ratios = [float(x) for x in args.ratios.split(',') if x.strip()]
+    if not ratios:
+        parser.error("provide at least one routing ratio")
     bad = [r for r in ratios if not 0 < r <= 1]
     if bad:
         parser.error(f"routing ratios must be in (0, 1]; got {bad}")
-    sweep(args.config, ratios)
+    if not sweep(args.config, ratios):
+        raise SystemExit(1)
 
 
 if __name__ == '__main__':

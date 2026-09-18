@@ -402,7 +402,7 @@ if __name__ == "__main__":
         # Open output file
         with open(args.write, 'rb') as infile:
             # Load output
-            data = torch.load(infile, weights_only=True)
+            data = torch.load(infile)
             # Load variables
             events  = data.get('events')
             context = data.get('context')

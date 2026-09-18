@@ -355,7 +355,7 @@ python run.py train hdfs
 
 Each `train` invocation runs a hyperparameter sweep over `(num_epochs, k, e_layer_num, batch_size)` and writes **81 BAT checkpoints** to `checkpoints/bat/<dataset>/`.
 
-The run reports per-model and per-epoch progress with an estimate of the time left. A model that fails does not abort the sweep — it is reported and the run continues, and the closing summary states how many of the 81 were trained.
+The run reports per-model and per-epoch progress with an estimate of the time left. A model that fails does not abort the sweep — it is reported and the run continues, and the closing summary states how many of the 81 were trained. If any learner fails, the command exits with a nonzero status after finishing the sweep; successfully trained checkpoints are kept.
 
 ### Quantize and export Q-BAT (edge models)
 
@@ -367,7 +367,7 @@ python run.py convert hdfs
 
 Quantizes the trained EM-AT checkpoints and exports each as an ExecuTorch program under `checkpoints/qbat/{dataset}/`. The command converts every grid point, so you can pick which learners to deploy; the `edge_models` list in `configs/inference/<dataset>.yaml` names the **3** that make up Q-BAT. Skip this if you already downloaded Q-BAT checkpoints via `python run.py download <dataset> qbat`.
 
-Conversion reports the size each model drops to and the total before and after, so the benefit of quantization is visible rather than implied.
+Conversion reports the size each model drops to and the total before and after, so the benefit of quantization is visible rather than implied. Missing or failed requested learners make the command exit with a nonzero status after processing the available models; successful exports are kept.
 
 ### Evaluate the ensemble
 
@@ -406,7 +406,7 @@ Only routing, cloud verification and the merge depend on the ratio — the edge 
    20%          31,060    99.90   100.00    99.95
 ```
 
-A ratio that fails (for example, the cloud stage running out of GPU memory) is reported as `(no result)` and the sweep continues with the rest. Every run also writes the exact settings it used to `effective_config.yaml` beside its outputs.
+A ratio that fails (for example, the cloud stage running out of GPU memory) is reported as `(no result)` and the sweep continues with the rest. Older results in that ratio's directory are excluded from the new table. A complete edge scan is reused even if its cloud stage failed. The CSV keeps successful ratios and leaves failed rows blank; the sweep exits with a nonzero status if any ratio has no result. Every run also writes the exact settings it used to `effective_config.yaml` beside its outputs. A standalone `infer` command also exits with a nonzero status when cloud verification fails.
 
 ### Cloud-side re-check only
 
@@ -541,16 +541,16 @@ CESAL/
 
 ### The short path (about three hours)
 
-The path below reaches the paper's central claim on OpenStack, the default detection dataset. HDFS detection is excluded because its edge scan takes about 15 days ([why](#why-hdfs-detection-takes-days)); every other HDFS stage is included. Each tier stands on its own — stop at any of them. Every command below also runs unchanged inside the [Docker container](#run-in-docker-no-environment-setup).
+The path below reaches the paper's central claim on OpenStack, the default detection dataset. HDFS detection is excluded because its edge scan takes about 15 days ([why](#why-hdfs-detection-takes-days)); optional tiers cover standalone HDFS classification and workflow selection. Each tier states its prerequisites, so you can stop after the claim you want to evaluate. Every command below also runs unchanged inside the [Docker container](#run-in-docker-no-environment-setup).
 
 **Tier 0 — does it work at all? (3 seconds, no checkpoints, no GPU)**
 
 ```bash
 conda activate cesal-edge
-pytest tests
+python -m pytest tests
 ```
 
-88 tests covering the EM-GMM thresholding, the energy and voting logic, the routing policy and the response workflows. This needs neither the checkpoints nor the ExecuTorch runtime, so it is the fastest way to confirm an environment is sound.
+The tests cover EM-GMM thresholding, energy and voting logic, routing, failure propagation and response workflows. They need no checkpoints or GPU. Conversion checks are skipped when the optional export runtime is unavailable.
 
 **Tier 1 — the detection claim (about 3 h 10 m, CPU + one GPU)**
 
@@ -558,10 +558,16 @@ pytest tests
 conda activate cesal-edge
 python run.py download os      # ~10 min, ~5 GB
 python run.py infer os         # ~3 h
+conda activate cesal-cloud     # cloud-only evaluation uses the cloud environment
 python run.py eval os          # ~8 min, cloud-only row
 ```
 
 Reproduces all three OpenStack rows of [Table 3](#log-based-incident-detection-table-3). `infer` prints the Edge and Hybrid rows when it finishes; `eval` prints the cloud-only row.
+
+Keep this order: `infer` uses the bundled thresholds before `eval` recalibrates
+them. The existing recalibration behavior is unchanged; see the
+[evaluation note](#evaluate-the-ensemble) about preserving the bundled
+thresholds before repeating inference. Detection scores use point adjustment.
 
 **Tier 2 — the classification claim (about 1 h 51 m, GPU, ~28 GB of weights)**
 
@@ -571,6 +577,17 @@ python run.py classify qwen2.5-14b-instruct
 ```
 
 Reproduces the best-backbone row of [Table 7](#open-set-incident-classification-on-hdfs-table-7-macro-average). Running `run.py classify` with no argument evaluates all four backbones and takes about 5 h 46 m instead. On a 16 GB GPU, set `PYTORCH_CUDA_ALLOC_CONF` first, as described in [Step 4](#step-4--incident-classification-and-controlled-response-hdfs).
+
+**Tier 3 — workflow selection (seconds; uses Tier 2's classification output)**
+
+```bash
+conda activate cesal-cloud
+python -m incident_response.workflows --results outputs/hdfs/llm/results_Qwen_Qwen2.5-14B-Instruct.csv
+```
+
+Checks the Table 1 workflow mapping without the HDFS detection run. This command
+prints selected workflows; it does not execute actions against a cluster.
+The full `run.py respond` path still requires HDFS detection outputs.
 
 ### Claims and how to check them
 
@@ -622,6 +639,32 @@ These parsed splits ship with the repository, so nothing needs downloading to re
 So one model input is `[1, win_size, 10]`: `win_size` consecutive log events, each represented by its 10 preceding events, standardised. The same tensor shape is baked into the exported `.pte` files, which is why `win_size` must match between the config and the checkpoints.
 
 Because the scaler is fitted on the training split, `train.txt` is required even for inference-only runs.
+
+The terminal and log file now show the paper's Section 4.1 dataset references,
+the session/event counts actually loaded from each split, context matrix shapes,
+training-only scaling, and the number of full windows and unused tail events.
+These counts describe the bundled parsed sequences:
+
+| Dataset | Training sessions / events | Normal test sessions / events | Abnormal test sessions / events | Total parsed events |
+| --- | ---: | ---: | ---: | ---: |
+| HDFS | 4,855 / 95,125 | 553,366 / 10,792,214 | 16,838 / 284,818 | 11,172,157 |
+| OpenStack | 386 / 52,289 | 1,248 / 136,913 | 138 / 18,434 | 207,636 |
+
+The paper reports **source-log totals** of 11,175,629 for HDFS and 207,820 for
+OpenStack; the bundled parsed totals are respectively 3,472 and 184 lower.
+HDFS's 4,855 training sessions and 16,838 abnormal sessions match the paper's
+counts, as do OpenStack's 18,434 abnormal events. OpenStack's parsed training
+split contains 52,289 events versus the paper's 52,312 source messages. The
+runtime reports these comparisons explicitly; it does not infer the cause of
+the differences or modify the splits to reconcile them.
+
+For the default inference windows, OpenStack's 155,347 test events become
+**1,553 windows × 100 events**, covering 155,300 events with 47 unused tail
+events. HDFS's 11,077,032 test events become **221,540 windows × 50 events**,
+covering 11,077,000 events with 32 unused tail events. History padding preserves
+one context row per event; windowing keeps only complete windows. Logs also
+show the actual stride and batch shape for each loader mode. Reported detection
+performance continues to use the paper's **point-adjustment protocol**.
 
 **Open-set classification data.** The HDFS open-set test set and retrieval knowledge base under `data/HDFS/open_set/` are rebuilt from loghub's `HDFS_v1/preprocessed/Event_traces.csv` with `python -m incident_response.data_prep`.
 

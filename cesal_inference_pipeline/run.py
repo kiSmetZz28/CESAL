@@ -296,17 +296,19 @@ def run_inference(
     logging.info("   Handing steps 3-4 to the cloud environment:")
     logging.info("   %s", cloud_py)
 
-    proc = subprocess.run(
-        [cloud_py, runner, "--config", effective_cfg_path],
-        cwd=project_root,
-        env={**os.environ, "CESAL_STEP_HANDOFF": handoff},
-    )
-
-    if proc.returncode != 0:
-        logging.error(
-            "Cloud inference subprocess exited with code %d.", proc.returncode
+    try:
+        subprocess.run(
+            [cloud_py, runner, "--config", effective_cfg_path],
+            cwd=project_root,
+            env={**os.environ, "CESAL_STEP_HANDOFF": handoff},
+            check=True,
         )
+    except (subprocess.CalledProcessError, OSError) as exc:
+        with rep.step("cloud") as st:
+            st.fail(f"Cloud verification did not complete: {exc}")
+        rep.skip("hybrid", "Cloud verification failed; no hybrid result was produced by this run.")
         rep.finish(outputs=out_base)
+        raise
 
 
 if __name__ == '__main__':

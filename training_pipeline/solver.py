@@ -1,6 +1,7 @@
 import logging
 import os
 import time
+import warnings
 
 import numpy as np
 import torch
@@ -274,13 +275,18 @@ class Solver:
 
     def singlemodelpred(self) -> tuple:
         fileparam = f"e{self.num_epochs}_k{self.k}_l{self.e_layer_num}_b{self.batch_size}"
-        self.model.load_state_dict(
-            torch.load(
+        # Loaded exactly as when the committed thresholds were produced. torch
+        # warns once per call that its default will change; with 81 learners that
+        # buried the run's output, so the warning is filtered here rather than
+        # silenced by changing how the checkpoint is read.
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=FutureWarning,
+                                    message=".*weights_only.*")
+            state = torch.load(
                 os.path.join(str(self.model_save_path),
-                             str(self.dataset) + '_' + fileparam + '_checkpoint.pth'),
-                weights_only=True,
+                             str(self.dataset) + '_' + fileparam + '_checkpoint.pth')
             )
-        )
+        self.model.load_state_dict(state)
         self.model.eval()
         temperature = 50
 

@@ -116,9 +116,12 @@ def main() -> None:
         if trained == 0:
             st.fail(f"No model finished training ({failed} failed). "
                     f"The messages above name the cause for each.")
+        elif failed:
+            st.fail(f"Training is incomplete: {failed} of {len(combinations)} learners failed. "
+                    "Successfully trained checkpoints have been kept.")
 
     rep.finish(outputs=save_path)
-    sys.exit(0 if trained else 1)
+    sys.exit(0 if trained and not failed else 1)
 
 
 if __name__ == '__main__':

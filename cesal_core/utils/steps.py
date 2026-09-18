@@ -74,7 +74,7 @@ INFER_STEPS: List[Tuple[str, str, str]] = [
      "at higher capacity than the edge tier can provide."),
     ("hybrid", "Collaborative merge and scoring",
      "Cloud verdicts supersede the edge verdicts for the escalated windows, and the\n"
-     "merged prediction is scored against ground truth."),
+     "merged prediction is scored against ground truth after point adjustment."),
 ]
 
 TRAIN_STEPS: List[Tuple[str, str, str]] = [
@@ -97,7 +97,7 @@ CONVERT_STEPS: List[Tuple[str, str, str]] = [
 EVAL_STEPS: List[Tuple[str, str, str]] = [
     ("score",    "Score each EM-AT learner on its own",
      "Each learner is evaluated independently to establish its standalone detection\n"
-     "performance and calibrate its threshold."),
+     "performance after point adjustment and calibrate its threshold."),
     ("ensemble", "Grow the BAT ensemble",
      "Learners are accumulated incrementally to quantify the ensemble gain over any\n"
      "individual member."),
