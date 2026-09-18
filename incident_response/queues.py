@@ -34,13 +34,14 @@ from cesal_core.utils.config import load_config, setup_logging
 from cesal_core.utils.steps import StepReporter
 
 _ABOUT = """
-Turning raw detections into incidents, working out what each one is, and
-choosing how to respond.
-Sessions the detector flagged are filed into two queues — one for what the edge
-device decided alone, one for what the cloud confirmed. Each queued sequence is
-then matched against a library of known incident types; anything that matches
-none of them is kept as unknown and left for a person. Known types map to a
-predefined response plan, whose riskier actions need an administrator's approval.
+Turn raw detections into incidents, classify each one, and select a response.
+
+Flagged sessions are filed into two queues: Q_E for what the edge tier decided
+alone, Q_C for what the cloud tier confirmed. Each queued sequence is then
+matched against a library of known incident types; anything matching none of
+them is kept as unknown and referred to an analyst. Known types map to a
+predefined response workflow, whose higher-risk actions require administrator
+approval.
 """
 
 # LAD test files in the order HDFSSegLoader concatenates them (normal first, then abnormal)
@@ -140,16 +141,17 @@ def main() -> None:
         records = build_queues(sequences, ground_truth, edge, hybrid, routed, energy)
         os.makedirs(cfg["queue_dir"], exist_ok=True)
         counts = {}
+        pad = " " * (steps.body_indent() or 3)
+        logging.info("%s%-8s%12s%16s%14s", pad,
+                     "queue", "incidents", "truly abnormal", "false alarms")
         for queue, fname in QUEUE_FILES.items():
             part = records[records["queue"] == queue]
             path = os.path.join(cfg["queue_dir"], fname)
             part.to_csv(path, index=False)
             counts[queue] = len(part)
-            logging.info(
-                "   %-5s queue · %s incidents · %s truly abnormal · %s false alarms",
-                queue, f"{len(part):,}", f"{int(part['ground_truth'].sum()):,}",
-                f"{int((part['ground_truth'] == 0).sum()):,}",
-            )
+            logging.info("%s%-8s%12s%16s%14s", pad, queue, f"{len(part):,}",
+                         f"{int(part['ground_truth'].sum()):,}",
+                         f"{int((part['ground_truth'] == 0).sum()):,}")
         starts = np.concatenate([[0], np.cumsum([len(s) for s in sequences])[:-1]])
         unscored = (starts >= len(hybrid)) & (ground_truth == 1)
         missed = int((ground_truth == 1).sum() - unscored.sum() - records["ground_truth"].sum())
@@ -171,6 +173,7 @@ def main() -> None:
     rep.export(handoff)
     logging.info("")
     logging.info("   Queues built — handing over to the classification step.")
+    logging.info("")
 
 
 if __name__ == "__main__":

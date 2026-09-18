@@ -66,7 +66,8 @@ def compute_edge_ensemble(
     votes = stacked.sum(axis=0)
     edge_raw = (votes >= (stacked.shape[0] // 2 + 1)).astype(int)
 
-    logging.info("Edge ensemble predictions: %d samples, %d models", edge_raw.shape[0], stacked.shape[0])
+    logging.info("Edge ensemble predictions: %d samples, %d learners",
+                 edge_raw.shape[0], stacked.shape[0])
     evaluate(gt, _point_adjust(gt, edge_raw), prefix="Edge")
 
     return edge_raw, gt

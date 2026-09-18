@@ -45,12 +45,13 @@ from incident_response.classifier import (
 
 
 _ABOUT = """
-Testing how well a language model can name the kind of incident behind an
-abnormal stretch of logs.
-The detector only says "this looks wrong". This step goes further: for each
-abnormal sequence it retrieves similar incidents from a reference library and
-asks a language model which known type it matches — or whether it matches none
-of them, in which case it is kept as an unknown type for a person to look at.
+Benchmark a language model on naming the incident type behind an abnormal
+stretch of logs.
+
+Detection alone reports only that a window is anomalous. This stage goes
+further: for each abnormal sequence it retrieves similar incidents from a
+reference corpus and asks the language model which known type it matches — or,
+when it matches none of them, records it as an unknown type for analyst review.
 """
 
 
@@ -174,10 +175,12 @@ def evaluate_model(model_name: str, cfg: Dict[str, Any], retriever, test_df: pd.
     metrics["max_new_tokens"] = params["max_new_tokens"]
     metrics["length_penalty"] = params["length_penalty"]
 
-    logging.info("   %-26s P %6.2f   R %6.2f   F1 %6.2f",
-                 model_name.split("/")[-1],
-                 metrics["macro_precision"] * 100, metrics["macro_recall"] * 100,
-                 metrics["macro_f1"] * 100)
+    logging.info("%s", steps.leader(
+        model_name.split("/")[-1],
+        "macro  P {:.2f}   R {:.2f}   F1 {:.2f}".format(
+            metrics["macro_precision"] * 100, metrics["macro_recall"] * 100,
+            metrics["macro_f1"] * 100),
+        steps.body_indent() or 3))
     logging.debug("\n%s", metrics["report"])
 
     del model, tokenizer

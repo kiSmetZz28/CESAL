@@ -37,6 +37,16 @@ from cesal_core.utils.io import mkdir
 from cesal_core.utils.steps import StepReporter
 
 
+_ABOUT = """
+Quantize the trained BAT learners and export them for the edge device.
+
+Each selected EM-AT checkpoint is quantized to int8 activations with int4
+weights and exported as an ExecuTorch program (.pte), which the edge tier
+executes through the ExecuTorch C++ runtime. The cloud tier keeps the
+full-precision checkpoints; only the edge tier uses these.
+"""
+
+
 class _ExportableEMAT(nn.Module):
     """EMAT wrapper that fuses energy scoring into the forward pass.
 
@@ -74,6 +84,7 @@ class _ExportableEMAT(nn.Module):
         metric = torch.softmax((-series_loss - prior_loss), dim=-1)
         energy = metric * loss
         return energy.reshape(-1)
+
 
 
 def convert_one(
@@ -172,7 +183,8 @@ if __name__ == "__main__":
             args.batch_size  or cfg["batch_size"][0],
         )]
 
-    rep = StepReporter("convert", dataset=dataset, steps=steps.CONVERT_STEPS)
+    rep = StepReporter("convert", dataset=dataset, steps=steps.CONVERT_STEPS,
+                       about=_ABOUT)
 
     # ── Step 1: see what is available to convert ──────────────────────────
     with rep.step("locate") as st:
@@ -187,7 +199,7 @@ if __name__ == "__main__":
                 (fileparam, src, dst, e_layers)
             )
         if missing:
-            st.warn(f"{len(missing)} of {len(combos)} trained models are not on disk "
+            st.warn(f"{len(missing)} of {len(combos)} trained learners are not on disk "
                     f"and will be skipped — run 'train' first to create them.")
         st.outcome(**{
             "learners requested": len(combos),
@@ -197,14 +209,14 @@ if __name__ == "__main__":
         })
 
     if not pending:
-        rep.skip("convert", "None of the requested models are on disk, so there is "
+        rep.skip("convert", "None of the requested learners are on disk, so there is "
                             "nothing to convert.")
         rep.finish(outputs=dst_dir)
         sys.exit(1)
 
     # ── Step 2: quantize and export each one ──────────────────────────────
     with rep.step("convert") as st:
-        st.expect("models", len(pending))
+        st.expect("learners", len(pending))
         converted, failed = 0, 0
         src_mb = dst_mb = 0.0
 
@@ -216,14 +228,14 @@ if __name__ == "__main__":
                 dst_mb += after
                 converted += 1
                 logging.info(
-                    "   %-18s %6.1f MB → %5.1f MB  (%.0f%% smaller)",
+                    "   %-22s %6.1f MB → %5.1f MB   %3.0f%% smaller",
                     fileparam, before, after,
                     (1 - after / before) * 100 if before else 0.0,
                 )
             except Exception as exc:  # one failure must not abort the batch
                 failed += 1
-                logging.warning("   %-18s FAILED — %s", fileparam, exc)
-            st.tick("models")
+                st.warn(f"{fileparam} could not be quantized — {exc}")
+            st.tick("learners")
 
         st.outcome(**{
             "learners converted": f"{converted}/{len(pending)}",

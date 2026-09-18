@@ -14,12 +14,14 @@ from cesal_core.utils.steps import StepReporter
 from training_pipeline.solver import Solver
 
 _ABOUT = """
-Training the BAT ensemble: a group of models that together decide whether a
-stretch of log activity is normal or not.
-Each model sees the training logs with a different set of learning settings, so
-they make different mistakes — and a vote across all of them is steadier than
-any single model. Nothing here is labelled as an attack: every model learns only
-what normal looks like, and later treats whatever does not fit as suspicious.
+Train the BAT ensemble: a set of EM-AT base learners whose votes decide whether
+a window of log activity is normal.
+
+Each learner sees the same training logs under a different hyper-parameter
+setting, so their errors are not correlated and a vote across the ensemble is
+steadier than any single member. Training is unsupervised — no attack is ever
+labelled. Each learner models normal behaviour only, and whatever it cannot
+reconstruct afterwards is treated as anomalous.
 """
 
 
@@ -62,7 +64,7 @@ def main() -> None:
             st.detail(key, ", ".join(str(v) for v in yaml_config[key]))
         st.detail("saving to", save_path)
         st.outcome(**{
-            "models to train": len(combinations),
+            "learners to train": len(combinations),
             "settings varied": " × ".join(
                 f"{len(yaml_config[k])} {k}" for k in search_keys
             ),
@@ -70,7 +72,7 @@ def main() -> None:
 
     # ── Step 2: train every base model ────────────────────────────────────
     with rep.step("sweep") as st:
-        st.expect("models", len(combinations))
+        st.expect("learners", len(combinations))
         trained, failed = 0, 0
         slowest = ("", 0.0)
 
@@ -92,27 +94,24 @@ def main() -> None:
                 trained += 1
                 if took > slowest[1]:
                     slowest = (name, took)
-                logging.info(
-                    "   model %d/%d · %-18s trained in %s",
-                    i + 1, len(combinations), name, steps.fmt_secs(took),
-                )
-            except Exception as exc:  # one bad model must not abort the sweep
+                logging.info("   %7s  %-22s trained in %s",
+                             f"{i + 1}/{len(combinations)}", name,
+                             steps.fmt_secs(took))
+            except Exception as exc:  # one bad learner must not abort the sweep
                 failed += 1
-                logging.warning(
-                    "   model %d/%d · %-18s FAILED — %s",
-                    i + 1, len(combinations), name, exc,
-                )
-            st.tick("models")
+                st.warn(f"{name} ({i + 1}/{len(combinations)}) failed to "
+                        f"train — {exc}")
+            st.tick("learners")
 
         on_disk = 0
         if save_path and os.path.isdir(save_path):
             on_disk = len([f for f in os.listdir(save_path) if f.endswith('.pth')])
 
         st.outcome(**{
-            "models trained": f"{trained}/{len(combinations)}",
+            "learners trained": f"{trained}/{len(combinations)}",
             "learners failed": failed,
             "checkpoints on disk": on_disk,
-            "slowest model": f"{slowest[0]} ({steps.fmt_secs(slowest[1])})" if slowest[0] else "—",
+            "slowest learner": f"{slowest[0]} ({steps.fmt_secs(slowest[1])})" if slowest[0] else "—",
         })
         if trained == 0:
             st.fail(f"No model finished training ({failed} failed). "

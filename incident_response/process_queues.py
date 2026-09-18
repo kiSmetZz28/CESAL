@@ -123,9 +123,12 @@ def evaluate_incidents(incidents: pd.DataFrame, cfg, model_name: str, out_path: 
     # Sessions whose true type is unknown cannot be scored; say so rather than
     # quietly reporting a number computed over a subset.
     step.detail("detected abnormal sessions", len(abnormal))
-    step.detail("with ground-truth labels", f"{len(typed):,} "
-                                          f"({100 * len(typed) / max(len(abnormal), 1):.1f}% — "
-                                          f"the rest cannot be scored)")
+    step.detail("with ground-truth labels",
+                f"{len(typed):,} "
+                f"({100 * len(typed) / max(len(abnormal), 1):.1f}%)")
+    if len(typed) < len(abnormal):
+        step.note("Sessions whose true incident type is unknown cannot be "
+                  "scored and are excluded from the figures below.")
 
     results = {}
     if len(typed):
@@ -145,8 +148,8 @@ def evaluate_incidents(incidents: pd.DataFrame, cfg, model_name: str, out_path: 
         pct_other = 100 * (fp["pred_label"] == OTHER_LABEL).mean()
         logging.debug("False positives labelled a known type: %s",
                       fp.loc[fp["pred_label"].isin(KNOWN_LABELS), "pred_label"].value_counts().to_dict())
-        results["false alarms"] = (f"{len(fp):,} normal sessions, {pct_other:.1f}% correctly "
-                                   f"left as '{OTHER_LABEL}'")
+        results["false alarms"] = f"{len(fp):,} normal sessions"
+        results["of those, kept as other"] = f"{pct_other:.1f}%"
     step.outcome(**results)
 
 
@@ -195,7 +198,7 @@ def main() -> None:
         st.outcome(**{
             "incidents identified": len(incidents),
             "given a known type": len(incidents) - n_unknown,
-            "kept as unknown": f"{n_unknown:,} — flagged for a person to review",
+            "kept as unknown": f"{n_unknown:,} — sent for human review",
         })
 
     # ── Step 3: choose a response for each ────────────────────────────────
@@ -206,8 +209,9 @@ def main() -> None:
         logging.debug("Incidents per workflow:\n%s",
                       incidents.groupby(["queue", "workflow"]).size().to_string())
 
+        pad = " " * (steps.body_indent() or 3)
         for workflow, count in incidents["workflow"].value_counts().items():
-            logging.info("   %-42s %s incidents", workflow, f"{count:,}")
+            logging.info("%s%9s  %s", pad, f"{count:,}", workflow)
 
         st.outcome(**{
             "response plans chosen": incidents["workflow"].nunique(),

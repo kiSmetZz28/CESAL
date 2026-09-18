@@ -25,17 +25,19 @@ sys.path.insert(0, str(ROOT))
 
 import numpy as np
 
+from cesal_core.utils import steps
 from cesal_core.utils.config import load_config, setup_logging
 from cesal_core.utils.io import mkdir
 from cesal_inference_pipeline.run import run_inference
 
 _ABOUT = """
-Measuring what the cloud actually buys you, as the amount sent to it changes.
-The routing ratio is the share of log events the device escalates for a second
-opinion. A higher ratio should catch more, at the cost of sending more
+Measure what cloud escalation contributes, as a function of how much is sent.
+
+The routing ratio is the share of log events the edge tier escalates for cloud
+verification. A higher ratio should detect more, at the cost of sending more
 security-sensitive data off the device. This runs the pipeline at each ratio and
-puts the results side by side. The expensive on-device scan is done once and
-reused, since it does not depend on the ratio.
+reports the results side by side; the expensive on-device scan is performed once
+and reused, since it does not depend on the ratio.
 """
 
 
@@ -68,9 +70,9 @@ def sweep(config_path: str, ratios: List[float]) -> None:
     for line in _ABOUT.strip().splitlines():
         logging.info("   %s", line.strip())
     logging.info("")
-    logging.info("   ratios to run ............... %s",
-                 ", ".join(f"{r:.0%}" for r in ratios))
-    logging.info("   results under ............... %s", base)
+    logging.info("%s", steps.leader(
+        "ratios to run", ", ".join(f"{r:.0%}" for r in ratios)))
+    logging.info("%s", steps.leader("results under", base))
 
     edge_source = None
     rows = []
@@ -89,15 +91,17 @@ def sweep(config_path: str, ratios: List[float]) -> None:
     logging.info("═" * 66)
     logging.info(" ROUTING RATIO SWEEP · %s", dataset)
     logging.info("═" * 66)
-    logging.info("   %-8s %10s %8s %8s %8s", "ratio", "escalated", "P", "R", "F1")
+    logging.info("   %-10s%12s%10s%10s%10s",
+                 "ratio", "escalated", "P", "R", "F1")
     logging.info("   %s", "─" * 60)
     for r, sc in rows:
         if sc is None:
-            logging.info("   %-8s %10s %8s %8s %8s", f"{r:.0%}", "—", "—", "—", "(no result)")
+            logging.info("   %-10s%12s%10s%10s%10s",
+                         f"{r:.0%}", "—", "—", "—", "(no result)")
             continue
         p, rec, f, n_routed, n_total = sc
-        logging.info("   %-8s %10s %8.2f %8.2f %8.2f", f"{r:.0%}",
-                     f"{n_routed:,}", p, rec, f)
+        logging.info("   %-10s%12s%10.2f%10.2f%10.2f",
+                     f"{r:.0%}", f"{n_routed:,}", p, rec, f)
     logging.info("═" * 66)
 
     csv_path = os.path.join(base, "routing_ratio_sweep.csv")
@@ -111,7 +115,7 @@ def sweep(config_path: str, ratios: List[float]) -> None:
             else:
                 p, rec, f, n_routed, n_total = sc
                 w.writerow([r, n_routed, n_total, f"{p:.4f}", f"{rec:.4f}", f"{f:.4f}"])
-    logging.info("   table written to %s", csv_path)
+    logging.info("%s", steps.leader("table written to", csv_path))
 
 
 def main() -> None:

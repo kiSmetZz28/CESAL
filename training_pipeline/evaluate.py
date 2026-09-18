@@ -15,10 +15,13 @@ from training_pipeline.solver import Solver
 
 
 _ABOUT = """
-Measuring how well the trained models detect anomalies, alone and together.
-Each model is scored on the test logs by itself, then the models are combined
-one at a time — weakest first — so you can see how much the ensemble gains over
-any single model, and where adding more stops helping.
+Measure the detection performance of the trained BAT ensemble, per learner and
+as a whole.
+
+Every learner is first scored on the test logs on its own. Learners are then
+accumulated into the ensemble one at a time, weakest first, so the gain from
+ensembling — and the point at which further members stop contributing — is
+visible directly.
 """
 
 
@@ -67,7 +70,7 @@ def run_bat_ensemble(
         st.detail("config", config_path)
         st.detail("learners to score", len(combinations))
         st.detail("voting methods evaluated", voting_method)
-        st.expect("models", len(combinations))
+        st.expect("learners", len(combinations))
 
         for values in combinations:
             config = argparse.Namespace(**{**base_config, **dict(zip(search_keys, values))})
@@ -83,7 +86,7 @@ def run_bat_ensemble(
                 raise ValueError("Ground truth inconsistent across models.")
 
             model_records.append((f_score, values, pred.reshape(-1, 1)))
-            st.tick("models")
+            st.tick("learners")
 
         # Rank low → high; the ensemble below is built in this order.
         model_records.sort(key=lambda x: x[0])
@@ -97,7 +100,7 @@ def run_bat_ensemble(
         best_params = dict(zip(search_keys, model_records[-1][1]))
         n_thresh = st._counters.get("thresholds written", {}).get("done", 0)
         st.outcome(**{
-            "models scored": len(model_records),
+            "learners scored": len(model_records),
             "weakest learner F1": f"{f1s[0]:.2f}",
             "median learner F1": f"{f1s[len(f1s) // 2]:.2f}",
             "best learner F1": (f"{f1s[-1]:.2f} (e{best_params['num_epochs']}"
@@ -150,7 +153,7 @@ def run_bat_ensemble(
         st.outcome(**{
             "ensembles scored": n * len(methods),
             "best voting method": f"{best_method} (F1 {curve[best_method].get(n, 0.0):.2f})",
-            "gain over best single model": f"{curve[best_method].get(n, 0.0) - f1s[-1]:+.2f} F1",
+            "gain over best single learner": f"{curve[best_method].get(n, 0.0) - f1s[-1]:+.2f} F1",
         })
 
     rep.finish(outputs=base_config.get('model_save_path', ''))

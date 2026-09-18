@@ -20,13 +20,18 @@ class _ConsoleFormatter(logging.Formatter):
     """Terminal formatter: bare messages, so the step banners in
     cesal_core.utils.steps stay aligned and readable.
 
-    Only WARNING and above are tagged with their level — those must stand out.
-    The file handler keeps the full timestamped format for the record.
+    A warning or error raised by the pipeline itself arrives already indented
+    and marked (``   ! ...``, ``   ✗ ...``) by the step reporter, so it is
+    passed through untouched; prefixing it again would produce
+    ``WARNING:    ! ...`` and break the column it was aligned to. Anything else
+    — a warning from a library, say — is tagged with its level so it stands out
+    against the pipeline's own output. The file handler keeps the full
+    timestamped format for the record either way.
     """
 
     def format(self, record: logging.LogRecord) -> str:
         message = record.getMessage()
-        if record.levelno >= logging.WARNING:
+        if record.levelno >= logging.WARNING and not message.startswith(" "):
             return f"{record.levelname}: {message}"
         return message
 

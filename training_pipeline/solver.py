@@ -267,7 +267,7 @@ class Solver:
             param = [self.num_epochs, self.k, self.e_layer_num, self.batch_size]
             early_stopping(vali_loss1, vali_loss2, self.model, path, param)
             if early_stopping.early_stop:
-                logging.info("      stopped early — the model stopped improving")
+                logging.info("      stopped early — validation loss stopped improving")
                 break
 
             adjust_learning_rate(self.optimizer, epoch + 1, self.lr)
@@ -277,7 +277,8 @@ class Solver:
         self.model.load_state_dict(
             torch.load(
                 os.path.join(str(self.model_save_path),
-                             str(self.dataset) + '_' + fileparam + '_checkpoint.pth')
+                             str(self.dataset) + '_' + fileparam + '_checkpoint.pth'),
+                weights_only=True,
             )
         )
         self.model.eval()

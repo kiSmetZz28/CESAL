@@ -383,7 +383,7 @@ def run(config: dict) -> EdgeResult:
     # Ground truth is already per-timestep from DataLoader — no reshape needed.
     n_flagged = int(predictions.sum())
     step.outcome(**{
-        "models scored": f"{len(valid)}/{len(model_cfgs)}",
+        "learners scored": f"{len(valid)}/{len(model_cfgs)}",
         "thresholds": ", ".join(f"{t:.4f}" for t in thresholds_list),
         "events scanned": len(predictions),
         "flagged anomalous": f"{n_flagged:,} "

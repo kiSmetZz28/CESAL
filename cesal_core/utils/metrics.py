@@ -54,10 +54,12 @@ def evaluate(gt: np.ndarray, pred: np.ndarray, prefix: str = "",
     scores = Scores(accuracy * 100, precision * 100, recall * 100, f_score * 100)
 
     run = steps.current_run()
-    # Indent inside a run so the line sits within its step block. The wording is
-    # deliberately unchanged: dashboard/app.py's _parse_log_metrics and the
-    # front-end both regex-match it when replaying saved log files.
-    indent = "   " if run is not None else ""
+    # Indent inside a run so the line sits within its step block, one level
+    # deeper while a phase is open. The wording after the indent is deliberately
+    # unchanged: dashboard/app.py's _parse_log_metrics and the front-end both
+    # regex-match it, when replaying a saved log file and when following a live
+    # run respectively.
+    indent = " " * steps.body_indent()
     label = f"[{prefix}] " if prefix else ""
     logging.log(
         level,

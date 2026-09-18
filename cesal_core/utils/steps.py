@@ -18,9 +18,9 @@ Typical use::
     rep = StepReporter("infer", dataset="HDFS", steps=INFER_STEPS)
     with rep.step("edge") as st:
         st.detail("Q-BAT learners", "3 quantized EM-AT (.pte)")
-        st.expect("models", 3)
+        st.expect("learners", 3)
         ...
-        st.tick("models")
+        st.tick("learners")
         st.outcome(**{"flagged anomalous": 5912})
     rep.finish(outputs="outputs/hdfs")
 
@@ -39,6 +39,7 @@ import json
 import logging
 import os
 import sys
+import textwrap
 import threading
 import time
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -53,6 +54,7 @@ __all__ = [
     "EVAL_STEPS", "DOWNLOAD_STEPS", "CLASSIFY_STEPS", "RESPOND_STEPS",
     "current", "current_run",
     "bars_suppressed", "clear_bar", "redraw_bar", "fmt_count", "fmt_secs",
+    "leader", "body_indent",
 ]
 
 # Canonical step plans, defined once here so the CLI runners, the demo runner and
@@ -93,7 +95,7 @@ CONVERT_STEPS: List[Tuple[str, str, str]] = [
 ]
 
 EVAL_STEPS: List[Tuple[str, str, str]] = [
-    ("score",    "Score each EM-AT model on its own",
+    ("score",    "Score each EM-AT learner on its own",
      "Each learner is evaluated independently to establish its standalone detection\n"
      "performance and calibrate its threshold."),
     ("ensemble", "Grow the BAT ensemble",
@@ -136,13 +138,19 @@ RESPOND_STEPS: List[Tuple[str, str, str]] = [
      "Score the assigned types against ground truth for the labelled sessions."),
 ]
 
-# Fixed width keeps banners aligned in both the terminal and the log file.
+# ── Layout ───────────────────────────────────────────────────────────────────
+# Every banner, rule and summary row is exactly _WIDTH columns wide, and every
+# dot-leader value in the body starts at column _VALUE_COL, so a run reads as a
+# single two-column table regardless of which module wrote the line.
 _WIDTH = 66
-# Summary labels carry a step number and a status glyph, so they need a wider
-# value column than the in-step detail lines.
-_SUMMARY_W = 40
+_VALUE_COL = 37
+# Body lines are indented by _INDENT, or by _PHASE_INDENT while a phase is open
+# so that the phase's output is visibly nested underneath its heading.
+_INDENT = 3
+_PHASE_INDENT = 5
 _RULE = "─" * _WIDTH
 _RULE_HEAVY = "═" * _WIDTH
+_THIN = "─" * (_WIDTH - _INDENT * 2)
 _EVENT_PREFIX = "@@CESAL "
 
 
@@ -258,15 +266,77 @@ def redraw_bar() -> None:
             _active_bar.draw()
 
 
-def _leader(label: str, value: str, indent: int = 3, width: int = 28) -> str:
-    """``   routed ............. 138 / 1,386`` — dot leader, aligned values.
+def _leader(label: str, value: str, indent: int = _INDENT,
+            col: int = _VALUE_COL) -> str:
+    """``   routed ......................... 138 / 1,386``
 
-    ``width`` is the column the value starts at; the summary uses a wider one
-    because its labels carry a number and a status glyph.
+    The value always begins at column ``col``, whatever the indent, so detail
+    lines written inside a phase line up with those written outside it. A label
+    too long for that column is elided rather than allowed to push its value out
+    of alignment — two dots always remain, so the line stays readable.
     """
-    pad = " " * indent
-    dots = max(2, width - len(label))
-    return f"{pad}{label} {'.' * dots} {value}"
+    limit = col - indent - 4          # longest label that still leaves two dots
+    if len(label) > limit:
+        label = label[:limit - 1] + "…"
+    dots = "." * (col - indent - len(label) - 2)
+    return f"{' ' * indent}{label} {dots} {value}"
+
+
+def leader(label: str, value: Any, indent: int = _INDENT) -> str:
+    """Public form of :func:`_leader` for modules that log outside a step."""
+    return _leader(label, fmt_count(value), indent)
+
+
+def _summary_row(label: str, value: str, indent: int = _INDENT) -> str:
+    """``   1. ✓ Edge-side detection ................... 3h 21m``
+
+    The closing summary right-aligns its values with the banner rules instead of
+    using the body's value column: its labels carry a step number and a status
+    glyph, and its values are all short, so a flush right edge reads best.
+    """
+    limit = _WIDTH - indent - len(value) - 4
+    if len(label) > limit:
+        label = label[:max(1, limit - 1)] + "…"
+    dots = "." * max(2, _WIDTH - indent - len(label) - len(value) - 2)
+    return f"{' ' * indent}{label} {dots} {value}"
+
+
+def _wrap(message: str, indent: int, marker: str = "") -> str:
+    """Fold a prose line to the banner width, hanging-indented under itself."""
+    head = " " * indent + marker
+    return textwrap.fill(" ".join(message.split()), width=_WIDTH,
+                         initial_indent=head,
+                         subsequent_indent=" " * len(head),
+                         break_on_hyphens=False,
+                         break_long_words=False) or head
+
+
+def _wrap_block(text: str, indent: int) -> List[str]:
+    """Fold a multi-line explanation to the banner width, paragraph by paragraph.
+
+    The plans in this module and the ``about`` blurbs in the runners carry their
+    own line breaks, authored against a wider margin than the banners use. Those
+    breaks are re-flowed here so the text always sits inside the rules, and a
+    blank line still separates one paragraph from the next.
+    """
+    lines: List[str] = []
+    for para in text.strip().split("\n\n"):
+        if not para.strip():
+            continue
+        if lines:
+            lines.append("")
+        lines.append(_wrap(para, indent))
+    return lines
+
+
+def body_indent() -> int:
+    """Indent a module outside :mod:`steps` should use for its own log lines.
+
+    Modules that print a table or a score line of their own (rather than going
+    through :meth:`Step.detail`) call this so their output nests correctly when
+    it lands inside a phase.
+    """
+    return current().indent
 
 
 # ── Active-run registry ───────────────────────────────────────────────────────
@@ -313,11 +383,16 @@ class Step:
         self.state = "pending"
 
     # ── live reporting ────────────────────────────────────────────────────
+    @property
+    def indent(self) -> int:
+        """Indent for this step's body — one level deeper inside a phase."""
+        return _PHASE_INDENT if self._phase_name else _INDENT
+
     def detail(self, label: str, value: Any) -> None:
         """Print one aligned ``label ... value`` line as the step runs.
 
         Repeats of an identical label/value pair are dropped: a step that builds
-        many models re-reports the same dataset facts each time, and printing
+        many learners re-reports the same dataset facts each time, and printing
         them once is the useful behaviour.
         """
         key = (label, str(value))
@@ -325,13 +400,13 @@ class Step:
             if key in self._seen_details:
                 return
             self._seen_details.add(key)
-        logging.info("%s", _leader(label, fmt_count(value)))
+        logging.info("%s", _leader(label, fmt_count(value), self.indent))
         self._rep._emit({"t": "step_detail", "id": self.id,
                          "k": label, "v": str(value)})
 
     def note(self, message: str) -> None:
-        """Print an un-aligned informational line inside the step."""
-        logging.info("   %s", message)
+        """Print a prose line inside the step, folded to the banner width."""
+        logging.info("%s", _wrap(message, self.indent))
         self._rep._emit({"t": "step_note", "id": self.id, "msg": message})
 
     def phase(self, name: str) -> None:
@@ -340,14 +415,14 @@ class Step:
         A step like the edge scan is several distinct pieces of work — parsing
         the logs, scoring them, combining the votes — and a run that only says
         "Edge Q-BAT scan" gives no idea which of them is taking the time. The
-        name is printed as the phase begins, so the detail lines it produces
-        appear underneath it; its duration follows when it finishes, and is
+        name is printed as the heading of the block, and everything the phase
+        reports is indented beneath it; its duration closes the block, and is
         omitted for phases too brief to be worth a line.
         """
         self._close_phase()
         self._phase_name = name
         self._phase_started = time.perf_counter()
-        logging.info("   ├─ %s", name)
+        logging.info("%s", _wrap(name, _INDENT, "▸ "))
         self._rep._emit({"t": "step_phase", "id": self.id, "name": name})
 
     # Phases quicker than this are not worth a line of their own.
@@ -357,14 +432,15 @@ class Step:
         if not self._phase_name:
             return
         secs = time.perf_counter() - self._phase_started
+        name, self._phase_name = self._phase_name, ""
         if secs >= self._PHASE_REPORT_SECS:
-            logging.info("   %s  took %s", "│" if not last else "╵", fmt_secs(secs))
+            logging.info("%s", _leader("took", fmt_secs(secs), _PHASE_INDENT))
         self._rep._emit({"t": "step_phase_done", "id": self.id,
-                         "name": self._phase_name, "secs": round(secs, 3)})
-        self._phase_name = ""
+                         "name": name, "secs": round(secs, 3)})
 
     def warn(self, message: str) -> None:
-        logging.warning("   ! %s", message)
+        """Print a warning inside the step, folded under a ``!`` marker."""
+        logging.warning("%s", _wrap(message, self.indent, "! "))
         self._rep._emit({"t": "step_warn", "id": self.id, "msg": message})
 
     def expect(self, unit: str, total: int, bar: bool = True) -> None:
@@ -372,7 +448,7 @@ class Step:
 
         On an interactive terminal this also starts a progress bar. Where a bar
         cannot be drawn (a redirected log, or the dashboard reading the stream)
-        progress falls back to milestone lines at each 25%.
+        progress falls back to a milestone line every ``_STEP_PCT`` percent.
         """
         global _active_bar
         with self._lock:
@@ -438,9 +514,10 @@ class Step:
                 # Percentage only: the raw counts are an internal unit (for the
                 # edge scan, windows x learners) and reading them as "windows"
                 # is misleading.
-                logging.info("   %s  %d%%", unit, done * 100 // total)
+                logging.info("%s", _leader(unit, f"{done * 100 // total:>3}%",
+                                           self.indent))
             else:
-                logging.info("   %s %s", f"{done:,}", unit)
+                logging.info("%s", _leader(unit, f"{done:,} so far", self.indent))
         if emit:
             self._rep._emit({"t": "step_progress", "id": self.id, "unit": unit,
                              "done": done, "total": total})
@@ -473,7 +550,8 @@ class Step:
         logging.info(" STEP %d/%d · %s", self.index, self._rep.total, self.title)
         logging.info("%s", _RULE)
         if self.explain:
-            logging.info("   %s", self.explain)
+            for line in _wrap_block(self.explain, _INDENT):
+                logging.info("%s", line)
             logging.info("")
         self._rep._emit({"t": "step_start", "id": self.id, "n": self.index,
                          "total": self._rep.total, "title": self.title,
@@ -502,19 +580,22 @@ class Step:
         if exc_type is not None:
             self.state = "failed"
             self._close_phase(last=True)
-            logging.error("   ✗ failed after %s — %s", fmt_secs(self.elapsed), exc)
+            logging.error("%s", _wrap(f"failed after {fmt_secs(self.elapsed)} — {exc}",
+                                      _INDENT, "✗ "))
             self._rep._record(self, error=str(exc))
             self._rep._emit({"t": "step_fail", "id": self.id,
                              "secs": round(self.elapsed, 3), "error": str(exc)})
             return False  # never swallow the exception
 
         self._close_phase(last=True)
+        if self._outcome:
+            logging.info("")
         for label, value in self._outcome.items():
             logging.info("%s", _leader(label.replace("_", " "), fmt_count(value)))
 
         if self._failure:
             self.state = "failed"
-            logging.error("   ✗ %s", self._failure)
+            logging.error("%s", _wrap(self._failure, _INDENT, "✗ "))
             self._rep._record(self, error=self._failure)
             self._rep._emit({"t": "step_fail", "id": self.id,
                              "secs": round(self.elapsed, 3),
@@ -523,7 +604,8 @@ class Step:
             return False
 
         self.state = "done"
-        logging.info("   ✓ done in %s", fmt_secs(self.elapsed))
+        logging.info("%s", _summary_row("✓ step %d complete" % self.index,
+                                        fmt_secs(self.elapsed)))
         self._rep._record(self)
         self._rep._emit({"t": "step_done", "id": self.id,
                          "secs": round(self.elapsed, 3),
@@ -540,6 +622,11 @@ class _NullStep(Step):
         self.index = 0
         self.state = "inactive"
         self.elapsed = 0.0
+        self._phase_name = ""
+
+    # No run means no step block to nest inside, so callers of body_indent()
+    # write flush left.
+    indent = 0
 
     def detail(self, label: str, value: Any) -> None: pass
     def note(self, message: str) -> None: pass
@@ -615,11 +702,12 @@ class StepReporter:
             logging.info(" CESAL · %s%s", run, f" · {dataset}" if dataset else "")
             logging.info("%s", _RULE_HEAVY)
             if about:
-                for line in about.strip().splitlines():
-                    logging.info("   %s", line.strip())
+                for line in _wrap_block(about, _INDENT):
+                    logging.info("%s", line)
                 logging.info("")
             for i, (_, title, _x) in enumerate(self.plan, start=1):
-                logging.info("   %d. %s", i, title)
+                logging.info("%s%d. %s", " " * _INDENT, i, title)
+            logging.info("")
             self._emit({"t": "run_start", "run": run, "dataset": dataset,
                         "about": about,
                         "steps": [{"id": i, "title": t, "explain": x}
@@ -696,7 +784,7 @@ class StepReporter:
         logging.info("%s", _RULE)
         logging.info(" STEP %d/%d · %s — SKIPPED", index, self.total, title)
         logging.info("%s", _RULE)
-        logging.info("   %s", reason)
+        logging.info("%s", _wrap(reason, _INDENT))
         self._emit({"t": "step_skip", "id": step_id, "n": index,
                     "title": title, "reason": reason})
 
@@ -724,32 +812,30 @@ class StepReporter:
         for index, (step_id, title, _x) in enumerate(self.plan, start=1):
             rec = by_id.get(step_id)
             if rec and rec["state"] == "done":
-                logging.info("%s", _leader(f"{index}. ✓ {title}",
-                                           fmt_secs(rec["secs"]), width=_SUMMARY_W))
+                logging.info("%s", _summary_row(f"{index}. ✓ {title}",
+                                                fmt_secs(rec["secs"])))
             elif rec and rec["state"] == "failed":
-                logging.info("%s", _leader(f"{index}. ✗ {title}",
-                                           f"failed after {fmt_secs(rec['secs'])}",
-                                           width=_SUMMARY_W))
+                logging.info("%s", _summary_row(f"{index}. ✗ {title}",
+                                                f"failed · {fmt_secs(rec['secs'])}"))
             elif step_id in self._skipped:
-                logging.info("%s", _leader(f"{index}. – {title}", "skipped",
-                                           width=_SUMMARY_W))
-                logging.info("        %s", self._skipped[step_id])
+                logging.info("%s", _summary_row(f"{index}. – {title}", "skipped"))
+                logging.info("%s", _wrap(self._skipped[step_id], _INDENT + 3))
             else:
-                logging.info("%s", _leader(f"{index}. · {title}", "not run",
-                                           width=_SUMMARY_W))
+                logging.info("%s", _summary_row(f"{index}. · {title}", "not run"))
 
         if self._metrics:
-            logging.info("   %s", "─" * (_WIDTH - 6))
-            logging.info("   Scores")
+            logging.info("%s%s", " " * _INDENT, _THIN)
+            logging.info("%s%-26s%8s%8s%8s%8s", " " * _INDENT,
+                         "detection scores", "Acc", "P", "R", "F1")
             for m in self._metrics:
-                logging.info("     %-22s P %6.2f   R %6.2f   F1 %6.2f",
-                             m["label"][:22], m["precision"], m["recall"], m["f_score"])
+                logging.info("%s%-24s%8.2f%8.2f%8.2f%8.2f", " " * _PHASE_INDENT,
+                             m["label"][:24], m["accuracy"], m["precision"],
+                             m["recall"], m["f_score"])
 
-        logging.info("   %s", "─" * (_WIDTH - 6))
+        logging.info("%s%s", " " * _INDENT, _THIN)
         if outputs:
-            logging.info("%s", _leader("outputs", outputs, width=_SUMMARY_W))
-        logging.info("%s", _leader("total time", fmt_secs(total_secs),
-                                   width=_SUMMARY_W))
+            logging.info("%s", _summary_row("outputs", outputs))
+        logging.info("%s", _summary_row("total time", fmt_secs(total_secs)))
         logging.info("%s", _RULE_HEAVY)
 
         self._emit({"t": "run_done", "secs": round(total_secs, 3),

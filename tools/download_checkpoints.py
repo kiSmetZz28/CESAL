@@ -42,10 +42,11 @@ from cesal_core.utils.config import setup_logging
 from cesal_core.utils.steps import StepReporter
 
 _ABOUT = """
-Fetching the trained models CESAL needs before it can analyse anything.
-These are the detectors produced by training — the full-size ones the cloud
-uses, and the shrunk ones the edge device runs. They are downloaded once and
-reused; anything already on disk is left alone.
+Fetch the pretrained checkpoints CESAL needs before it can analyse anything.
+
+These are the detectors produced by training: the full-precision BAT learners
+the cloud tier runs, and the quantized Q-BAT learners the edge tier runs. They
+are downloaded once and reused; anything already on disk is left untouched.
 """
 
 # CESAL Google Drive subfolder IDs, per checkpoint type and dataset
@@ -135,8 +136,10 @@ def download(ckpt_type: Optional[str], dataset: Optional[str]) -> None:
                     st.warn(f"No download location is configured for {t}/{ds} — skipping it.")
                     continue
                 targets.append((t, ds, ext, folder))
-                logging.info("   %-10s %s — %s already present", f"{t}/{ds}", ext,
-                             f"{have:,}" if have else "none")
+                logging.info("%s", steps.leader(
+                    f"{t}/{ds}",
+                    f"{have:,} {ext} already present" if have
+                    else f"no {ext} present yet"))
 
         st.outcome(**{
             "collections to fetch": len(targets),
@@ -160,8 +163,9 @@ def download(ckpt_type: Optional[str], dataset: Optional[str]) -> None:
             _download_folder(_DRIVE_FOLDER_IDS[t][ds], out_dir)
             n = sum(1 for f in out_dir.glob(f"*{ext}") if f.is_file())
             installed += n
-            logging.info("   %-10s %s %s file(s) now installed", f"{t}/{ds}",
-                         f"{n:,}", ext)
+            logging.info("%s", steps.leader(
+                f"{t}/{ds}", f"{n:,} {ext} file(s) installed",
+                steps.body_indent()))
             st.tick("collections")
 
         st.outcome(**{

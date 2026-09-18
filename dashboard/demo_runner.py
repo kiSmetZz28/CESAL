@@ -110,7 +110,7 @@ def _run_edge_bat(
     del model
 
     logging.debug("Edge agent: model '%s'  threshold=%.6f", name, thresh)
-    steps.current().tick("models")
+    steps.current().tick("learners")
     return (energy.reshape(-1, 1), thresh)
 
 
@@ -193,13 +193,13 @@ def main() -> None:
             mode="test", dataset=dataset,
         )
         test_windows = np.concatenate([x.numpy() for x, _ in test_loader], axis=0)
-        logging.info("   reused %s events from %d edge models",
+        logging.info("   reused %s events from %d edge learners",
                      f"{len(ground_truth):,}", energy_matrix.shape[1])
     else:
         # ── Step 1: Edge scan ─────────────────────────────────────────────────
         edge_step = rep.step("edge").start()
 
-        edge_step.phase("parsing log data into windows")
+        edge_step.phase("parsing log sequences into windows")
         test_loader = get_loader_segment(
             [3, 1, 3, batch_sz], data_path,
             batch_size=batch_sz, win_size=win_size, step=win_size,
@@ -230,9 +230,9 @@ def main() -> None:
         n_edge   = len(edge_combos)
         edge_step.detail("test windows", len(test_windows))
         edge_step.detail("window size", win_size)
-        edge_step.detail("edge-proxy models", f"{n_edge} BAT running in parallel")
-        edge_step.expect("models", n_edge)
-        edge_step.phase(f"scoring every window with {n_edge} models")
+        edge_step.detail("edge-proxy learners", f"{n_edge} BAT, evaluated in parallel")
+        edge_step.expect("learners", n_edge)
+        edge_step.phase("scoring every window with the edge-proxy ensemble")
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=n_edge) as executor:
             futures = [executor.submit(_run_edge_bat, combo, dataset, win_size, input_c,
@@ -250,7 +250,7 @@ def main() -> None:
                 f"(missing checkpoint or threshold) — scoring with {len(valid)}."
             )
 
-        edge_step.phase("combining the models' votes")
+        edge_step.phase("aggregating learner votes")
         energy_cols   = [r[0] for r in valid]
         thresh_arr    = np.array([r[1] for r in valid])
         energy_matrix = np.concatenate(energy_cols, axis=1)
@@ -266,7 +266,7 @@ def main() -> None:
 
         n_flagged = int(predictions.sum())
         edge_step.outcome(**{
-            "models scored": f"{len(valid)}/{n_edge}",
+            "learners scored": f"{len(valid)}/{n_edge}",
             "thresholds": ", ".join(f"{t:.4f}" for t in thresh_arr),
             "events scanned": len(predictions),
             "flagged anomalous": f"{n_flagged:,} "
@@ -285,7 +285,7 @@ def main() -> None:
 
     # Compute training energy for routing covariance (uses normal distribution only).
     # Try each edge combo as ensemble_param until one is accepted by the data loader.
-    route_step.phase("learning how the scores normally spread")
+    route_step.phase("estimating the energy covariance from the training scores")
     train_energy_matrix = None
     for combo in edge_combos:
         ep, k, layers, bsz = combo
@@ -322,7 +322,7 @@ def main() -> None:
     if energy_matrix.shape[1] >= 2:
         try:
             _, inv_cov = compute_inv_cov(train_energy_matrix)
-            route_step.phase("measuring how certain each window was")
+            route_step.phase("computing each window's distance from the decision boundary")
             routed_indices = select_indices_by_distance(
                 test_scores=energy_matrix,
                 thresholds=thresh_arr,
@@ -331,15 +331,17 @@ def main() -> None:
                 tolerance=tolerance,
             )
         except np.linalg.LinAlgError:
-            route_step.warn("Singular covariance matrix — routing all predicted anomalies instead.")
+            route_step.warn("The energy covariance is singular; escalating every "
+                        "predicted anomaly instead.")
             routed_indices = list(np.where(predictions == 1)[0])
     else:
-        route_step.note("Only one edge model — falling back to a single-score margin.")
+        route_step.note("Only one edge learner is configured; falling back to a "
+                    "single-score margin.")
         margin  = energy_matrix[:, 0] - thresh_arr[0]
         n_route = max(1, int(len(margin) * tolerance))
         routed_indices = sorted(np.argsort(margin)[-n_route:].tolist())
 
-    route_step.phase("collecting the events to send to the cloud")
+    route_step.phase("assembling the escalated windows for cloud verification")
     routed_idx_arr = np.array(routed_indices, dtype=int)
     np.save(os.path.join(out_base, "routed_indices.npy"), routed_idx_arr)
 
@@ -399,12 +401,12 @@ def main() -> None:
         hybrid_raw = predictions.copy()
         hybrid_raw[use_indices] = cloud_preds
 
-        st.phase("replacing edge verdicts with the cloud's")
+        st.phase("superseding edge verdicts with cloud verdicts")
         st.detail("merge unit", "line")
         st.detail("edge verdicts replaced", len(use_indices))
 
         hybrid_flagged = int(hybrid_raw.sum())
-        st.phase("scoring the run against the known answers")
+        st.phase("scoring the merged prediction against ground truth")
         hybrid_adj = _point_adjust(ground_truth, hybrid_raw)
         np.save(os.path.join(out_base, "hybrid_preds.npy"), hybrid_adj)
         evaluate(ground_truth, hybrid_adj, prefix="Hybrid")

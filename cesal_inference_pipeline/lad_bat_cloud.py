@@ -80,7 +80,7 @@ def _run_one_bat(
     # One line per checkpoint would bury the run in 81 near-identical messages,
     # so the detail stays at DEBUG and the step reports milestone progress.
     logging.debug("BAT model '%s' done.", model_name)
-    steps.current().tick("models")
+    steps.current().tick("learners")
     return preds.reshape(-1, 1)
 
 
@@ -140,7 +140,7 @@ def run(windows: np.ndarray, config: dict) -> np.ndarray:
     step.detail("BAT checkpoints", len(combinations))
     step.detail("device", f"{device} ({max_workers} worker(s))")
     step.detail("voting", voting)
-    step.expect("models", len(combinations))
+    step.expect("learners", len(combinations))
 
     # Transfer input to device once — shared read-only across all models.
     step.phase(f"loading the routed windows onto {device}")

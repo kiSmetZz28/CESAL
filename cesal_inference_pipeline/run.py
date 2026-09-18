@@ -41,6 +41,17 @@ from cesal_inference_pipeline.routing import compute_inv_cov, select_indices_by_
 # lad_bat_cloud is NOT imported here — BAT models always run in the cesal-cloud env.
 
 
+_ABOUT = """
+Run the full CESAL detection pipeline: edge detection, uncertainty routing,
+cloud verification, and the merge of the two.
+
+The quantized Q-BAT ensemble scores every window on the edge device. The windows
+it is least certain about are escalated to the full-precision BAT ensemble in
+the cloud, whose verdicts supersede the edge's for those windows. Edge, cloud
+and merged predictions are each scored against ground truth.
+"""
+
+
 def _detect_cloud_python() -> str:
     """Return the path to the cesal-cloud env Python interpreter.
 
@@ -161,7 +172,8 @@ def run_inference(
     with open(effective_cfg_path, 'w') as f:
         yaml.safe_dump(cfg, f, sort_keys=False)
 
-    rep = StepReporter("infer", dataset=dataset, steps=steps.INFER_STEPS)
+    rep = StepReporter("infer", dataset=dataset, steps=steps.INFER_STEPS,
+                       about=_ABOUT)
 
     # ── Step 1: Edge Q-BAT inference ──────────────────────────────────────
     if reuse_edge_from:
@@ -212,7 +224,8 @@ def run_inference(
                 st.warn("Covariance matrix is singular; routing all predicted anomalies instead.")
                 routed_indices = list(np.where(result.predictions == 1)[0])
         else:
-            st.note("Only one edge model — falling back to a single-score margin.")
+            st.note("Only one edge learner is configured; falling back to a "
+                    "single-score margin.")
             margin  = result.energy_matrix[:, 0] - result.thresholds[0]
             n_route = max(1, int(len(margin) * tolerance))
             routed_indices = sorted(np.argsort(margin)[-n_route:].tolist())
