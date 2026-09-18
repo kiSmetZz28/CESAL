@@ -46,7 +46,7 @@ def test_fmt_secs(secs, expected):
 
 
 def test_fmt_count_groups_thousands():
-    assert steps.fmt_count(221540) == "221,540"
+    assert steps.fmt_count(123456) == "123,456"
     assert steps.fmt_count("3/3") == "3/3"
 
 
@@ -256,10 +256,10 @@ def test_repeated_identical_details_are_shown_once(events_on, capsys):
     rep = StepReporter("train", steps=steps.TRAIN_STEPS)
     with rep.step("sweep") as st:
         for _ in range(5):
-            st.detail("parsed events", "52,289 train")
+            st.detail("parsed events", "1,000 train")
         st.detail("parsed events", "different value")
     details = [e for e in read_events(capsys) if e["t"] == "step_detail"]
-    assert [d["v"] for d in details] == ["52,289 train", "different value"]
+    assert [d["v"] for d in details] == ["1,000 train", "different value"]
 
 
 def test_a_step_bar_suppresses_subordinate_bars(monkeypatch):

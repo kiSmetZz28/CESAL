@@ -8,6 +8,8 @@
 
 ---
 
+> **Evaluating this artifact?** Start with the [Docker image](#run-in-docker-no-environment-setup) — it needs no environment setup — then follow [the short path](#the-short-path-about-three-hours), which reproduces the paper's OpenStack results in about three hours.
+
 ## How It Works
 
 An **edge-first, cloud-assisted** pipeline, in four stages:
@@ -77,7 +79,21 @@ What is missing is the physical device and the network hop between the tiers. Ne
 
 ### Quick start
 
-Set up the environments once ([Step 1](#step-1--set-up-environments)), or skip that by using the [Docker image](#run-in-docker-no-environment-setup), then run the whole framework with one command:
+**The fastest route is Docker — no environment setup at all:**
+
+```bash
+docker pull ghcr.io/kismetzz28/cesal:v1.0
+docker run -it --gpus all --name cesal \
+    -v cesal-checkpoints:/app/checkpoints \
+    -v cesal-hf:/root/.cache/huggingface \
+    ghcr.io/kismetzz28/cesal:v1.0
+
+python run.py all os          # inside the container
+```
+
+The image already contains both Conda environments and the ExecuTorch runtime, and opens a shell with `cesal-edge` active — see [Run in Docker](#run-in-docker-no-environment-setup) for volumes, GPU flags and copying results out.
+
+**Prefer a native install?** Run `./install.sh` once ([Step 1](#step-1--set-up-environments)), then:
 
 ```bash
 conda activate cesal-edge
@@ -147,11 +163,7 @@ Training is the expensive stage, so the checkpoints behind the paper's numbers a
 
 **† HDFS detection is fully supported — it simply takes a long time.** The command runs exactly as OpenStack's does and produces the same outputs; the cost is the size of the test split, not any limitation of the method:
 
-| | OpenStack | HDFS |
-| --- | ---: | ---: |
-| Parsed test timesteps | 155,347 | **11,077,032** |
-| `win_size` | 100 | 50 |
-| **Edge windows to scan** | **1,553** | **221,540** |
+HDFS's test split is roughly two orders of magnitude larger than OpenStack's, and its smaller window size divides it into more windows still — together about 140× as many windows to scan.
 
 The edge tier runs one ExecuTorch CPU pass per Q-BAT learner over every window. The three learners run in parallel, so the **deepest** one sets the wall-clock cost, and the scan is linear in windows:
 
@@ -161,7 +173,7 @@ The edge tier runs one ExecuTorch CPU pass per Q-BAT learner over every window. 
 | `l6` | 3.60 s/window | ~9.2 days |
 | `l8` | 4.74 s/window | ~15 days |
 
-That is 143× OpenStack's window count, and no choice of three models brings it under a day — the fastest possible trio is still 4.6 days. The cost is inherent to scanning 11 M timesteps on a CPU edge tier, which is the deployment CESAL models.
+No choice of three models brings it under a day — the fastest possible trio is still 4.6 days. The cost is inherent to scanning a very large test split on a CPU edge tier, which is the deployment CESAL models.
 
 **For evaluation we suggest OpenStack**, which exercises the identical code path, models, routing policy, thresholding and scoring protocol, and which the paper reports alongside HDFS in Table 3. Run HDFS detection too if you have the time for it — nothing about it is unsupported. The claim under test — that escalating the most uncertain 10% of windows to the cloud recovers cloud-level accuracy from edge-level accuracy — is present in both columns.
 
@@ -263,7 +275,7 @@ conda activate cesal-edge
 python run.py infer os                # edge scan → routing → cloud re-check → final prediction
 ```
 
-OpenStack is the dataset to use here. `run.py infer hdfs` runs the identical pipeline but scans 221,540 windows instead of 1,553, which takes about 15 days — see [Why HDFS detection takes days](#why-hdfs-detection-takes-days).
+OpenStack is the dataset to use here. `run.py infer hdfs` runs the identical pipeline over a far larger test split, which takes about 15 days — see [Why HDFS detection takes days](#why-hdfs-detection-takes-days).
 
 One command runs the whole framework: Q-BAT scores every event on the edge, the Mahalanobis policy escalates the most uncertain 10%, BAT re-evaluates those, and the two are merged. The cloud stage is spawned as a `cesal-cloud` subprocess automatically — you never switch environments by hand.
 
@@ -576,7 +588,7 @@ Scores are deterministic given the published checkpoints, so the detection rows 
 
 ### What is scaled down, and why it still supports the paper
 
-- **OpenStack instead of HDFS for detection.** Identical code path, routing policy, thresholding and point-adjustment protocol — only the test set differs, and the paper reports Table 3 on both. The claim under test is that escalating 10% of windows recovers cloud-level F1 from edge-level F1, and that gap is present on both datasets. HDFS needs 221,540 windows — days of CPU — to say the same thing.
+- **OpenStack instead of HDFS for detection.** Identical code path, routing policy, thresholding and point-adjustment protocol — only the test set differs, and the paper reports Table 3 on both. The claim under test is that escalating 10% of windows recovers cloud-level F1 from edge-level F1, and that gap is present on both datasets. HDFS takes days of CPU to say the same thing.
 - **One LLM backbone instead of four.** Table 7's headline is the best backbone, Qwen2.5-14B-Instruct at 83.03 macro-F1. The other three support the secondary claim that the result is not backbone-specific; run the full sweep only if that claim is what you want to check.
 - **Both tiers on one machine.** The separation is real rather than simulated — separate Conda environments, separate processes, quantized `.pte` models on CPU for the edge tier — but the physical device and the network hop are absent. See [Step 3](#step-3--run-the-detection-pipeline); neither affects accuracy.
 - **Table 6 is not reproducible without hardware.** The edge resource measurements (latency, memory, power) were taken on physical Raspberry Pi 3B+/4B/5 boards. Nothing in this repository can stand in for them.
@@ -592,6 +604,28 @@ Following artifact evaluation, the evaluated revision will be deposited in a per
 ---
 
 ## Datasets and provenance
+
+### How the data is processed
+
+CESAL consumes logs in two stages. The first produced the files in [`data/`](data/) and was run once; the second runs automatically on every inference.
+
+**1 · Raw logs → event-ID sequences** *(already done; the result is bundled)*
+
+The HDFS and OpenStack raw logs from [loghub](https://github.com/logpai/loghub) are parsed into templates, each log line replaced by its template ID, and the IDs grouped into one sequence per session — by `block_id` for HDFS, by instance for OpenStack. Each line of `data/HDFS/hdfs_train.txt` is therefore one session: a space-separated list of event IDs. Sessions are split into train / test-normal / test-abnormal using the datasets' own anomaly labels.
+
+These parsed splits ship with the repository, so nothing needs downloading to reproduce Table 3.
+
+**2 · Event sequences → model input** *(runs on every inference)*
+
+[`cesal_core/data/preprocessor.py`](cesal_core/data/preprocessor.py) turns each event into a **context vector**: the `data_seq_len` (10) events that preceded it within the same session, padded with `NO_EVENT` where there is no history. [`cesal_core/data/loaders.py`](cesal_core/data/loaders.py) then standardises those vectors with a `StandardScaler` **fitted on the training split**, and slices them into non-overlapping windows of `win_size` timesteps — 100 for OpenStack, 50 for HDFS.
+
+So one model input is `[1, win_size, 10]`: `win_size` consecutive log events, each represented by its 10 preceding events, standardised. The same tensor shape is baked into the exported `.pte` files, which is why `win_size` must match between the config and the checkpoints.
+
+Because the scaler is fitted on the training split, `train.txt` is required even for inference-only runs.
+
+**Open-set classification data.** The HDFS open-set test set and retrieval knowledge base under `data/HDFS/open_set/` are rebuilt from loghub's `HDFS_v1/preprocessed/Event_traces.csv` with `python -m incident_response.data_prep`.
+
+### Provenance and ethics
 
 CESAL is evaluated on the **HDFS** and **OpenStack** log datasets, both public benchmarks distributed by [loghub](https://github.com/logpai/loghub). The parsed event-sequence splits the pipeline consumes are bundled under [`data/`](data/), so inference runs without downloading anything. The HDFS open-set test set and knowledge base can be rebuilt from loghub's `HDFS_v1/preprocessed/Event_traces.csv` with `python -m incident_response.data_prep`.
 

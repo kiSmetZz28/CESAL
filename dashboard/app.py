@@ -130,7 +130,7 @@ def _build_interesting_lines(dataset: str) -> None:
     import sqlite3 as _sqlite3
 
     # Map npy indices → raw log line_numbers using arithmetic, NOT a full DB
-    # fetch.  For HDFS the naive approach (get_test_line_numbers) returns 11 M
+    # fetch.  For HDFS the naive approach (get_test_line_numbers) returns many
     # rows and takes several minutes; direct arithmetic is O(1).
     # Line_numbers are assigned sequentially during ingest (no gaps), so
     # all_lns[db_pos] == first_test_ln + db_pos exactly.
@@ -910,7 +910,7 @@ async def _startup():
     # (i.e. a container where CLOUD_PYTHON == this interpreter).
     # Locally, the hybrid conda env subprocess is faster and uses the GPU.
     #
-    # In a container the 11 M-row HDFS ingest and the ~7 GB of PyTorch model
+    # In a container the full HDFS ingest and the ~7 GB of PyTorch model
     # weights would compete for the same RAM if started simultaneously.
     # Deferring model loading until ingest finishes keeps peak usage low:
     #   - ingest runs alone  →  HDFS DB is built faster with less I/O contention

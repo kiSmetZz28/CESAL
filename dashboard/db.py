@@ -475,7 +475,7 @@ def _sync_query_pipeline_raw(
 
         # ── Two-query path: ALL datasets, test split, with interesting lines ───
         # Solves two problems at once:
-        #  1. HDFS (11 M rows): CASE ORDER BY triggers a full filesort (minutes).
+        #  1. HDFS (very large table): CASE ORDER BY triggers a full filesort (minutes).
         #  2. All datasets: SQL ORDER BY within "interesting" tier uses
         #     line_number ASC, silently discarding the has_padding sort already
         #     applied to _interesting_lines.  Two-query restores that order so
