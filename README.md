@@ -153,7 +153,7 @@ Training is the expensive stage, so the checkpoints behind the paper's numbers a
 
 | Stage                                 | Command           |  OpenStack |            HDFS |
 | ------------------------------------- | ----------------- | ---------: | --------------: |
-| Unit tests                            | `pytest tests`    |        3 s |             3 s |
+| Core software checks                  | `run.py check`   |    seconds |         seconds |
 | **Detection, end to end**             | `run.py infer`    | **~3 h**   | **~15 days †** |
 | Cloud-only ensemble scoring           | `run.py eval`     |     ~8 min |            ~9 h |
 | Incident classification, one backbone | `run.py classify` |        n/a |       ~1 h 51 m |
@@ -259,12 +259,27 @@ Whenever Q-BAT is in the download set, `run.py download` also installs the **Exe
 
 **In → out.** Reads `data/<dataset>/` (bundled). Writes `checkpoints/bat/<dataset>/` (81 `.pth`, the BAT ensemble), `checkpoints/qbat/<dataset>/` (`.pte`; the 3 listed under `edge_models` in the inference config are Q-BAT), and `cesal_inference_pipeline/executorch/` (the runtime).
 
-**Check the install** — no checkpoints or GPU needed:
+**Check the install once after setup** — no checkpoints or GPU needed:
 
 ```bash
 conda activate cesal-edge
-python -m pytest tests -q             # 88 tests
+python run.py check
 ```
+
+Reports which software components were verified: detection energy and voting,
+threshold calibration, pipeline failure handling, training/conversion control
+flow, progress reporting, and response workflow selection. Skipped optional
+checks are identified explicitly. Detailed diagnostics are saved under
+`outputs/checks/`. After downloading the checkpoints, use `python run.py smoke os`
+to verify real model execution on a small input.
+
+Once these checks succeed, proceed directly to normal inference or evaluation.
+`install.sh` already runs `python run.py check`, so a successful installation
+counts as that check; you do not need to repeat it manually. Repeat the software
+checks after changing code, updating dependencies, rebuilding the environment,
+or when troubleshooting. Repeat the small experiment if you change its models,
+data or inference configuration, or need to verify model execution again.
+Normal `infer`, `eval`, and `all` commands do not run either check automatically.
 
 ### Step 3 — Run the detection pipeline
 
@@ -542,14 +557,55 @@ CESAL/
 
 The path below reaches the paper's central claim on OpenStack, the default detection dataset. HDFS detection is excluded because its edge scan takes about 15 days ([why](#why-hdfs-detection-takes-days)); optional tiers cover standalone HDFS classification and workflow selection. Each tier states its prerequisites, so you can stop after the claim you want to evaluate. Every command below also runs unchanged inside the [Docker container](#run-in-docker-no-environment-setup).
 
-**Tier 0 — does it work at all? (3 seconds, no checkpoints, no GPU)**
+**Tier 0 — verify the software setup once (seconds, no checkpoints, no GPU)**
+
+Skip this step if `install.sh` or `python run.py check` has already succeeded
+for your current code and environment. Checks are not required before each run;
+repeat them only after setup changes or when troubleshooting.
 
 ```bash
 conda activate cesal-edge
-python -m pytest tests
+python run.py check
 ```
 
-The tests cover EM-GMM thresholding, energy and voting logic, routing, failure propagation and response workflows. They need no checkpoints or GPU. Conversion checks are skipped when the optional export runtime is unavailable.
+The terminal reports **VERIFIED** for each component whose checks completed,
+or **NEEDS ATTENTION** if a check failed. Optional checks that could not run are
+marked separately. A successful run ends with **“Core software checks completed
+successfully”** and points to the next experiment. This checks software behavior;
+the experiment below verifies execution with actual pretrained models. LLM
+generation is verified separately in Tier 2.
+
+**Small real end-to-end detection experiment (CPU supported; checkpoints required)**
+
+Run this once after the checkpoints are available. If it has already succeeded
+with the same code, environment, models, data and configuration, skip directly
+to Tier 1. It is not a prerequisite that repeats before normal inference.
+
+```bash
+conda activate cesal-edge
+python run.py download os             # once; skip if the checkpoints are present
+python run.py smoke os
+```
+
+This runs the actual detection pipeline on **1,000 bundled OpenStack events**:
+five evenly spaced normal windows and five evenly spaced abnormal windows.
+It preprocesses the complete bundled splits and then selects these windows,
+preserving the full evaluation's event encoding, session histories and
+training-based scaling. It scores the ten 100-event windows with all three published
+Q-BAT models, routes 10% of events, verifies them with three published BAT models
+(`e3_k1_l3`, batch sizes 32/64/96), and merges and scores the predictions using
+point adjustment. No predictions are mocked and no models are retrained.
+
+Each run gets its own `outputs/smoke/os/run_*/` directory containing copies of the
+input splits, config, copied thresholds, an `experiment.json` record with input hashes and selected window indices,
+and the pipeline's output arrays. `READY.txt` is written only after the outputs
+have been checked. The closing summary confirms preprocessing, edge inference,
+routing, cloud verification and hybrid scoring completed. Published datasets,
+checkpoints, thresholds and the full evaluation configuration are preserved.
+
+This is an execution check using a small dataset and a smaller cloud ensemble.
+Its scores describe that subset; use Tier 1 to reproduce Table 3. It does not run
+LLM classification or cluster response actions.
 
 **Tier 1 — the detection claim (about 3 h 10 m, CPU + one GPU)**
 

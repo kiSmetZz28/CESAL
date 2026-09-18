@@ -56,11 +56,11 @@ conda run -n "$EDGE_ENV" --no-capture-output python -c "import executorch.exir, 
 test -x cesal_inference_pipeline/executorch/cmake-out/executor_runner \
     && echo "    executor_runner OK" \
     || { echo "ERROR: executor_runner missing — the ExecuTorch install did not complete."; exit 1; }
-conda run -n "$EDGE_ENV" --no-capture-output pytest tests -q
+conda run -n "$EDGE_ENV" --no-capture-output python run.py check
 
 cat <<MSG
 
-Done. Both environments are ready:
+Environment setup and core software checks completed:
 
     conda activate $EDGE_ENV     # edge tier: detection, conversion, dashboard
     conda activate $CLOUD_ENV    # cloud tier: BAT ensemble, LLM classification
@@ -68,5 +68,6 @@ Done. Both environments are ready:
 Next:
     conda activate $EDGE_ENV
     python run.py download os    # fetch the published checkpoints
+    python run.py smoke os       # verify real edge-to-cloud detection on a small input
     python run.py infer os       # reproduce Table 3 (about 3 h 20 m)
 MSG

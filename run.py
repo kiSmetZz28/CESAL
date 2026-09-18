@@ -2,6 +2,8 @@
 
 Usage
 -----
+  python run.py check                      # software checks, grouped by component
+  python run.py smoke    [os]              # small real edge-to-cloud experiment
   python run.py all      [DATASET]          # everything, start to finish
   python run.py download [DATASET] [TYPE]
   python run.py train    [DATASET]
@@ -56,7 +58,13 @@ def main() -> None:
     argv = sys.argv[1:]
     command = argv[0] if argv else "help"
 
-    if command == "download":
+    if command == "check":
+        _run_module("tools.check_install")
+
+    elif command == "smoke":
+        _run_module("tools.smoke", "--dataset", argv[1] if len(argv) > 1 else "os")
+
+    elif command == "download":
         dataset = argv[1] if len(argv) > 1 else None
         ckpt_type = argv[2] if len(argv) > 2 else None
         extra = []

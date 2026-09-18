@@ -281,6 +281,20 @@ def _run_one_edge_model(
     return (test_energy.reshape(-1, 1), thresh)
 
 
+def select_test_windows(windows, labels, indices=None):
+    """Optionally select complete windows after full-dataset preprocessing."""
+    if indices is None:
+        return windows, labels
+    selected = np.asarray(indices)
+    if (selected.ndim != 1 or selected.size == 0 or selected.dtype.kind not in 'iu'
+            or (selected < 0).any() or (selected >= len(windows)).any()
+            or (np.diff(selected.astype(np.int64)) <= 0).any()):
+        raise ValueError('test_window_indices must be a nonempty, increasing list of valid window indices.')
+    steps.current().detail('experiment window selection', f'{len(selected):,} of {len(windows):,} complete windows')
+    steps.current().detail('selected input encoding', 'full-dataset event encoding and training scaling retained')
+    return windows[selected], labels.reshape(len(windows), windows.shape[1])[selected].reshape(-1)
+
+
 def run(config: dict) -> EdgeResult:
     """Run all Q-BAT edge models in parallel and return an EdgeResult.
 
@@ -326,6 +340,10 @@ def run(config: dict) -> EdgeResult:
 
     test_windows = np.concatenate(test_windows_list, axis=0)
     ground_truth = np.concatenate(label_list).astype(int)
+    if config.get('test_window_indices') is not None:
+        test_windows, ground_truth = select_test_windows(
+            test_windows, ground_truth, config['test_window_indices'],
+        )
 
     step.detail("test windows", len(test_windows))
     step.detail("window size", win_size)

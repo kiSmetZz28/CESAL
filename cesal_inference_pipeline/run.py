@@ -123,6 +123,9 @@ def _load_edge_result(cfg: dict, source_dir: str) -> lad_qbat_edge.EdgeResult:
         step=cfg['win_size'], mode='test', dataset=cfg['dataset'],
     )
     windows = np.concatenate([x.numpy() for x, _ in loader], axis=0)
+    if cfg.get('test_window_indices') is not None:
+        labels = loader.dataset.test_labels[:len(windows) * cfg['win_size']]
+        windows, _ = lad_qbat_edge.select_test_windows(windows, labels, cfg['test_window_indices'])
 
     return lad_qbat_edge.EdgeResult(
         predictions=preds, ground_truth=gt, energy_matrix=energy,
