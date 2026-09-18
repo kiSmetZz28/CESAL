@@ -373,11 +373,10 @@ Conversion reports the size each model drops to and the total before and after, 
 
 ```bash
 conda activate cesal-cloud
-python run.py eval os            # per-model scores, then incremental ensemble
-python run.py eval os majority   # a single voting method instead of all three
+python run.py eval os            # per-model scores, then incremental majority-vote ensemble
 ```
 
-Scores each checkpoint alone, then adds them one at a time — weakest first — reporting F1 at a few ensemble sizes, the best voting method, and the gain over the strongest single model. This is where the **cloud-only** row of Table 3 comes from.
+Scores each checkpoint alone, then adds them one at a time — weakest first — reporting F1 at a few ensemble sizes and the gain over the strongest single model. The ensemble uses **majority voting**, as in the paper; this is where the **cloud-only** row of Table 3 comes from.
 
 > **Note.** `eval` recalibrates every model's EM-GMM threshold and **overwrites the bundled `outputs/<dataset>/thresholds_cloud.yaml` in place**, which changes what later `infer` runs do. The step says so as it happens. Back the file up first if you want to keep the shipped thresholds.
 

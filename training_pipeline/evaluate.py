@@ -48,7 +48,9 @@ def run_bat_ensemble(
     config_path : str
         Path to training YAML config.
     voting_method : {'majority', 'at least one', 'consensus', 'all'}
-        Voting strategy. 'all' returns a dict mapping method -> predictions.
+        Voting strategy. Majority is the rule the paper reports and the
+        default; the others remain available for comparison. 'all' evaluates
+        every rule and returns a dict mapping method -> predictions.
     log_intermediate : bool
         Log per-model and incremental ensemble metrics if True.
     """
@@ -69,7 +71,7 @@ def run_bat_ensemble(
     with rep.step("score") as st:
         st.detail("config", config_path)
         st.detail("learners to score", len(combinations))
-        st.detail("voting methods evaluated", voting_method)
+        st.detail("voting", voting_method)
         st.expect("learners", len(combinations))
 
         for values in combinations:
@@ -125,7 +127,7 @@ def run_bat_ensemble(
 
     with rep.step("ensemble") as st:
         st.detail("ensemble order", "weakest learner first")
-        st.detail("voting methods", ", ".join(methods))
+        st.detail("voting", ", ".join(methods))
         st.expect("ensembles", n * len(methods))
 
         for step in range(1, n + 1):
@@ -140,7 +142,8 @@ def run_bat_ensemble(
         st.phase("ensemble performance by size")
         for method in methods:
             pts = "  ".join(f"{k}:{v:.2f}" for k, v in sorted(curve[method].items()))
-            logging.info("   %-14s F1 by ensemble size — %s", method, pts)
+            logging.info("%s%-14s F1 by ensemble size — %s",
+                         " " * steps.body_indent(), method, pts)
 
         st.phase(f"final vote across all {n} learners")
         all_preds = np.concatenate([r[2] for r in model_records], axis=1)
@@ -150,11 +153,14 @@ def run_bat_ensemble(
             results[method] = final
 
         best_method = max(methods, key=lambda m: curve[m].get(n, 0.0))
-        st.outcome(**{
-            "ensembles scored": n * len(methods),
-            "best voting method": f"{best_method} (F1 {curve[best_method].get(n, 0.0):.2f})",
-            "gain over best single learner": f"{curve[best_method].get(n, 0.0) - f1s[-1]:+.2f} F1",
-        })
+        outcome = {"ensembles scored": n * len(methods)}
+        if len(methods) > 1:
+            # Only meaningful when several rules were compared.
+            outcome["best voting method"] = (f"{best_method} "
+                                             f"(F1 {curve[best_method].get(n, 0.0):.2f})")
+        outcome["gain over best single learner"] = (
+            f"{curve[best_method].get(n, 0.0) - f1s[-1]:+.2f} F1")
+        st.outcome(**outcome)
 
     rep.finish(outputs=base_config.get('model_save_path', ''))
 
@@ -176,9 +182,10 @@ if __name__ == '__main__':
     parser.add_argument(
         '--voting',
         type=str,
-        default='all',
-        choices=['all', 'majority', 'at least one', 'consensus'],
-        help='Voting method for the ensemble.',
+        default='majority',
+        choices=['majority', 'all', 'at least one', 'consensus'],
+        help="Voting rule for the ensemble (default: majority, as in the paper; "
+             "'all' also reports at-least-one and consensus).",
     )
     args, _ = parser.parse_known_args()
 

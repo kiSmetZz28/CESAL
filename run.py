@@ -88,7 +88,9 @@ def main() -> None:
 
     elif command == "eval":
         dataset = argv[1] if len(argv) > 1 else "os"
-        voting = argv[2] if len(argv) > 2 else "all"
+        # Majority voting is what the paper reports; pass "all", "consensus" or
+        # "at least one" as a third argument to evaluate the other rules too.
+        voting = argv[2] if len(argv) > 2 else "majority"
         print(f"[run] Evaluating BAT ensemble — dataset: {dataset}  voting: {voting}")
         _run_module("training_pipeline.evaluate",
                     "--config", f"configs/training/{dataset}.yaml",

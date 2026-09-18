@@ -48,8 +48,11 @@ def evaluate(gt: np.ndarray, pred: np.ndarray, prefix: str = "",
     pred = pred.astype(int)
 
     accuracy = accuracy_score(gt, pred)
+    # zero_division=0 is the value sklearn already uses when a learner flags
+    # nothing; stating it explicitly only drops the warning, which otherwise
+    # fired once per such learner and buried the run's own output.
     precision, recall, f_score, _ = precision_recall_fscore_support(
-        gt, pred, average="binary"
+        gt, pred, average="binary", zero_division=0
     )
     scores = Scores(accuracy * 100, precision * 100, recall * 100, f_score * 100)
 
