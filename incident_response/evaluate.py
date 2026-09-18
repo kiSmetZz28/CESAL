@@ -115,7 +115,7 @@ def evaluate_model(model_name: str, cfg: Dict[str, Any], retriever, test_df: pd.
 
     params = effective_params(model_name, cfg)
     logging.debug("Effective params: %s", params)
-    steps.current().phase(f"labelling {len(test_df):,} sequences with {model_name.split('/')[-1]}")
+    steps.current().phase(f"classifying {len(test_df):,} sequences with {model_name.split('/')[-1]}")
 
     step = steps.current()
     step.progress_note(model_name.split("/")[-1])
@@ -212,13 +212,13 @@ def main() -> None:
         torch.manual_seed(seed)
         os.makedirs(cfg["output_dir"], exist_ok=True)
 
-        st.phase("reading the abnormal sequences")
+        st.phase("loading the abnormal sequences")
         test_df, kb_df = load_data(cfg)
-        st.phase("indexing the reference library")
+        st.phase("indexing the retrieval corpus")
         kb_docs = build_kb_docs_from_csv(kb_df)
         logging.debug("Test label distribution:\n%s", test_df[cfg["label_col"]].value_counts())
 
-        st.detail("sequences to label", len(test_df))
+        st.detail("sequences to classify", len(test_df))
         st.detail("reference incidents", len(kb_docs))
         st.detail("known incident types", len(KNOWN_LABELS))
         st.detail("fallback label", OTHER_LABEL)

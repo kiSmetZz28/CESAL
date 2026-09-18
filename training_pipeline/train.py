@@ -110,7 +110,7 @@ def main() -> None:
 
         st.outcome(**{
             "models trained": f"{trained}/{len(combinations)}",
-            "models failed": failed,
+            "learners failed": failed,
             "checkpoints on disk": on_disk,
             "slowest model": f"{slowest[0]} ({steps.fmt_secs(slowest[1])})" if slowest[0] else "—",
         })

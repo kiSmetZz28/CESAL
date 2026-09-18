@@ -65,8 +65,8 @@ def run_bat_ensemble(
     # ── Step 1: score every model on its own ──────────────────────────────
     with rep.step("score") as st:
         st.detail("config", config_path)
-        st.detail("models to score", len(combinations))
-        st.detail("voting to test", voting_method)
+        st.detail("learners to score", len(combinations))
+        st.detail("voting methods evaluated", voting_method)
         st.expect("models", len(combinations))
 
         for values in combinations:
@@ -98,9 +98,9 @@ def run_bat_ensemble(
         n_thresh = st._counters.get("thresholds written", {}).get("done", 0)
         st.outcome(**{
             "models scored": len(model_records),
-            "weakest model F1": f"{f1s[0]:.2f}",
-            "median model F1": f"{f1s[len(f1s) // 2]:.2f}",
-            "best model F1": (f"{f1s[-1]:.2f} (e{best_params['num_epochs']}"
+            "weakest learner F1": f"{f1s[0]:.2f}",
+            "median learner F1": f"{f1s[len(f1s) // 2]:.2f}",
+            "best learner F1": (f"{f1s[-1]:.2f} (e{best_params['num_epochs']}"
                               f"_k{best_params['k']}_l{best_params['e_layer_num']}"
                               f"_b{best_params['batch_size']})"),
             "thresholds rewritten": n_thresh,
@@ -121,7 +121,7 @@ def run_bat_ensemble(
     results = {}
 
     with rep.step("ensemble") as st:
-        st.detail("ensemble order", "weakest model first")
+        st.detail("ensemble order", "weakest learner first")
         st.detail("voting methods", ", ".join(methods))
         st.expect("ensembles", n * len(methods))
 
@@ -134,12 +134,12 @@ def run_bat_ensemble(
                     curve[method][step] = sc.f_score
                 st.tick("ensembles")
 
-        st.phase("how the ensemble grows")
+        st.phase("ensemble performance by size")
         for method in methods:
             pts = "  ".join(f"{k}:{v:.2f}" for k, v in sorted(curve[method].items()))
             logging.info("   %-14s F1 by ensemble size — %s", method, pts)
 
-        st.phase(f"final vote across all {n} models")
+        st.phase(f"final vote across all {n} learners")
         all_preds = np.concatenate([r[2] for r in model_records], axis=1)
         for method in methods:
             final = ensemble_method(method, all_preds)

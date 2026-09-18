@@ -62,64 +62,78 @@ __all__ = [
 
 INFER_STEPS: List[Tuple[str, str, str]] = [
     ("edge",   "Edge-side detection with Q-BAT",
-     "Small on-device models read every log window and flag anything unusual."),
+     "The quantized Q-BAT ensemble scores every test window on the edge device and\n"
+     "flags those whose energy exceeds its calibrated threshold."),
     ("route",  "Mahalanobis uncertainty routing",
-     "Windows the device was least sure about are picked out for a second opinion."),
+     "A Mahalanobis distance policy selects the windows closest to the decision\n"
+     "boundary — the least certain — for cloud verification."),
     ("cloud",  "Cloud-side verification with BAT",
-     "A much larger ensemble in the cloud re-examines only those uncertain windows."),
+     "The full-precision BAT ensemble re-evaluates only the escalated windows,\n"
+     "at higher capacity than the edge tier can provide."),
     ("hybrid", "Collaborative merge and scoring",
-     "Cloud answers replace the device's for those windows, and the result is scored."),
+     "Cloud verdicts supersede the edge verdicts for the escalated windows, and the\n"
+     "merged prediction is scored against ground truth."),
 ]
 
 TRAIN_STEPS: List[Tuple[str, str, str]] = [
     ("plan",  "Plan the BAT ensemble",
-     "Work out how many models to build and what settings each one gets."),
+     "Enumerate the hyper-parameter grid and resolve the configuration of each\n"
+     "base learner."),
     ("sweep", "Train the EM-AT base learners",
-     "Each model learns what normal log activity looks like, so it can spot the abnormal."),
+     "Each EM-AT learner is trained on normal log activity; deviation from that\n"
+     "reconstruction is the anomaly signal."),
 ]
 
 CONVERT_STEPS: List[Tuple[str, str, str]] = [
     ("locate",  "Locate the trained EM-AT checkpoints",
-     "Check which trained models are on disk and ready to be quantized."),
+     "Resolve which trained checkpoints are present and eligible for conversion."),
     ("convert", "Quantize and export for the edge device",
-     "Each model is quantized and repackaged so it can run on small edge hardware."),
+     "Each learner is quantized to int8 activations and int4 weights, then exported\n"
+     "as an ExecuTorch program for edge deployment."),
 ]
 
 EVAL_STEPS: List[Tuple[str, str, str]] = [
     ("score",    "Score each EM-AT model on its own",
-     "Every trained model is run over the test logs to see how well it does alone."),
+     "Each learner is evaluated independently to establish its standalone detection\n"
+     "performance and calibrate its threshold."),
     ("ensemble", "Grow the BAT ensemble",
-     "Models are added one at a time to show what the group gains over any single one."),
+     "Learners are accumulated incrementally to quantify the ensemble gain over any\n"
+     "individual member."),
 ]
 
 # `run.py download` — fetch the checkpoints and runtime the pipeline needs.
 DOWNLOAD_STEPS: List[Tuple[str, str, str]] = [
     ("check", "Check what is already here",
-     "Look at what has been downloaded before so nothing is fetched twice."),
+     "Inventory the local checkpoints and runtime so nothing is fetched twice."),
     ("fetch", "Download the missing pieces",
-     "Pull the trained models, and the runtime the edge device needs to run them."),
+     "Retrieve the published checkpoints and the ExecuTorch runtime the edge tier\n"
+     "requires."),
 ]
 
 # `run.py classify` — benchmark the LLM incident classifier (paper Table 7).
 CLASSIFY_STEPS: List[Tuple[str, str, str]] = [
     ("prepare",  "Build the RAG knowledge base",
-     "Load the abnormal log sequences and the reference library they are matched against."),
+     "Load the abnormal sequences and the reference corpus used for retrieval."),
     ("classify", "Open-set classification with the LLM",
-     "For every sequence, similar known incidents are retrieved and the model names the type."),
+     "For each sequence, similar incidents are retrieved and the language model\n"
+     "assigns a known type or marks it as unknown."),
     ("score",    "Score against the ground-truth types",
-     "Compare the labels against the known answers and write the per-class results."),
+     "Compare the assigned labels against ground truth and write per-class metrics."),
 ]
 
 # `run.py respond` — detections → queues → classification → response workflows.
 RESPOND_STEPS: List[Tuple[str, str, str]] = [
     ("queue",    "Fill the anomaly queues Q_E / Q_C",
-     "Sessions the detector flagged are filed by who caught them — the device or the cloud."),
+     "Flagged sessions are queued by the tier that detected them — edge (Q_E) or\n"
+     "cloud (Q_C)."),
     ("classify", "Open-set classification of each incident",
-     "Each queued sequence is matched to a known incident type, or marked as an unknown one."),
+     "Each queued sequence is assigned a known incident type, or marked as an\n"
+     "unknown type for human review."),
     ("workflow", "Select the response workflow",
-     "Known types map to a predefined response plan; unknown ones are held for a human."),
+     "Known types map to their predefined response workflow; unknown types are\n"
+     "escalated for human investigation."),
     ("score",    "Score the classification",
-     "Check the identified types against the known answers for the sessions that have them."),
+     "Score the assigned types against ground truth for the labelled sessions."),
 ]
 
 # Fixed width keeps banners aligned in both the terminal and the log file.

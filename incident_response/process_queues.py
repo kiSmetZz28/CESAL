@@ -57,19 +57,19 @@ def classify_sequences(sequences, model_name: str, cfg, cache_path: str, load_in
     todo = [s for s in sequences if s not in finished]
     step = steps.current()
     if len(sequences) != len(todo):
-        step.detail("already done earlier", f"{len(sequences) - len(todo):,} (resuming)")
+        step.detail("already present", f"{len(sequences) - len(todo):,} (resuming)")
     if not todo:
         step.note("Every sequence was already classified in an earlier run.")
         return done
 
     params = effective_params(model_name, cfg)
     logging.debug("Model %s | effective params: %s", model_name, params)
-    step.phase("indexing the reference library")
+    step.phase("indexing the retrieval corpus")
     retriever = LexicalSequenceRetriever(build_kb_docs_from_csv(pd.read_csv(cfg["kb_csv"])),
                                          length_penalty=params["length_penalty"])
     step.phase(f"loading {model_name}")
     tokenizer, model = load_llm(model_name, load_in_4bit=load_in_4bit)
-    step.phase(f"identifying {len(todo):,} distinct sequences")
+    step.phase(f"classifying {len(todo):,} distinct sequences")
     step.expect("sequences", len(todo))
 
     start, n_llm = time.perf_counter(), 0
@@ -123,7 +123,7 @@ def evaluate_incidents(incidents: pd.DataFrame, cfg, model_name: str, out_path: 
     # Sessions whose true type is unknown cannot be scored; say so rather than
     # quietly reporting a number computed over a subset.
     step.detail("detected abnormal sessions", len(abnormal))
-    step.detail("with a known true type", f"{len(typed):,} "
+    step.detail("with ground-truth labels", f"{len(typed):,} "
                                           f"({100 * len(typed) / max(len(abnormal), 1):.1f}% — "
                                           f"the rest cannot be scored)")
 

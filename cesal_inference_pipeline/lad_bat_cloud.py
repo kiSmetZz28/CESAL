@@ -131,7 +131,7 @@ def run(windows: np.ndarray, config: dict) -> np.ndarray:
 
     step = steps.current()
 
-    step.phase("reading calibration thresholds")
+    step.phase("loading calibrated thresholds")
     thresholds   = _load_thresholds(thresholds_yaml)
     search_keys  = ['num_epochs', 'k', 'e_layer_num', 'batch_size']
     combinations = list(product(*[config[k] for k in search_keys]))
@@ -146,7 +146,7 @@ def run(windows: np.ndarray, config: dict) -> np.ndarray:
     step.phase(f"loading the routed windows onto {device}")
     x = torch.from_numpy(windows).float().to(device)
 
-    step.phase(f"re-scoring them with {len(combinations)} BAT models")
+    step.phase(f"re-scoring the escalated windows with {len(combinations)} BAT learners")
 
     if max_workers == 1:
         # Sequential — no thread pool overhead, one model in VRAM at a time.
@@ -180,11 +180,11 @@ def run(windows: np.ndarray, config: dict) -> np.ndarray:
             f"were skipped (missing file or threshold) — voting with {len(all_preds)}."
         )
 
-    step.phase(f"taking the {voting} vote across the ensemble")
+    step.phase(f"applying {voting} voting across the ensemble")
     verdict = ensemble_method(voting, np.concatenate(all_preds, axis=1))
     n_flagged = int(verdict.sum())
     step.outcome(**{
-        "models voted": f"{len(all_preds)}/{len(combinations)}",
+        "learners voted": f"{len(all_preds)}/{len(combinations)}",
         "events re-checked": len(verdict),
         "confirmed anomalous": f"{n_flagged:,} "
                                f"({n_flagged / max(len(verdict), 1) * 100:.2f}%)",

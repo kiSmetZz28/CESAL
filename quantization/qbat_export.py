@@ -190,7 +190,7 @@ if __name__ == "__main__":
             st.warn(f"{len(missing)} of {len(combos)} trained models are not on disk "
                     f"and will be skipped — run 'train' first to create them.")
         st.outcome(**{
-            "models requested": len(combos),
+            "learners requested": len(combos),
             "ready to convert": len(pending),
             "missing": len(missing),
             "size on disk now": f"{sum(_mb(p[1]) for p in pending):.1f} MB",
@@ -226,8 +226,8 @@ if __name__ == "__main__":
             st.tick("models")
 
         st.outcome(**{
-            "models converted": f"{converted}/{len(pending)}",
-            "models failed": failed,
+            "learners converted": f"{converted}/{len(pending)}",
+            "learners failed": failed,
             "total size before": f"{src_mb:.1f} MB",
             "total size after": f"{dst_mb:.1f} MB",
             "space saved": (f"{src_mb - dst_mb:.1f} MB "

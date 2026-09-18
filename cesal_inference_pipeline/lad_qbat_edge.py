@@ -303,7 +303,7 @@ def run(config: dict) -> EdgeResult:
     # Load pre-computed thresholds (must exist before running inference)
     step = steps.current()
 
-    step.phase("reading calibration thresholds")
+    step.phase("loading calibrated thresholds")
     thresh_path = config.get('threshold_output',
                              str(Path('outputs') / dataset.lower() / 'thresholds_edge.yaml'))
     stored_thresholds = _load_thresholds(thresh_path)
@@ -311,7 +311,7 @@ def run(config: dict) -> EdgeResult:
     ensemble_param = [config.get('num_epochs', 3), config.get('k', 3),
                       config.get('e_layer_num', 3), batch_size]
 
-    step.phase("parsing log data into windows")
+    step.phase("parsing log sequences into windows")
     test_loader = get_loader_segment(
         ensemble_param, data_path,
         batch_size=batch_size, win_size=win_size, step=win_size,
@@ -366,7 +366,7 @@ def run(config: dict) -> EdgeResult:
             f"skipped (missing checkpoint or threshold) — scoring with {len(valid)}."
         )
 
-    step.phase("combining the models' votes")
+    step.phase("aggregating learner votes")
     test_energy_cols = [r[0] for r in valid]
     thresholds_list  = [r[1] for r in valid]
 

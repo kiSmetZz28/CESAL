@@ -126,7 +126,7 @@ def main() -> None:
                        steps=steps.RESPOND_STEPS, about=_ABOUT)
 
     with rep.step("queue") as st:
-        st.phase("reading the detector's verdicts")
+        st.phase("reading the detector predictions")
         sequences, ground_truth = load_sessions(data_path)
         edge, hybrid, routed = final_predictions(out_dir)
         energy = np.load(os.path.join(out_dir, "energy_matrix.npy"), mmap_mode="r")
@@ -134,9 +134,9 @@ def main() -> None:
         st.detail("events scored", f"{len(hybrid):,} of {sum(map(len, sequences)):,}")
         # routed counts every event sent to the cloud, not just the flagged ones.
         st.detail("events flagged", f"{int(hybrid.sum()):,}")
-        st.detail("events re-checked in cloud", int(routed.sum()))
+        st.detail("events re-verified in cloud", int(routed.sum()))
 
-        st.phase("filing each detected session into a queue")
+        st.phase("queueing each detected session by originating tier")
         records = build_queues(sequences, ground_truth, edge, hybrid, routed, energy)
         os.makedirs(cfg["queue_dir"], exist_ok=True)
         counts = {}

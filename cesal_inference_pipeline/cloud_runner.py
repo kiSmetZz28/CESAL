@@ -140,7 +140,7 @@ def main() -> None:
         per_line = os.path.exists(lines_path)
         edge_flagged = int(edge_preds_raw.sum())
 
-        st.phase("replacing edge verdicts with the cloud's")
+        st.phase("superseding edge verdicts with cloud verdicts")
         hybrid_preds = edge_preds_raw.copy()
         if per_line:
             # Per-line predictions mapped directly back via index.
@@ -156,7 +156,7 @@ def main() -> None:
         st.detail("edge verdicts replaced", len(use_indices) if per_line else len(routed_indices))
 
         hybrid_flagged = int(hybrid_preds.sum())
-        st.phase("scoring the run against the known answers")
+        st.phase("scoring the merged prediction against ground truth")
         hybrid_adj = _point_adjust(ground_truth, hybrid_preds)
         np.save(os.path.join(out_base, "hybrid_preds.npy"), hybrid_adj)
         evaluate(ground_truth, hybrid_adj, prefix="Hybrid")
