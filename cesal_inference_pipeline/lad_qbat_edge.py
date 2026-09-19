@@ -142,7 +142,7 @@ def _run_via_runner(pte_path: str, windows: np.ndarray, model_name: str) -> np.n
 
     Writes a temporary data file inside the executorch directory so relative
     paths resolve correctly, runs the binary, reads the score file, and
-    returns a 1-D float32 energy array of length N (one score per window).
+    returns a 1-D float32 energy array (one score per event in complete windows).
     """
     pred_dir    = _EXECUTORCH_DIR / "prediction_results"
     dataset_dir = _EXECUTORCH_DIR / "dataset"

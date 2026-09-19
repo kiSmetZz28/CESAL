@@ -1,22 +1,21 @@
-# CESAL — ACSAC 2026 artifact metadata (Available, Functional, Reproduced)
+# CESAL — ACSAC 2026 artifact submission metadata
+# Requirements: https://www.acsac.org/2026/submissions/papers/artifacts/
+# Packaging tool: https://github.com/jelenamirkovic/artmeta
 #
-# ACSAC requires the metadata.toml produced by the official packaging tool
-# (https://github.com/jelenamirkovic/artmeta). This file pre-answers every question that tool
-# asks, so the tool loads it and each answer is kept by pressing Enter. The tool needs
-# Python >= 3.11 (it imports tomllib) and `pip install termcolor tomli_w`. Three questions are
-# not stored in the file and must be typed each run: public infrastructure -> n, "more claims?"
-# -> y after claims 1-4 and n after claim 5, survey instruments only -> n.
+# These are the official tool's fields. Requested badges are Available,
+# Functional and Reproduced; they have not been awarded. The tool's single
+# badge field below requests evaluation toward Reproduced.
 #
-# artmeta accepts a single badge; "r" is the highest level and is the one that asks for the
-# Functional/Reproduced fields (infrastructure, install script, claims, hw/sw/api/gui).
+# To regenerate with artmeta.py, use Python >= 3.11 with termcolor and tomli_w.
+# Keep the populated answers. For questions the tool does not save, answer:
+# public infrastructure: n (not yet validated there); more claims: y after
+# claims 1-3, n after claim 4; survey instruments only: n.
 
 badge = "r"
-
 artifact_url = "https://github.com/kiSmetZz28/CESAL"
+cd = "b" # Source code and bundled parsed datasets.
 
-cd = "b"   # both code and data: the full CESAL source, plus the HDFS/OpenStack log splits
-           # and the open-set knowledge base bundled under data/
-
+# Incomplete paper citation; add final authors/publication identifiers when available.
 citation = """
 @inproceedings{cesal2026,
   title     = {Cloud--Edge Security Analytics for Log-Based Incident Detection,
@@ -25,68 +24,87 @@ citation = """
   year      = {2026}
 }
 """
-
 license_url = "https://github.com/kiSmetZz28/CESAL/blob/main/LICENSE"
 
-# ── Code artifact fields (asked because badge = "r") ──────────────────────────
-infrastructure_constraints = "Evaluation needs a Linux x86-64 machine with an NVIDIA GPU. The experiments were developed and measured on local workstations (i7-14700, NVIDIA RTX 2000 Ada 16 GB, 32 GB RAM, Ubuntu 24.04.2), not on public infrastructure. The paper's edge resource measurements (Table 6) were taken on physical Raspberry Pi 3B+/4B/5 boards and are not offered for evaluation."
-infrastructure_access = ""
-
+infrastructure_constraints = """
+The reported experiments were run on local Linux workstations. Public-infrastructure deployment has not yet been validated; this does not mean private infrastructure is required.
+The software checks and small detection experiment run on an x86-64 Linux CPU. Full evaluation timings assume an NVIDIA GPU for BAT scoring and LLM classification. Evaluators can use a compatible public research machine with the supplied Dockerfile or native installation script.
+Physical Raspberry Pi 3B+/4B/5 boards are required for Table 6's device measurements. Those measurements are outside the proposed evaluation scope, and remote board access is not provided.
+"""
+infrastructure_access = """
+No author-hosted service, private account or SSH access is required for the proposed experiments. Use the public repository on an evaluator-controlled machine; installation and Docker instructions are in README.md.
+"""
 install_script = "https://github.com/kiSmetZz28/CESAL/blob/main/install.sh"
 
-use = "Research artifact for reproducing the paper's detection results (Table 3), open-set incident classification (Table 7) and response-workflow mapping (Table 1) on the public HDFS and OpenStack log benchmarks. It is not a production intrusion-detection or incident-response system: the response module selects and prints workflows but never executes them. Detection is evaluated on OpenStack because the HDFS edge scan, while fully supported, takes about 15 days of CPU time and so exceeds the one-day guidance. Edge latency, memory and power figures need Raspberry Pi hardware and cannot be reproduced on a workstation."
+use = """
+Research artifact containing source code, parsed HDFS/OpenStack splits, inference configurations, calibration thresholds, software checks and response workflows. Published BAT/Q-BAT checkpoints and the ExecuTorch runtime are downloaded with python run.py download os. The Dockerfile and native installation script are included.
 
-destructive = "None. The artifact reads the bundled data and writes inside the repository (checkpoints/, outputs/, logs/, and the ExecuTorch runtime under cesal_inference_pipeline/), installs Python packages into the active Conda environment, and caches LLM weights in ~/.cache/huggingface. Response workflows are selected and printed, never executed against any system. Outside the evaluation path, `run.py convert` writes to checkpoints/qbat/ and replaces downloaded Q-BAT models of the same name."
+Dataset accounting: preprocessing reports source references, bundled sequence counts, per-event context rows, standardization and complete model windows. OpenStack source-message descriptions use the paper's counts: 207,820 total, 52,312 training, 137,074 normal test (derived from the split), and 18,434 abnormal test. Actual generated context rows and windows are reported separately from the current bundled inputs; these runtime counts are not replaced with paper references. HDFS training and abnormal-session counts match Section 4.1 (4,855 and 16,838), but bundled total sessions are 575,059 versus 575,061 in the original anomaly_label.csv (two fewer normal sessions). HDFS bundled parsed events total 11,172,157 versus 11,175,629 source messages in the paper. README.md documents these stages and windowing losses. Inputs are used unchanged, and optional raw files are not scanned during normal inference.
 
-claim1 = "On OpenStack, Q-BAT alone detects anomalies at the edge (Table 3, Edge row), and routing the most uncertain 10% of windows to the cloud BAT ensemble recovers cloud-level accuracy (Table 3, CESAL row)."
+One-time software check: in cesal-edge, run python run.py check. It reports VERIFIED by component and ends with Core software checks completed successfully. Failures and skipped checks are identified; diagnostics are saved under outputs/checks/. A successful install.sh already includes this check. Repeat after relevant code/environment changes or when troubleshooting, not before every normal run. Software checks alone do not establish that pretrained models or LLMs have executed.
+
+Small real experiment: after downloading checkpoints, run python run.py smoke os once. It selects ten complete OpenStack windows (500 normal and 500 abnormal events) after full-dataset preprocessing, preserving event encoding and training-based scaling. It uses three published Q-BAT models, the existing 10% event-routing policy and three BAT models. The observed local CPU runtime was about 80 seconds; allow roughly 1-2 minutes on comparable hardware, excluding setup/downloads. Each run writes under outputs/smoke/os/run_*/, including experiment.json, copied inputs/thresholds, output arrays, pipeline.log and READY.txt after validation. The terminal shows execution progress and component readiness without detection metrics or anomaly-count summaries. Full pipeline output is retained in pipeline.log for troubleshooting; subset metrics there are not Table 3 results. Normal evaluation retains the full test set and all 81 BAT cloud models, with its usual score reporting.
+
+Paper-result evaluation: claims 1-4 below cover OpenStack detection (Table 3), standalone HDFS classification (Table 7), and workflow selection (Table 1). Together these take roughly 5-6 hours after setup/downloads on the documented workstation. Detection scores use point adjustment; classification scores use macro averaging.
+
+Full HDFS detection is supported but its estimated 15-day CPU edge scan is outside the proposed one-day evaluation path. OpenStack is also evaluated in the paper and exercises the same detection implementation. HDFS classification uses the bundled labelled test set independently of detection. The full detection-to-response queue path requires HDFS detection outputs and is not part of the short path. Workflows are selected and printed; no mitigation is executed against a cluster. This is a research artifact, not a production response service.
+
+Public release: CESAL source, parsed data, configurations, thresholds and checks are public; model/runtime downloads are linked by the supplied tools. Third-party datasets and models retain their licenses and access conditions. The README commits to depositing the evaluated revision in a permanent public archive; that deposit and its DOI are pending. GitHub is the current evaluation location, not a permanent-archive identifier.
+"""
+
+destructive = """
+No workflow executes actions against an external cluster. Local files can be overwritten: infer replaces results in its configured output directory; eval recalibrates and replaces outputs/<dataset>/thresholds_cloud.yaml; train and convert can replace matching checkpoints; classify can replace its results and summary files.
+Run inference before evaluation as documented, and back up the cloud threshold file before eval if later inference must reuse the shipped calibration. These are existing pipeline behaviors, unchanged by readiness checks.
+The check and smoke commands use separate run directories; smoke copies its inputs and thresholds without changing the full evaluation configuration.
+Installation creates or updates Conda environments and dependencies. Downloads write checkpoints/runtime files locally; LLM weights use the Hugging Face cache. Logs and repeated experiment outputs consume additional disk space.
+"""
+
+# Paper claims only. Readiness checks above do not reproduce paper scores.
+claim1 = "On OpenStack, Q-BAT provides edge-side detection, and CESAL's 10% event routing with BAT cloud verification achieves the collaborative detection result in Table 3."
 script1 = "https://github.com/kiSmetZz28/CESAL/blob/main/README.md#the-short-path-about-three-hours"
-expected1 = "`python run.py download os` then `python run.py infer os` (in cesal-edge, about 3 h 20 m) prints Table 3's OpenStack rows at the end of the run: Q-BAT edge only P 98.09 / R 100.00 / F1 99.03, and CESAL with 10% routed to the cloud P 99.90 / R 100.00 / F1 99.95. Scores are deterministic with the published checkpoints; treat agreement within 0.1 F1 as reproduced."
+expected1 = """
+In cesal-edge, run python run.py download os once, then python run.py infer os. Inference takes about 3-3.5 hours on the documented workstation and starts the cloud environment automatically. The final Edge and Hybrid rows report point-adjusted percentage scores. Table 3 references: Edge P 98.09, R 100.00, F1 99.03; Hybrid P 99.90, R 100.00, F1 99.95. Proposed reproduction tolerance: 0.1 percentage points in F1. Predictions and ground truth are saved under outputs/os/. Do not compare smoke-experiment subset scores against these full-test-set references.
+"""
 
-claim2 = "The full-precision BAT ensemble alone is the accuracy ceiling on OpenStack (Table 3, BAT cloud-only row)."
+claim2 = "The full 81-model BAT ensemble achieves the OpenStack cloud-only detection result in Table 3 using majority voting."
 script2 = "https://github.com/kiSmetZz28/CESAL/blob/main/README.md#evaluate-the-ensemble"
-expected2 = "`python run.py eval os` (about 8 min on one GPU, after the download in claim 1) prints Table 3's BAT cloud-only row on OpenStack: P 99.99 / R 100.00 / F1 99.99, for majority voting across all 81 models. Treat agreement within 0.1 F1 as reproduced."
+expected2 = """
+After claim 1, switch to cesal-cloud and run python run.py eval os majority. This takes about 8 minutes on the documented GPU. The final majority-vote result reports point-adjusted percentages: P 99.99, R 100.00, F1 99.99. Proposed reproduction tolerance: 0.1 percentage points in F1. Evaluation also rewrites cloud thresholds as described in destructive; preserve the shipped file if subsequent inference should use its calibration.
+"""
 
-claim3 = "Retrieval-augmented LLM open-set classification labels detected HDFS incidents as one of 10 known anomaly types or unknown, with Qwen2.5-14B-Instruct as the best backbone (Table 7)."
+claim3 = "On the bundled HDFS open-set classification test set, retrieval-augmented Qwen2.5-14B-Instruct achieves the best-backbone result reported in Table 7 across ten known anomaly types and the unknown category."
 script3 = "https://github.com/kiSmetZz28/CESAL/blob/main/README.md#step-4--incident-classification-and-controlled-response-hdfs"
-expected3 = "`python run.py classify qwen2.5-14b-instruct` (in cesal-cloud, about 1 h 51 m on one GPU, ~28 GB of weights) writes outputs/hdfs/llm/model_summary.csv, whose Qwen/Qwen2.5-14B-Instruct row gives Table 7's best-backbone result: macro P 79.71 / R 92.07 / F1 83.03. LLM decoding is greedy, but backbone and kernel versions can move macro-F1 by a few tenths; treat agreement within 1 F1 as reproduced. Per-class reference values are in outputs/hdfs/llm/table7_reference_metrics.csv."
+expected3 = """
+In cesal-cloud, run python run.py classify qwen2.5-14b-instruct. It uses the bundled 4,124-sequence test set and knowledge base; no HDFS detection run is required. Allow about 1 h 51 m on the documented GPU after downloading approximately 28 GB of model weights. The Qwen/Qwen2.5-14B-Instruct row in outputs/hdfs/llm/model_summary.csv stores macro-averaged scores as fractions (0-1). Multiply macro_precision, macro_recall and macro_f1 by 100 to compare with the paper's percentages: P 79.71, R 92.07, F1 83.03. The terminal displays percentages directly. Proposed reproduction tolerance: 1 percentage point in macro-F1 for model/kernel-version variation. Per-class references are in outputs/hdfs/llm/table7_reference_metrics.csv. On a 16 GB GPU, follow the README's allocator/offloading instructions.
+"""
 
-claim4 = "Each classified incident is mapped to its predefined response workflow, and unknown anomaly types map to human investigation with no automated mitigation (Table 1)."
-script4 = "https://github.com/kiSmetZz28/CESAL/blob/main/README.md#step-4--incident-classification-and-controlled-response-hdfs"
-expected4 = "After claim 3, `python -m incident_response.workflows --results outputs/hdfs/llm/results_Qwen_Qwen2.5-14B-Instruct.csv` (seconds, no GPU) prints one row per predicted label: every known label maps to the workflow of the same name, and \"Other anomaly type\" maps to \"Unknown Anomaly Types\". The workflow steps are defined verbatim from Table 1 in incident_response/workflows.py."
+claim4 = "The response module maps predicted known HDFS anomaly types to their predefined Table 1 workflows and unknown types to human investigation without automated mitigation."
+script4 = "https://github.com/kiSmetZz28/CESAL/blob/main/README.md#the-short-path-about-three-hours"
+expected4 = """
+After claim 3, run python -m incident_response.workflows --results outputs/hdfs/llm/results_Qwen_Qwen2.5-14B-Instruct.csv. This takes seconds on CPU and prints a row per predicted label with its sequence count and selected workflow. Known labels map to their named workflows; Other anomaly type maps to Unknown Anomaly Types. Definitions are in incident_response/workflows.py. This checks workflow selection without executing cluster actions or requiring the multi-day HDFS detection run.
+"""
 
-claim5 = "The core logic (EM-GMM thresholding, energy scoring and voting, Mahalanobis routing policy, response workflows) is correct in isolation."
-script5 = "https://github.com/kiSmetZz28/CESAL/blob/main/README.md#the-short-path-about-three-hours"
-expected5 = "`pytest tests` in cesal-edge reports 88 passed in a few seconds, with no checkpoints or GPU."
+hw = """
+Linux x86-64 CPU: required by the supplied native ExecuTorch runner. Software checks and the small detection experiment require no GPU.
+Full evaluation timings: measured locally on workstations including an Intel i7-14700, NVIDIA RTX 2000 Ada with 16 GB VRAM, and 32 GB RAM. Use an NVIDIA GPU for practical full BAT/LLM evaluation runtimes. Large LLMs may offload weights to system RAM.
+Disk: approximately 12 GB for detection assets/runtime/results, plus approximately 28 GB for Qwen2.5-14B weights. Also allow space for Conda environments or the approximately 10 GB Docker image and its extracted layers.
+Physical Raspberry Pi measurements from Table 6 are excluded from the proposed workstation evaluation.
+"""
 
-hw = """x86-64 Linux machine (the pre-built ExecuTorch executor_runner is an x86-64 binary).
-NVIDIA GPU with CUDA 12.4 support for BAT cloud verification and LLM classification; tested on an RTX 2000 Ada (16 GB VRAM). A backbone larger than the available VRAM is partly offloaded to CPU RAM, which is slower.
-32 GB RAM (tested).
-Disk: about 12 GB for detection (claims 1-2) plus about 28 GB for the Qwen2.5-14B-Instruct weights (claim 3).
-The edge resource measurements (Table 6) need physical Raspberry Pi 3B+/4B/5 boards and are not offered."""
+sw = """
+Native setup: Linux (tested on Ubuntu 24.04.2), Conda and Python 3.10. Run install.sh to create cesal-edge (PyTorch 2.6 CPU, ExecuTorch 0.5.0) and cesal-cloud (PyTorch 2.4, CUDA 12.4, transformers 4.47). Dependency pins are in environment/edge/requirements.txt and environment/cloud/requirements.txt.
+Container alternative: Docker with the supplied Dockerfile; the README documents ghcr.io/kismetzz28/cesal:v1.0. Use a container built from the evaluated source revision when checking newly added commands. GPU containers require an NVIDIA driver and NVIDIA Container Toolkit; CPU-only checks do not.
+GPU runs need a driver compatible with CUDA 12.4. Set CESAL_CLOUD_PYTHON if the cloud interpreter is outside the default location; the Dockerfile sets it for the container.
+The optional dashboard is not required for any claim above.
+"""
 
-sw = """Recommended: Docker with the NVIDIA Container Toolkit, using the image ghcr.io/kismetzz28/cesal:v1.0, which already contains both environments and the ExecuTorch runtime, so no environment setup is needed.
-Alternatively: Linux (tested on Ubuntu 24.04.2), Conda and Python 3.10, with two Conda environments created from the repository's requirements files: cesal-edge (PyTorch 2.6 CPU + ExecuTorch 0.5.0) and cesal-cloud (PyTorch 2.4 + CUDA 12.4 + transformers 4.47).
-Either way, an NVIDIA driver supporting CUDA 12.4. No paid or proprietary software."""
-
-api = """No paid services or API keys.
-Checkpoints and the ExecuTorch runtime download from Google Drive without credentials, and Qwen2.5-14B-Instruct downloads from Hugging Face without login.
-Only the optional four-backbone Table 7 sweep needs a free Hugging Face token, for the gated Llama-3.1-8B-Instruct and Gemma-2-9B-IT."""
-
+api = """
+No paid inference service or API key is required for the proposed experiments. Network access is needed during installation and downloads from package repositories, GitHub/container registry, Google Drive and Hugging Face.
+BAT/Q-BAT checkpoints and the ExecuTorch runtime are fetched without credentials. Download URLs are in tools/download_checkpoints.py and tools/download_data.py. Qwen2.5-14B-Instruct is downloaded by the classification command.
+The optional four-backbone sweep includes gated Llama-3.1-8B-Instruct and Gemma-2-9B-IT models; those require accepting publisher terms and authenticating with Hugging Face. They are not required for the Qwen-only claim.
+"""
 gui = "n"
 
-# ── Data artifact fields (asked because cd = "b") ─────────────────────────────
-provenance = "https://github.com/logpai/loghub"
-# HDFS and OpenStack are public log-analysis benchmarks distributed by loghub. HDFS was
-# collected from Hadoop jobs on more than 200 Amazon EC2 nodes; OpenStack was collected from
-# a CloudLab deployment with one control node, one network node and eight compute nodes.
-# The repository ships the parsed event-sequence splits under data/, and the HDFS open-set
-# knowledge base can be rebuilt from loghub's HDFS_v1/preprocessed/Event_traces.csv with
-# `python -m incident_response.data_prep`.
-
-ethics = "https://github.com/kiSmetZz28/CESAL/blob/main/README.md#datasets-and-provenance"
-# Both datasets are public system-log benchmarks containing machine-generated operational
-# logs (block identifiers, execution states, error traces). They contain no personal data
-# and no human-subject data, and no user study was conducted. CESAL is released under the
-# MIT license.
-
+provenance = "https://github.com/kiSmetZz28/CESAL/blob/main/README.md#datasets-and-provenance"
+ethics = "https://github.com/kiSmetZz28/CESAL/blob/main/README.md#provenance-and-ethics"
 readme = "https://github.com/kiSmetZz28/CESAL/blob/main/README.md"

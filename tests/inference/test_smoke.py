@@ -1,5 +1,8 @@
 """Small-experiment inputs remain isolated from the published experiment."""
 import json
+import os
+import subprocess
+import sys
 
 import numpy as np
 import pytest
@@ -8,6 +11,72 @@ import yaml
 from tools import smoke
 from cesal_inference_pipeline import lad_qbat_edge as edge
 from cesal_inference_pipeline.lad_qbat_edge import select_test_windows
+
+
+@pytest.mark.parametrize('exit_code', [0, 7])
+def test_smoke_display_keeps_metrics_in_diagnostics_and_preserves_failure_status(
+    tmp_path, monkeypatch, capsys, exit_code,
+):
+    """Exercise the real output pipe and child status, without running model inference."""
+    monkeypatch.setattr(smoke, 'ROOT', tmp_path)
+    monkeypatch.setattr(sys, 'argv', ['smoke', '--dataset', 'os'])
+    monkeypatch.setattr(smoke, 'prepare', lambda output:
+                        (output / 'config.yaml', {'source_threshold_sha256': {}}))
+    verified = []
+    monkeypatch.setattr(smoke, 'verify', lambda output: verified.append(output))
+    metric = '[Hybrid] Accuracy: 50.00% Precision: 0.00% Recall: 0.00% F-score: 0.00%'
+    summary = ('RUN SUMMARY · infer · Openstack\n'
+               'reported scores (%)          Acc       P       R      F1\n'
+               'Edge                       49.80    0.00    0.00    0.00\n'
+               'Hybrid                     50.00    0.00    0.00    0.00')
+    events = [
+        {'t': 'step_start', 'id': 'edge'},
+        {'t': 'step_progress', 'id': 'edge', 'done': 1, 'total': 3, 'unit': 'learners'},
+        {'t': 'step_done', 'id': 'edge', 'outcome': {'flagged anomalous': '2'}},
+        {'t': 'metric', 'id': 'hybrid', 'accuracy': 50.0, 'precision': 0.0},
+        {'t': 'step_warn', 'id': 'cloud', 'msg': 'Diagnostic warning'},
+        {'t': 'step_fail', 'id': 'cloud', 'error': 'Cloud failed'} if exit_code else
+        {'t': 'step_done', 'id': 'hybrid', 'outcome': {'flagged after cloud': '0'}},
+        {'t': 'run_done', 'metrics': [{'accuracy': 50.0}]},
+    ]
+    child = '\n'.join([
+        'import json, os, sys',
+        "assert os.environ['CESAL_EVENTS'] == '1'",
+        f'print({metric!r}, file=sys.stderr, flush=True)',
+        "print('flagged after cloud .......... 0', flush=True)",
+        "print('@@CESAL invalid-json', flush=True)",
+        "print('@@CESAL []', flush=True)",
+        *[f"print('@@CESAL ' + json.dumps({event!r}), flush=True)" for event in events],
+        f'print({summary!r}, flush=True)',
+        f'sys.exit({exit_code})',
+    ])
+    original_popen = subprocess.Popen
+    environment = dict(os.environ)
+
+    def spawn(command, **kwargs):
+        assert command[1:4] == ['-m', 'cesal_inference_pipeline.run', '--config']
+        return original_popen([sys.executable, '-c', child], **kwargs)
+
+    monkeypatch.setattr(smoke.subprocess, 'Popen', spawn)
+    assert smoke.main() == (1 if exit_code else 0)
+    captured = capsys.readouterr()
+    terminal = captured.out + captured.err
+    assert 'RUNNING — Data preprocessing and Q-BAT execution' in terminal
+    assert '1/3 learners' in terminal
+    assert 'Diagnostic warning' in terminal
+    for hidden in ('Accuracy:', 'Precision:', 'Recall:', 'F-score:',
+                   'flagged after cloud', 'flagged anomalous', '@@CESAL',
+                   'RUN SUMMARY', 'reported scores (%)', '49.80', '50.00'):
+        assert hidden not in terminal
+    output, = (tmp_path / 'outputs/smoke/os').iterdir()
+    assert metric in (output / 'pipeline.log').read_text()
+    assert summary in (output / 'pipeline.log').read_text()
+    assert (output / 'READY.txt').exists() is (exit_code == 0)
+    assert len(verified) == (0 if exit_code else 1)
+    if exit_code:
+        assert 'NEEDS ATTENTION' in terminal and 'Experiment did not complete' in terminal
+        assert 'Ready to proceed' not in terminal
+    assert dict(os.environ) == environment
 
 
 def test_sample_preserves_full_evaluation_windows_and_labels():

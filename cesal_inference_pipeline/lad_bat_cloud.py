@@ -42,7 +42,7 @@ def _run_one_bat(
 ) -> Optional[np.ndarray]:
     """Load one BAT checkpoint, score the routed windows in mini-batches.
 
-    Returns a column vector [N_windows, 1] of binary predictions, or None if
+    Returns a column vector [N_windows * win_size, 1] of binary predictions, or None if
     the checkpoint / threshold is missing.
     """
     num_epochs, k_val, e_layer_num, batch_size = combo
@@ -94,8 +94,8 @@ def run(windows: np.ndarray, config: dict) -> np.ndarray:
     Parameters
     ----------
     windows : np.ndarray
-        Shape [N_windows, win_size, features] — unique source windows that contain
-        the routing-selected lines.
+        Shape [N_windows, win_size, features]. The event-routing pipeline packs
+        selected event vectors consecutively into complete windows.
     config : dict
         Cloud section of the inference config. Must include: dataset, win_size,
         input_c, model_save_path, thresholds_yaml, voting, and the BAT sweep

@@ -19,7 +19,7 @@ sys.path.insert(0, str(ROOT))
 
 
 def _point_adjust(gt: np.ndarray, pred: np.ndarray) -> np.ndarray:
-    """Fill entire GT anomaly segments once any window in the segment is detected."""
+    """Fill entire GT anomaly segments once any event in the segment is detected."""
     gt   = gt.astype(int)
     pred = pred.astype(int).copy()
     anomaly_state = False

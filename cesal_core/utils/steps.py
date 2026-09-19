@@ -64,16 +64,16 @@ __all__ = [
 
 INFER_STEPS: List[Tuple[str, str, str]] = [
     ("edge",   "Edge-side detection with Q-BAT",
-     "The quantized Q-BAT ensemble scores every test window on the edge device and\n"
-     "flags those whose energy exceeds its calibrated threshold."),
+     "The quantized Q-BAT ensemble scores events in complete test windows and\n"
+     "combines the learners' thresholded predictions by majority vote."),
     ("route",  "Mahalanobis uncertainty routing",
-     "A Mahalanobis distance policy selects the windows closest to the decision\n"
-     "boundary — the least certain — for cloud verification."),
+     "The routing policy ranks event-score vectors by distance from the threshold\n"
+     "vector and selects the configured share for cloud verification."),
     ("cloud",  "Cloud-side verification with BAT",
-     "The full-precision BAT ensemble re-evaluates only the escalated windows,\n"
-     "at higher capacity than the edge tier can provide."),
+     "The full-precision BAT ensemble re-evaluates the routed events packed into\n"
+     "complete windows; any incomplete tail retains its edge verdicts."),
     ("hybrid", "Collaborative merge and scoring",
-     "Cloud verdicts supersede the edge verdicts for the escalated windows, and the\n"
+     "Cloud verdicts supersede the edge verdicts for cloud-verified events, and the\n"
      "merged prediction is scored against ground truth after point adjustment."),
 ]
 
@@ -99,8 +99,8 @@ EVAL_STEPS: List[Tuple[str, str, str]] = [
      "Each learner is evaluated independently to establish its standalone detection\n"
      "performance after point adjustment and calibrate its threshold."),
     ("ensemble", "Grow the BAT ensemble",
-     "Learners are accumulated incrementally to quantify the ensemble gain over any\n"
-     "individual member."),
+     "Learners are accumulated incrementally to compare point-adjusted ensemble\n"
+     "performance with individual members."),
 ]
 
 # `run.py download` — fetch the checkpoints and runtime the pipeline needs.
@@ -117,10 +117,10 @@ CLASSIFY_STEPS: List[Tuple[str, str, str]] = [
     ("prepare",  "Build the RAG knowledge base",
      "Load the abnormal sequences and the reference corpus used for retrieval."),
     ("classify", "Open-set classification with the LLM",
-     "For each sequence, similar incidents are retrieved and the language model\n"
-     "assigns a known type or marks it as unknown."),
+     "For each sequence, retrieval rules and, when needed, the language model\n"
+     "assign a known type or mark it as unknown."),
     ("score",    "Score against the ground-truth types",
-     "Compare the assigned labels against ground truth and write per-class metrics."),
+     "Compare labels against ground truth and write macro-averaged and per-class metrics."),
 ]
 
 # `run.py respond` — detections → queues → classification → response workflows.
@@ -133,7 +133,7 @@ RESPOND_STEPS: List[Tuple[str, str, str]] = [
      "unknown type for human review."),
     ("workflow", "Select the response workflow",
      "Known types map to their predefined response workflow; unknown types are\n"
-     "escalated for human investigation."),
+     "assigned a human-investigation workflow. No response actions are executed."),
     ("score",    "Score the classification",
      "Score the assigned types against ground truth for the labelled sessions."),
 ]
@@ -826,7 +826,7 @@ class StepReporter:
         if self._metrics:
             logging.info("%s%s", " " * _INDENT, _THIN)
             logging.info("%s%-26s%8s%8s%8s%8s", " " * _INDENT,
-                         "detection scores", "Acc", "P", "R", "F1")
+                         "reported scores (%)", "Acc", "P", "R", "F1")
             for m in self._metrics:
                 logging.info("%s%-24s%8.2f%8.2f%8.2f%8.2f", " " * _PHASE_INDENT,
                              m["label"][:24], m["accuracy"], m["precision"],

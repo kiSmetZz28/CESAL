@@ -6,9 +6,11 @@ with a Python-only execution that uses the BAT .pth checkpoints for BOTH
 the edge scan and the cloud re-check:
 
   Stage 1  Edge scan  — 3 fast BAT checkpoints on all test windows (parallel)
-  Stage 2  Routing    — Mahalanobis distance selects uncertain windows
-  Stage 3  Cloud      — full BAT ensemble on routed windows (parallel)
-  Stage 4  Evaluation — hybrid metrics
+  Stage 2  Routing    — Mahalanobis distance selects event vectors
+  Stage 3  Cloud      — full BAT ensemble on packed routed-event windows
+  Stage 4  Evaluation — point-adjusted hybrid metrics for this BAT-proxy demo
+
+This preview does not evaluate the quantized Q-BAT models used for Table 3.
 
 Log messages deliberately mirror lad_qbat_edge.py / lad_bat_cloud.py format so
 the dashboard's live-progress parser (parseLiveLine in index.html) works
@@ -322,7 +324,7 @@ def main() -> None:
     if energy_matrix.shape[1] >= 2:
         try:
             _, inv_cov = compute_inv_cov(train_energy_matrix)
-            route_step.phase("computing each window's distance from the decision boundary")
+            route_step.phase("computing each event-score vector's distance from the thresholds")
             routed_indices = select_indices_by_distance(
                 test_scores=energy_matrix,
                 thresholds=thresh_arr,
@@ -341,7 +343,7 @@ def main() -> None:
         n_route = max(1, int(len(margin) * tolerance))
         routed_indices = sorted(np.argsort(margin)[-n_route:].tolist())
 
-    route_step.phase("assembling the escalated windows for cloud verification")
+    route_step.phase("collecting routed event vectors for cloud verification")
     routed_idx_arr = np.array(routed_indices, dtype=int)
     np.save(os.path.join(out_base, "routed_indices.npy"), routed_idx_arr)
 

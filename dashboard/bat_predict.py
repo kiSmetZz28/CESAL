@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """BAT ensemble prediction for one pre-scaled session window.
 
-Called by dashboard/app.py via CLOUD_PYTHON (the hybrid conda env):
+Called by dashboard/app.py via CLOUD_PYTHON (the cesal-cloud environment):
 
     python dashboard/bat_predict.py \\
         --input   /tmp/window_scaled.npy \\
@@ -89,7 +89,7 @@ def main() -> None:
     thresh_rel  = cloud_cfg.get("thresholds_yaml", "")
     thresh_path = ROOT / thresh_rel
     if not thresh_path.exists():
-        _out({"error": f"Threshold file not found: {thresh_rel} — run 'eval' first"})
+        _out({"error": f"Threshold file not found: {thresh_rel} — restore the bundled calibration, or run 'eval' to recalibrate"})
         return
 
     try:

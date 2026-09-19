@@ -2,6 +2,7 @@
 import argparse
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -11,6 +12,55 @@ import numpy as np
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
+
+
+def run_pipeline(config, output):
+    """Show execution progress only; retain the unchanged pipeline output for diagnostics."""
+    stages = {
+        'edge': 'Data preprocessing and Q-BAT execution',
+        'route': 'Event routing',
+        'cloud': 'BAT cloud verification',
+        'hybrid': 'Prediction merge and point adjustment',
+    }
+    command = [sys.executable, '-m', 'cesal_inference_pipeline.run', '--config', str(config)]
+    # This environment belongs only to the smoke child and its cloud process.
+    # Normal infer/eval output and all scoring calculations remain unchanged.
+    env = dict(os.environ, CESAL_EVENTS='1', PYTHONUNBUFFERED='1')
+    with (output / 'pipeline.log').open('w', encoding='utf-8') as log:
+        log.write('SMOKE READINESS DIAGNOSTICS — subset metrics below are not paper-result estimates.\n'
+                  'Use python run.py infer os for full detection evaluation.\n\n')
+        with subprocess.Popen(command, cwd=ROOT, env=env, stdout=subprocess.PIPE,
+                              stderr=subprocess.STDOUT, text=True, encoding='utf-8',
+                              errors='replace', bufsize=1) as process:
+            for line in process.stdout:
+                log.write(line)
+                log.flush()
+                if not line.startswith('@@CESAL '):
+                    continue
+                try:
+                    event = json.loads(line[len('@@CESAL '):])
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(event, dict) or event.get('id') not in stages:
+                    continue
+                title = stages[event['id']]
+                kind = event.get('t')
+                if kind == 'step_start':
+                    print(f'RUNNING — {title}', flush=True)
+                elif kind == 'step_done':
+                    print(f'COMPLETED — {title}', flush=True)
+                elif kind == 'step_progress':
+                    print(f'  Execution progress — {title}: '
+                          f'{event["done"]}/{event["total"]} {event["unit"]}', flush=True)
+                elif kind == 'step_warn':
+                    print(f'ATTENTION — {title}: {event["msg"]}', flush=True)
+                elif kind == 'step_fail':
+                    print(f'NEEDS ATTENTION — {title}: {event["error"]}', flush=True)
+                # Metric events, prediction counts, and metric summary tables
+                # stay in the diagnostic log, not the readiness display.
+            returncode = process.wait()
+        if returncode:
+            raise subprocess.CalledProcessError(returncode, command)
 
 
 def sample_indices(normal_events, abnormal_events, window_size):
@@ -121,10 +171,9 @@ def main():
         config, manifest = prepare(output)
         print('Small real OpenStack detection experiment', flush=True)
         print('1,000 events → 10 windows → 3 Q-BAT models → 10% routing → 3 BAT models → merge', flush=True)
-        print('Subset scores check execution; use the full experiment for paper results.', flush=True)
-        print(f'Experiment files: {output.relative_to(ROOT)}\n', flush=True)
-        subprocess.run([sys.executable, '-m', 'cesal_inference_pipeline.run', '--config', str(config)],
-                       cwd=ROOT, check=True)
+        print('Readiness check only — detection scores are not displayed. Use run.py infer os for paper-result evaluation.', flush=True)
+        print(f'Detailed diagnostics: {(output / "pipeline.log").relative_to(ROOT)}\n', flush=True)
+        run_pipeline(config, output)
         verify(output)
         for name, digest in manifest['source_threshold_sha256'].items():
             if hashlib.sha256((ROOT / name).read_bytes()).hexdigest() != digest:
@@ -135,9 +184,9 @@ def main():
         )
         print('\nVERIFIED — real data preprocessing and edge model execution')
         print('VERIFIED — routing and cloud model execution')
-        print('VERIFIED — merged predictions and point-adjusted scoring')
+        print('VERIFIED — prediction alignment, merge and point adjustment')
         print('Small detection experiment complete. Ready to proceed to the full detection evaluation.')
-        print(f'Results and experiment record: {output.relative_to(ROOT)}')
+        print(f'Diagnostics and experiment record: {output.relative_to(ROOT)}')
         return 0
     except (OSError, ValueError, AssertionError, RuntimeError, subprocess.CalledProcessError) as exc:
         print(f'Experiment did not complete: {exc}', file=sys.stderr)

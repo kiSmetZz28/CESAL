@@ -11,7 +11,8 @@
 #
 # Linux x86-64 only — the bundled executor_runner is an x86-64 binary
 # (on Windows use WSL2). Docker users can skip this entirely; the image at
-# ghcr.io/kismetzz28/cesal:v1.0 already contains everything below.
+# Prepared images include the environments; build this revision's Dockerfile
+# to include its current source and readiness commands.
 set -euo pipefail
 
 EDGE_ENV="${EDGE_ENV:-cesal-edge}"
@@ -69,5 +70,5 @@ Next:
     conda activate $EDGE_ENV
     python run.py download os    # fetch the published checkpoints
     python run.py smoke os       # verify real edge-to-cloud detection on a small input
-    python run.py infer os       # reproduce Table 3 (about 3 h 20 m)
+    python run.py infer os       # Table 3 OpenStack Edge and CESAL rows (~3 h 20 m)
 MSG

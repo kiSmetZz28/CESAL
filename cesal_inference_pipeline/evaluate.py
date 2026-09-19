@@ -14,7 +14,7 @@ def _load_arr(path: str, dtype=int) -> np.ndarray:
 
 
 def _point_adjust(gt: np.ndarray, pred: np.ndarray) -> np.ndarray:
-    """Fill entire GT anomaly segments once any window in the segment is detected."""
+    """Fill entire GT anomaly segments once any event in the segment is detected."""
     gt   = gt.astype(int)
     pred = pred.astype(int).copy()
     anomaly_state = False
@@ -121,7 +121,7 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
     parser = argparse.ArgumentParser(
-        description="Compute edge ensemble and hybrid (edge+cloud) evaluation results."
+        description="Compute point-adjusted edge ensemble and hybrid (edge+cloud) detection metrics."
     )
     parser.add_argument(
         "--edge_preds",

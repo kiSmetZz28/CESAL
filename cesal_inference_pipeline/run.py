@@ -3,9 +3,9 @@
 Stages
 ------
 1. edge   : Q-BAT computes a per-learner energy score      [cesal-edge env]
-2. route  : Mahalanobis routing selects uncertain windows  [cesal-edge env]
-3. cloud  : BAT ensemble re-predicts routed windows        [cesal-cloud env — subprocess]
-4. hybrid : Merge edge and cloud predictions, log metrics  [cesal-cloud env — subprocess]
+2. route  : Mahalanobis routing selects events             [cesal-edge env]
+3. cloud  : BAT scores routed events in complete windows   [cesal-cloud env — subprocess]
+4. hybrid : Merge predictions, report point-adjusted metrics [cesal-cloud env — subprocess]
 
 Stage 3+4 always run inside the cesal-cloud conda environment by calling
 cloud_runner.py as a subprocess.  The Python interpreter is located via
@@ -45,10 +45,10 @@ _ABOUT = """
 Run the full CESAL detection pipeline: edge detection, uncertainty routing,
 cloud verification, and the merge of the two.
 
-The quantized Q-BAT ensemble scores every window on the edge device. The windows
-it is least certain about are escalated to the full-precision BAT ensemble in
-the cloud, whose verdicts supersede the edge's for those windows. Edge, cloud
-and merged predictions are each scored against ground truth.
+The quantized Q-BAT ensemble scores events in complete test windows. Distance-based
+routing selects a share of events for the full-precision BAT ensemble, packed into
+complete cloud windows. Cloud-verified events receive BAT verdicts; any remaining
+events keep their edge verdicts. Edge and Hybrid metrics use point adjustment.
 """
 
 
@@ -69,7 +69,7 @@ def _detect_cloud_python() -> str:
 
 
 def _point_adjust(gt: np.ndarray, pred: np.ndarray) -> np.ndarray:
-    """Fill entire GT anomaly segments once any window in the segment is detected."""
+    """Fill entire GT anomaly segments once any event in the segment is detected."""
     gt   = gt.astype(int)
     pred = pred.astype(int).copy()
     anomaly_state = False
@@ -213,9 +213,9 @@ def run_inference(
         # Routing on per-line energy scores → routed_indices are line indices.
         if result.energy_matrix.shape[1] >= 2:
             try:
-                st.phase("estimating the energy covariance from the training scores")
+                st.phase("estimating the energy covariance from the edge energy scores")
                 _, inv_cov = compute_inv_cov(result.train_energy_matrix)
-                st.phase("computing each window's distance from the decision boundary")
+                st.phase("computing each event-score vector's distance from the thresholds")
                 routed_indices = select_indices_by_distance(
                     test_scores=result.energy_matrix,
                     thresholds=result.thresholds,
@@ -233,14 +233,15 @@ def run_inference(
             n_route = max(1, int(len(margin) * tolerance))
             routed_indices = sorted(np.argsort(margin)[-n_route:].tolist())
 
-        st.phase("assembling the escalated windows for cloud verification")
+        st.phase("collecting routed event vectors for cloud verification")
         np.save(
             os.path.join(out_base, 'routed_indices.npy'),
             np.array(routed_indices, dtype=int),
         )
 
         # Extract the feature vector of each routed line for cloud processing.
-        # cloud_runner pads each to win_size and runs EMAT — one prediction per line.
+        # cloud_runner packs these into complete windows; an incomplete tail keeps
+        # its edge verdicts. BAT returns one prediction per event it processes.
         if routed_indices:
             routed_lines = np.array([
                 result.test_windows[i // win_size][i % win_size]

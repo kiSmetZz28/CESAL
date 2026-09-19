@@ -1,6 +1,8 @@
 """Evaluate the RAG-enhanced LLM open-set incident classifier on HDFS abnormal sequences.
 
-Reproduces paper Table 7 (per-class P/R/F1 of four LLM backbones).
+Evaluates paper Table 7 macro-averaged P/R/F1 for four LLM backbones.
+Also exports per-class metrics. Summary CSV scores are fractions (0-1);
+terminal scores and the per-class F1 pivot are percentages.
 
 Usage (from project root):
   python -m incident_response.evaluate --config configs/llm/hdfs.yaml
@@ -48,10 +50,10 @@ _ABOUT = """
 Benchmark a language model on naming the incident type behind an abnormal
 stretch of logs.
 
-Detection alone reports only that a window is anomalous. This stage goes
-further: for each abnormal sequence it retrieves similar incidents from a
-reference corpus and asks the language model which known type it matches — or,
-when it matches none of them, records it as an unknown type for analyst review.
+Detection flags anomalous events. This stage classifies abnormal sequences using
+retrieved reference incidents, open-set decision rules and, when needed, a
+language model. Scores are macro-averaged classification metrics; the unknown
+category is recorded as Other anomaly type for analyst review.
 """
 
 

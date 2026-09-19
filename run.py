@@ -4,7 +4,7 @@ Usage
 -----
   python run.py check                      # software checks, grouped by component
   python run.py smoke    [os]              # small real edge-to-cloud experiment
-  python run.py all      [DATASET]          # everything, start to finish
+  python run.py all      [DATASET]          # download → detect → HDFS queued response
   python run.py download [DATASET] [TYPE]
   python run.py train    [DATASET]
   python run.py eval     [DATASET] [VOTING]
@@ -145,10 +145,9 @@ def main() -> None:
                     *(["--model", model] if model else []))
 
     elif command == "all":
-        # One command from a clean checkout to the paper's numbers: fetch the
-        # published checkpoints, run detection, then classify each detected
-        # incident and select its response workflow. Each stage is the same
-        # command documented separately below, run in order.
+        # Fetch published checkpoints and run detection; for HDFS, also classify
+        # queued incidents and select workflows. Standalone Table 7 evaluation
+        # and cloud-only Table 3 evaluation use the classify and eval commands.
         dataset = argv[1] if len(argv) > 1 else "hdfs"
         print(f"[run] Full pipeline — dataset: {dataset}\n")
 

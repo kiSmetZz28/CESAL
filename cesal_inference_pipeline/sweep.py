@@ -34,15 +34,15 @@ _ABOUT = """
 Measure what cloud escalation contributes, as a function of how much is sent.
 
 The routing ratio is the share of log events the edge tier escalates for cloud
-verification. A higher ratio should detect more, at the cost of sending more
-security-sensitive data off the device. This runs the pipeline at each ratio and
+verification. A higher ratio sends more events for cloud processing; its effect
+on detection scores is measured here. This runs the pipeline at each ratio and
 reports the results side by side; the expensive on-device scan is performed once
 and reused, since it does not depend on the ratio.
 """
 
 
 def _scores(out_dir: str):
-    """Precision / recall / F1 of a finished run, or None if it produced nothing."""
+    """Point-adjusted precision / recall / F1, or None if no run outputs exist."""
     gt_p = os.path.join(out_dir, 'ground_truth.npy')
     hy_p = os.path.join(out_dir, 'hybrid_preds.npy')
     if not (os.path.exists(gt_p) and os.path.exists(hy_p)):

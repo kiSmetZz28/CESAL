@@ -197,7 +197,7 @@ def main() -> None:
 
     print()
     if ok:
-        print("All assets ready. You can now run CESAL.")
+        print("Requested runtime and raw-log downloads completed. See README.md for model setup and readiness checks.")
     else:
         print("Some downloads failed — check errors above.", file=sys.stderr)
         sys.exit(1)

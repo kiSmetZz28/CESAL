@@ -25,15 +25,14 @@ def load_scores(score_files: List[str]) -> np.ndarray:
 
 
 def compute_inv_cov(train_scores: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-    """Compute covariance and its inverse from training scores.
+    """Compute covariance and its inverse from the supplied reference scores.
 
-    train_scores shape: [n_samples, n_models]. This mirrors the logic in
-    ensemble_result.get_threshold_indices_by_distance, but uses only the
-    training set to estimate the covariance.
+    train_scores shape: [n_samples, n_models]. The standalone CLI supplies training
+    scores; the inference orchestrator supplies its edge test-energy matrix.
     """
     cov_matrix = np.cov(train_scores, rowvar=False)
     inv_covmat = np.linalg.inv(cov_matrix)
-    logging.debug("Covariance matrix computed from %d training samples", train_scores.shape[0])
+    logging.debug("Covariance matrix computed from %d score vectors", train_scores.shape[0])
     return cov_matrix, inv_covmat
 
 
@@ -44,7 +43,7 @@ def load_thresholds_from_yaml(
 ) -> np.ndarray:
     """Load per-model thresholds from a YAML file.
 
-    The YAML structure is expected to match what em_gmm_threshold.py writes:
+    This standalone CLI expects a nested threshold mapping:
         {dataset: {energy_name: threshold, ...}, ...}
 
     Parameters
@@ -89,7 +88,7 @@ def select_indices_by_distance(
     distance_type: str = "ma",
     tolerance: float = 0.1,
 ) -> List[int]:
-    """Select indices of test samples closest to the threshold point (most uncertain).
+    """Select test samples with the highest distances from the threshold point.
 
     Parameters
     ----------
@@ -98,7 +97,7 @@ def select_indices_by_distance(
     thresholds : np.ndarray
         Threshold point in the same space, shape [n_models].
     inv_covmat : np.ndarray or None
-        Inverse covariance matrix computed from training scores. Required
+        Inverse covariance matrix computed from reference scores. Required
         when distance_type == 'ma'.
     distance_type : {'eu', 'ma'}
         'eu' for Euclidean, 'ma' for Mahalanobis.

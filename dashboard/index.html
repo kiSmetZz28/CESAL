@@ -646,14 +646,11 @@ select:focus{outline:none;border-color:var(--blue);}
             background:#eaf3ff;border:1px solid #b6d4fe;border-left:4px solid #2563eb;
             border-radius:6px;color:#1e3a8a;font-size:13.5px;line-height:1.55;">
   <strong>Note on this demo deployment.</strong>
-  For ease of demonstration, this deployment runs both the edge-side LAD and the
-  cloud-side LAD, together with the inference routing policy, within the same
-  execution environment. This
-  design is intended only to provide reviewers and readers with a convenient
-  way to verify the complete CESAL workflow online. In the actual
-  deployment setting and in our experiments, however, the edge-side phase is
-  deployed independently on resource-constrained edge devices, such as
-  Raspberry Pi devices.
+  This deployment is a workflow preview. The fallback demo runner uses BAT
+  checkpoints as an edge proxy in the same environment as the cloud stage.
+  Single-session predictions also use a BAT edge proxy. Use the README's CLI
+  evaluation path to measure the quantized Q-BAT and collaborative detection
+  results. Physical edge resource measurements require the paper's devices.
 </div>
 
 <!-- ══ GUIDED TOUR ═══════════════════════════════════════════ -->
@@ -764,7 +761,7 @@ select:focus{outline:none;border-color:var(--blue);}
     <div class="card">
       <div class="step-hdr"><span class="step-title">Demo Video</span></div>
       <div class="card-help">
-        See single sliding context window prediction demo — Edge-side LAD and Cloud-side LAD work collaboratively via the Mahalanobis distance-based routing policy.
+        Watch a single-context prediction preview. Use the full CLI evaluation for the paper's distance-based event routing and Q-BAT results.
       </div>
       <button class="btn" style="width:100%;font-size:13px" onclick="openDemoVideo()">▶ Watch Demo</button>
     </div>
@@ -773,7 +770,7 @@ select:focus{outline:none;border-color:var(--blue);}
     <div class="card">
       <div class="step-hdr"><span class="step-title">Detection Settings</span></div>
       <div class="card-help">
-        <strong>Routing Ratio</strong> — the proportion of edge-uncertain logs routed to the cloud BAT for a more accurate reevaluation. A higher ratio catches more edge cases at the cost of extra latency.
+        <strong>Routing Ratio</strong> — the share of events selected for cloud BAT verification in batch inference. A higher ratio adds cloud work; its effect on point-adjusted detection scores is measured by evaluation.
       </div>
       <div class="field">
         <label class="lbl">Routing Ratio — <span id="tolLabel" style="color:var(--amber);font-weight:700">10%</span></label>
@@ -785,7 +782,7 @@ select:focus{outline:none;border-color:var(--blue);}
         </div>
       </div>
       <div class="field">
-        <label class="lbl">Uncertainty Metric</label>
+        <label class="lbl">Routing Distance Metric</label>
         <select id="distSel">
           <option value="ma">Mahalanobis distance (recommended)</option>
           <option value="eu">Euclidean distance (simpler)</option>
@@ -823,7 +820,8 @@ select:focus{outline:none;border-color:var(--blue);}
       <div style="font-size:11px;color:var(--muted);line-height:1.5">
         Scroll down to the <strong>Pipeline</strong> table and
         <strong>click any raw log row</strong> to predict using its context
-        window through the detection pipeline.
+        window. This preview uses BAT as an edge proxy and routes by score margin
+        or model disagreement; it does not measure the paper's Q-BAT results.
       </div>
 
       <!-- Mode B: Full Test Set Analysis ─────────────────────────────── -->
@@ -832,8 +830,8 @@ select:focus{outline:none;border-color:var(--blue);}
           Full Test Set Analysis
         </div>
         <div style="font-size:11px;color:var(--muted);margin-bottom:8px;line-height:1.5">
-          Runs the whole test set and reports aggregate metrics
-          (accuracy, precision, recall, F1).
+          Runs the configured test set and reports point-adjusted detection
+          metrics (accuracy, precision, recall, F1). Demo configurations may use a subset.
         </div>
         <label id="respondOptRow" style="display:flex;gap:7px;align-items:flex-start;
                font-size:11px;color:var(--text);margin:2px 0 9px;cursor:pointer">
@@ -894,7 +892,7 @@ select:focus{outline:none;border-color:var(--blue);}
       <div class="pb-stage" id="pb-routing" onclick="showTab('results',document.querySelector('.tab[data-tab=results]'))">
         <span class="pb-ico">🔀</span>
         <span class="pb-title">Routing</span>
-        <span class="pb-sub">uncertain sessions → cloud</span>
+        <span class="pb-sub">selected events → cloud</span>
       </div>
       <div class="pb-arrow">›</div>
       <div class="pb-stage" id="pb-cloud" onclick="showTab('results',document.querySelector('.tab[data-tab=results]'))">
@@ -957,7 +955,7 @@ select:focus{outline:none;border-color:var(--blue);}
           <div class="steps-wrap" id="threshLive"><span style="color:var(--muted);font-size:11px">Steps appear as the run starts…</span></div>
         </div>
         <div class="live-box" id="scoresBox" style="grid-column:1/-1">
-          <div class="live-box-title">Detection scores (live)</div>
+          <div class="live-box-title">Reported scores (%)</div>
           <div style="font-size:10px;color:var(--muted);margin-bottom:6px">F-score is the most important — closer to 100% means better anomaly detection</div>
           <div id="metricsLive"><span style="color:var(--muted);font-size:11px">Results appear as each stage completes…</span></div>
         </div>
@@ -1809,13 +1807,13 @@ const STEP_FLOW = {edge:'edge', route:'route', cloud:'cloud', hybrid:'result'};
 // Plain-language explanation of each step, shown in the banner.
 const STEP_HELP = {
   edge:   ['⚡','Edge is scanning the logs…',
-           'Compact Q-BAT models score every log window locally, on the device itself.'],
+           'Edge learners score events in complete test windows. The CLI uses quantized Q-BAT; the fallback demo uses BAT proxies.'],
   route:  ['🔀','Choosing what needs a second opinion…',
-           'Each window is measured against the edge decision threshold; only the least certain are escalated.'],
+           'Event-score vectors are ranked by distance from calibrated thresholds; the configured share is selected.'],
   cloud:  ['☁️','Cloud is re-checking the escalated events…',
-           'The full BAT ensemble re-scores everything the edge sent up, and votes on each one.'],
+           'BAT scores routed events packed into complete windows; any incomplete tail retains its edge verdicts.'],
   hybrid: ['🧩','Merging the edge and cloud verdicts…',
-           'Cloud decisions replace the edge ones for every escalated event, then the whole run is scored.'],
+           'Cloud-verified events receive BAT verdicts; Edge and Hybrid detection scores use point adjustment.'],
 };
 
 // Icons for the step ids the runners declare; anything unknown gets a gear.
@@ -2077,7 +2075,7 @@ function parseLiveLine(line) {
   if (/Phase 2.+Cloud inference/i.test(line)) {
     if(LP.phase<3){LP.phase=3;setStage(3);setFlowStep('cloud');}
     document.getElementById('opLine').textContent='Starting cloud inference…';
-    setFriendlyStatus('☁️','Cloud is doing a deep re-check…','The more powerful cloud model re-analyses the uncertain windows the edge flagged.');
+    setFriendlyStatus('☁️','Cloud verification is running…','BAT re-evaluates routed events grouped into complete windows.');
     return;
   }
   if (/Edge inference.*env: cesal/i.test(line)) {
@@ -2133,7 +2131,7 @@ function parseLiveLine(line) {
   if (/routing|mahalanobis/i.test(line) && LP.phase<=1) {
     LP.phase=2;setStage(2);setFlowStep('route');
     document.getElementById('opLine').textContent='Deciding which windows need a cloud second opinion…';
-    setFriendlyStatus('🔀','Smart routing in progress…','Identifying windows the edge AI was uncertain about.');
+    setFriendlyStatus('🔀','Distance-based routing in progress…','Ranking event-score vectors and selecting the configured share for cloud verification.');
     return;
   }
   // Match "Routing: 138 / 1386" (run.py) or "Routed: 138/1386" (legacy)
@@ -2157,7 +2155,7 @@ function parseLiveLine(line) {
       `All ${LP.totalCloudModels} BAT models running on cloud in parallel…`;
     setFriendlyStatus('☁️',
       `All ${LP.totalCloudModels} BAT models running together on cloud…`,
-      'The full ensemble re-checks uncertain windows simultaneously. Results appear as each model finishes.');
+      'The BAT ensemble re-checks routed events in complete windows. Progress appears as each model finishes.');
     return;
   }
 
