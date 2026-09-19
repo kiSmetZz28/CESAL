@@ -8,7 +8,7 @@
 
 ---
 
-> **Evaluating this artifact?** Start with the [Docker image](#run-in-docker-no-environment-setup) — it needs no environment setup — then follow [the short path](#the-short-path-about-three-hours), which reproduces the paper's OpenStack results in about three hours.
+> **Evaluating this artifact?** Start with the [Docker image](#run-in-docker-no-environment-setup) — both Conda environments are already installed — then follow the [evaluation instructions](#the-short-path-about-three-hours) for OpenStack detection and HDFS incident classification. Together, these take approximately 5–6 hours after setup and downloads on the documented workstation.
 
 ## How It Works
 
@@ -77,40 +77,7 @@ This setup preserves the model, threshold, routing and scoring configuration, wh
 
 **`run.py` is the entry point for every stage** — all commands run from the project root.
 
-### Quick start
-
-**The fastest route is Docker — no environment setup at all:**
-
-```bash
-docker pull ghcr.io/kismetzz28/cesal:v1.1
-docker run -it --gpus all --name cesal-v1.1 \
-    -v cesal-checkpoints:/app/checkpoints \
-    -v cesal-hf:/root/.cache/huggingface \
-    ghcr.io/kismetzz28/cesal:v1.1
-```
-
-The container opens in `/app` with `cesal-edge` already active, so no Conda activation is needed before detection. Inside the container, run:
-
-```bash
-python run.py all os                         # download pretrained BAT/Q-BAT if needed, then detect
-conda activate cesal-cloud                   # switch environments for classification
-python run.py classify qwen2.5-14b-instruct  # classify the bundled HDFS test sequences
-```
-
-`all os` runs OpenStack detection with pretrained models; it does not train models or automatically run classification. The classification command is a separate HDFS experiment using the bundled test set and references; it does not classify the OpenStack detection output. The image includes both Conda environments and the ExecuTorch runtime — see [Run in Docker](#run-in-docker-no-environment-setup) for volumes, GPU flags and copying results out.
-
-**Prefer a native install?** Run `./install.sh` once ([Step 1](#step-1--set-up-environments)), then:
-
-```bash
-conda activate cesal-edge
-python run.py all os
-```
-
-That fetches the published checkpoints (skipped if you already have them) and runs detection end to end on OpenStack — the edge scan, uncertainty routing, cloud verification and the merge — in about three hours.
-
-**OpenStack is the default for `infer`, `eval`, `train`, `convert` and `sweep`**, and is recommended for the short detection evaluation. See [Why HDFS detection takes days](#why-hdfs-detection-takes-days). Incident classification and workflow selection are HDFS-only. `run.py all` defaults to HDFS and includes its multi-day detection stage, so use the explicit `run.py all os` command for the OpenStack path.
-
-**Steps 1-4 below explain setup, checkpoints, detection, and classification/response.** Follow them to run individual stages or see what each reads and writes. OpenStack detection and standalone HDFS classification are separate experiments. The optional dashboard provides another interface to these stages.
+Choose one setup route: the [Docker image](#run-in-docker-no-environment-setup), which includes the environments and runtime, or a [native installation](#run-with-a-native-installation). Both routes below run pretrained OpenStack detection followed by a separate HDFS classification experiment.
 
 ### Run in Docker (no environment setup)
 
@@ -137,6 +104,26 @@ python run.py classify qwen2.5-14b-instruct  # separate HDFS classification expe
 `all os` finishes after detection; classification runs only when you invoke the separate command. Checkpoints and LLM weights are not in the image: `all os` downloads missing BAT/Q-BAT checkpoints, and the first `classify` run fetches the LLM weights. The two named volumes retain these downloads. `docker start -ai cesal-v1.1` returns to the same container later, and `docker cp cesal-v1.1:/app/outputs ./outputs` copies results out. For the gated Llama and Gemma backbones, add `-e HF_TOKEN=<your token>` to `docker run`.
 
 To build the image instead of pulling it, run `docker build -t cesal .` from the repository root (about 10 minutes, mostly package downloads).
+
+### Run with a native installation
+
+Use this route if you prefer to run directly on your Linux host. Install once from the repository root, then run detection and classification:
+
+```bash
+./install.sh
+conda activate cesal-edge
+python run.py all os
+conda activate cesal-cloud
+python run.py classify qwen2.5-14b-instruct
+```
+
+The installer creates both environments and installs the ExecuTorch runtime. See [Step 1](#step-1--set-up-environments) for the manual installation commands.
+
+For either setup route, `all os` downloads missing pretrained BAT/Q-BAT checkpoints and runs OpenStack detection without training. The separate classification command uses the bundled HDFS test sequences and references; it does not classify the OpenStack detection output.
+
+**Dataset selection.** OpenStack is the default for `infer`, `eval`, `train`, `convert` and `sweep`. Use the explicit `all os` command shown above: `all` without a dataset defaults to HDFS and includes its multi-day detection stage ([why](#why-hdfs-detection-takes-days)).
+
+Steps 1–4 below explain setup, checkpoints, detection, and classification/response in detail. The optional dashboard provides another interface to these stages.
 
 ### Pipeline overview
 
@@ -169,30 +156,18 @@ Training is the expensive stage, so the checkpoints behind the paper's numbers a
 | ------------------------------------- | ----------------- | --------: | -------------: |
 | Core software checks                  | `run.py check`    |   seconds |        seconds |
 | Small real experiment (after setup)   | `run.py smoke os` |  ~1–2 min |            n/a |
-| **Detection, end to end**             | `run.py infer`    |  **~3 h** | **~15 days †** |
+| **Detection, end to end**             | `run.py infer`    |  **~3 h** | **~15 days** |
 | Cloud-only ensemble scoring           | `run.py eval`     |    ~8 min |       ~6.5–9 h |
 | Incident classification, one backbone | `run.py classify` |       n/a |      ~1 h 51 m |
 | Train the BAT ensemble (81 models)    | `run.py train`    |   ~23 min |     many hours |
 
 #### Why HDFS detection takes days
 
-**† HDFS detection is fully supported — it simply takes a long time.** The command runs exactly as OpenStack's does and produces the same outputs; the cost is the size of the test split, not any limitation of the method:
+HDFS detection is fully supported, but its much larger test split and smaller model windows produce about 140 times as many windows as OpenStack. Each of the three Q-BAT learners scans every window using ExecuTorch on CPU. The learners run in parallel, with the slowest learner determining the edge-stage completion time.
 
-HDFS's test split is roughly two orders of magnitude larger than OpenStack's, and its smaller window size divides it into more windows still — together about 140× as many windows to scan.
+The approximately 15-day HDFS estimate in the timing summary is extrapolated from per-window measurements on the documented workstation, rather than a completed full run. Runtime depends on the hardware and grows with the number of test windows.
 
-The edge tier runs one ExecuTorch CPU pass per Q-BAT learner over every window. The three learners run in parallel, so the **deepest** one sets the wall-clock cost, and the scan is linear in windows:
-
-| Encoder depth |      measured | HDFS scan |
-| ------------- | ------------: | --------: |
-| `l3`          | 1.81 s/window | ~4.6 days |
-| `l6`          | 3.60 s/window | ~9.2 days |
-| `l8`          | 4.74 s/window |  ~15 days |
-
-At these measured per-window rates, even a trio using the shallowest learners would take about 4.6 days. These estimates describe the documented CPU setup, not a hardware-independent runtime limit.
-
-**For evaluation we suggest OpenStack**, which exercises the same implementation, routing policy and scoring protocol with dataset-specific checkpoints, thresholds and window sizes. Table 3 reports both datasets. The full OpenStack run checks the reported improvement in F1 when routing 10% of events to the cloud. HDFS detection is also supported but takes much longer on the documented setup.
-
-The standalone HDFS stages avoid that edge scan: cloud-only scoring takes approximately 6.5–9 hours and one-backbone incident classification approximately 1 hour 51 minutes on the documented setup.
+For practical artifact evaluation, use OpenStack detection and standalone HDFS incident classification. OpenStack exercises the detection pipeline in about three hours, while HDFS classification uses the bundled classification test set independently and takes approximately 1 hour 51 minutes for one backbone. Classification does not require the long HDFS detection scan.
 
 ### Step 1 — Set up environments
 
