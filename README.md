@@ -83,7 +83,7 @@ Choose one setup route: the [Docker image](#run-in-docker-no-environment-setup),
 
 The published `v1.1` image contains both environments from [Step 1](#step-1--set-up-environments), the ExecuTorch runtime, classification dependencies, and the `check` and `smoke` commands. Skip Step 1 when using this image. Local source changes require rebuilding the [Dockerfile](Dockerfile) to include them in a container.
 
-**Host requirements.** x86-64 Linux with Docker. GPU acceleration requires an NVIDIA driver and the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html). For CPU execution, drop `--gpus all`: the software checks, small real experiment, edge inference and model conversion run on CPU, and BAT supports CPU fallback. The full-evaluation time estimates assume GPU acceleration for BAT and the LLM.
+**Host requirements.** The commands below use x86-64 Linux, Docker, an NVIDIA GPU and driver, and the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html). The `--gpus all` flag makes the GPU available inside the container for BAT verification and LLM classification.
 
 ```bash
 docker pull ghcr.io/kismetzz28/cesal:v1.1        # ~10 GB
@@ -102,6 +102,8 @@ python run.py classify qwen2.5-14b-instruct  # separate HDFS classification expe
 ```
 
 `all os` finishes after detection; classification runs only when you invoke the separate command. Checkpoints and LLM weights are not in the image: `all os` downloads missing BAT/Q-BAT checkpoints, and the first `classify` run fetches the LLM weights. The two named volumes retain these downloads. `docker start -ai cesal-v1.1` returns to the same container later, and `docker cp cesal-v1.1:/app/outputs ./outputs` copies results out. For the gated Llama and Gemma backbones, add `-e HF_TOKEN=<your token>` to `docker run`.
+
+**CPU-only option.** For software checks or the small detection experiment, omit `--gpus all` from `docker run`, then use `python run.py check` or `python run.py smoke os`. The small experiment requires checkpoints; run `python run.py download os` first if they are missing. Full detection and classification timings assume GPU acceleration.
 
 To build the image instead of pulling it, run `docker build -t cesal .` from the repository root (about 10 minutes, mostly package downloads).
 
