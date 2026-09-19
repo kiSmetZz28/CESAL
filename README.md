@@ -154,14 +154,14 @@ Training is the expensive stage, so the checkpoints behind the paper's numbers a
 
 **Time.** The full-run figures below are approximate timings for an **i7-14700 workstation with NVIDIA RTX 2000 Ada, 32 GB RAM and Ubuntu 24.04.2**; HDFS end-to-end detection is an extrapolation from per-window timings. The edge stage runs three ExecuTorch learners on CPU; the full cloud and LLM timings assume GPU acceleration. The small real experiment was observed at about 80 seconds on CPU, excluding setup and downloads. The paper's machines are listed under [Hardware setup](#hardware-setup-section-41).
 
-| Stage                                 | Command           | OpenStack |           HDFS |
-| ------------------------------------- | ----------------- | --------: | -------------: |
-| Core software checks                  | `run.py check`    |   seconds |        seconds |
-| Small real experiment (after setup)   | `run.py smoke os` |  ~1–2 min |            n/a |
+| Stage                                 | Command           | OpenStack |         HDFS |
+| ------------------------------------- | ----------------- | --------: | -----------: |
+| Core software checks                  | `run.py check`    |   seconds |      seconds |
+| Small real experiment (after setup)   | `run.py smoke os` |  ~1–2 min |          n/a |
 | **Detection, end to end**             | `run.py infer`    |  **~3 h** | **~15 days** |
-| Cloud-only ensemble scoring           | `run.py eval`     |    ~8 min |       ~6.5–9 h |
-| Incident classification, one backbone | `run.py classify` |       n/a |      ~1 h 51 m |
-| Train the BAT ensemble (81 models)    | `run.py train`    |   ~23 min |     many hours |
+| Cloud-only ensemble scoring           | `run.py eval`     |    ~8 min |     ~6.5–9 h |
+| Incident classification, one backbone | `run.py classify` |       n/a |    ~1 h 51 m |
+| Train the BAT ensemble (81 models)    | `run.py train`    |   ~23 min |   many hours |
 
 #### Why HDFS detection takes days
 
@@ -284,10 +284,6 @@ python run.py infer os                # edge scan → routing → cloud re-check
 OpenStack is the dataset to use here. `run.py infer hdfs` runs the identical pipeline over a far larger test split, which takes about 15 days — see [Why HDFS detection takes days](#why-hdfs-detection-takes-days).
 
 One command runs the detection pipeline: Q-BAT scores events in complete test windows, the Mahalanobis policy selects 10% of events by default, BAT verifies the selected events that fill complete cloud windows, and the predictions are merged. The cloud stage starts as a `cesal-cloud` subprocess automatically. Classification and workflow selection are separate stages.
-
-The run closes with precision / recall / F1 for two of the three [Table 3](#log-based-incident-detection-table-3) rows — **Edge** (Q-BAT alone) and **Hybrid** (CESAL after cloud verification), under the paper's evaluation protocol. The cloud-only row comes from [Evaluate the ensemble](#evaluate-the-ensemble).
-
-Detection results are saved under `outputs/<dataset>/`. The run logs report stage progress and output locations.
 
 **What takes the time.** The edge scan dominates — one ExecuTorch CPU pass per Q-BAT learner over every window, so it scales with the number of test windows and the cores available, and the learners run in parallel. Cloud verification touches only the routed fraction (10% by default) on the GPU and is comparatively quick; routing and the merge are negligible. To sweep routing ratios without repeating the scan, see [Vary the routing ratio](#vary-the-routing-ratio).
 
