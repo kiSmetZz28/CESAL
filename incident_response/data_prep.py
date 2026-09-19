@@ -4,8 +4,8 @@ Outputs (default: data/HDFS/open_set/):
   open_set_test.csv                    every unique (Type, template sequence) of abnormal blocks;
                                        types outside the 10 known ones keep a blank label and are
                                        evaluated as the open-set "Other anomaly type" class
-  top100_split_template_sequences.csv  RAG knowledge base: the 100 most frequent template sequences
-                                       of each of the 10 most frequent anomaly types
+  classification_reference.csv        RAG knowledge base: up to 100 most frequent unique template
+                                       sequences per known anomaly type (default --top_n 100)
 
 Usage (from project root):
   python -m incident_response.data_prep
@@ -86,7 +86,7 @@ def main() -> None:
           f"({(test_df['label'] == '').sum()} from {test_df.loc[test_df['label'] == '', 'Type'].nunique()} unknown types)")
 
     kb_df = build_topn_reference(traces, args.top_n)
-    kb_path = out_dir / f"top{args.top_n}_split_template_sequences.csv"
+    kb_path = out_dir / "classification_reference.csv"
     kb_df.to_csv(kb_path, index=False)
     print(f"{kb_path}: {len(kb_df)} reference sequences over {kb_df['Type'].nunique()} known types")
 

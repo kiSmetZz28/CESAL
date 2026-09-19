@@ -67,6 +67,10 @@ COPY . .
 RUN /opt/conda/envs/cesal-edge/bin/pip install -e . \
     && /opt/conda/envs/cesal-cloud/bin/pip install -e .
 
+# Check classification dependencies without downloading weights or requiring a GPU.
+RUN /opt/conda/envs/cesal-cloud/bin/python -c \
+    "import accelerate, sentencepiece; from transformers import AutoTokenizer, AutoModelForCausalLM, Qwen2ForCausalLM, LlamaForCausalLM, Gemma2ForCausalLM; import incident_response.evaluate; print('Classification dependencies ready')"
+
 # The edge tier spawns the cloud tier with this interpreter; the dashboard reads the other two.
 # expandable_segments avoids fragmentation OOMs when Qwen2.5-14B is partly offloaded on a 16 GB GPU.
 ENV CESAL_CLOUD_PYTHON=/opt/conda/envs/cesal-cloud/bin/python \

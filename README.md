@@ -216,6 +216,8 @@ ExecuTorch **0.5.0** ([docs](https://docs.pytorch.org/executorch/0.5/)) and its 
 
 #### Cloud environment (`cesal-cloud`)
 
+Docker creates this environment from `environment/cloud/requirements.txt`, including the classification libraries; it does not copy a local Conda environment. An existing environment that runs BAT detection may still need classification dependencies.
+
 ```bash
 conda create -yn cesal-cloud python=3.10.0
 conda activate cesal-cloud
@@ -326,7 +328,7 @@ python run.py classify                          # all four backbones in configs/
 python run.py classify qwen2.5-14b-instruct     # CESAL's default backbone only
 ```
 
-Reads `data/HDFS/open_set/` (the 4,124-sequence test set and knowledge base, bundled) and writes to `outputs/hdfs/llm/`: `results_<model>.csv` (per sequence: type, retrieved evidence, model text when generated), `model_summary.csv` (the **Table 7** macro scores as fractions, 0–1), `per_class_metrics_long.csv`, and `report_<model>.txt`. Multiply summary scores by 100 to compare with the paper's percentages. Per-class references are in `table7_reference_metrics.csv`; per-backbone settings live in `model_overrides` of `configs/llm/hdfs.yaml`. All 4,124 sequences are classified per backbone, but retrieval rules resolve some without LLM generation. Results are written only when a backbone finishes, so run one at a time if yours may be interrupted. Each run rewrites `model_summary.csv`, `per_class_metrics_long.csv` and `per_class_f1_table.csv` with only that run's backbones, while `results_<model>.csv` and `report_<model>.txt` are kept per backbone.
+Reads the bundled `data/HDFS/open_set/open_set_test.csv` (4,124 test sequences) and `data/HDFS/open_set/classification_reference.csv` (703 reference sequences) and writes to `outputs/hdfs/llm/`: `results_<model>.csv` (per sequence: type, retrieved evidence, model text when generated), `model_summary.csv` (the **Table 7** macro scores as fractions, 0–1), `per_class_metrics_long.csv`, and `report_<model>.txt`. Multiply summary scores by 100 to compare with the paper's percentages. Per-class references are in `table7_reference_metrics.csv`; per-backbone settings live in `model_overrides` of `configs/llm/hdfs.yaml`. All 4,124 sequences are classified per backbone, but retrieval rules resolve some without LLM generation. Results are written only when a backbone finishes, so run one at a time if yours may be interrupted. Each run rewrites `model_summary.csv`, `per_class_metrics_long.csv` and `per_class_f1_table.csv` with only that run's backbones, while `results_<model>.csv` and `report_<model>.txt` are kept per backbone.
 
 **Response (Table 1)** — connect detection to the module: queue every detected session, classify it, and assign its workflow:
 
@@ -743,7 +745,7 @@ OpenStack:  1,386 bundled test sequence groups
 
 These are input-accounting counts, not performance results. All reported detection performance uses the paper's **point-adjustment protocol**. The small readiness experiment preprocesses the same full splits and then selects its ten test windows.
 
-**Open-set classification data.** The HDFS open-set test set and retrieval knowledge base under `data/HDFS/open_set/` are rebuilt from loghub's `HDFS_v1/preprocessed/Event_traces.csv` with `python -m incident_response.data_prep`.
+**Open-set classification data.** The HDFS open-set test set (`open_set_test.csv`) and retrieval knowledge base (`classification_reference.csv`) under `data/HDFS/open_set/` are rebuilt from loghub's `HDFS_v1/preprocessed/Event_traces.csv` with `python -m incident_response.data_prep`. The bundled reference file contains 703 sequences, selected as up to 100 most frequent unique template sequences per known anomaly type.
 
 ### Provenance and ethics
 

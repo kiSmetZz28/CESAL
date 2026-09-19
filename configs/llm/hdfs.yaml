@@ -1,6 +1,6 @@
 # LLM-based open-set incident classification on HDFS abnormal sequences (paper Sec. 3.7, Table 7)
 test_csv: "data/HDFS/open_set/open_set_test.csv"
-kb_csv: "data/HDFS/open_set/top100_split_template_sequences.csv"
+kb_csv: "data/HDFS/open_set/classification_reference.csv"
 text_col: "template_seq"
 label_col: "label"
 output_dir: "outputs/hdfs/llm"
