@@ -93,7 +93,7 @@ Physical Raspberry Pi measurements from Table 6 are excluded from the proposed w
 
 sw = """
 Native setup: Linux (tested on Ubuntu 24.04.2), Conda and Python 3.10. Run install.sh to create cesal-edge (PyTorch 2.6 CPU, ExecuTorch 0.5.0) and cesal-cloud (PyTorch 2.4, CUDA 12.4, transformers 4.47). Dependency pins are in environment/edge/requirements.txt and environment/cloud/requirements.txt.
-Container alternative: Docker with the supplied Dockerfile; the README documents ghcr.io/kismetzz28/cesal:v1.0. Use a container built from the evaluated source revision when checking newly added commands. GPU containers require an NVIDIA driver and NVIDIA Container Toolkit; CPU-only checks do not.
+Container alternative: the published ghcr.io/kismetzz28/cesal:v1.1 image includes both Conda environments, classification dependencies, the ExecuTorch runtime, and the check and smoke commands. Rebuild the supplied Dockerfile to include later local source changes. GPU containers require an NVIDIA driver and NVIDIA Container Toolkit; CPU-only checks do not.
 GPU runs need a driver compatible with CUDA 12.4. Set CESAL_CLOUD_PYTHON if the cloud interpreter is outside the default location; the Dockerfile sets it for the container.
 The optional dashboard is not required for any claim above.
 """
