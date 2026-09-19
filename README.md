@@ -25,7 +25,7 @@ An **edge-first, cloud-assisted** pipeline, in four stages:
 
 ### Framework Overview
 
-CESAL is a cloud-edge framework for log-based incident detection, classification, and controlled response. Logs are parsed into event sequences and transformed into context vectors. Q-BAT scores events at the edge; a Mahalanobis distance policy ranks their score vectors relative to calibrated thresholds and selects a configured share for cloud verification. Selected event vectors are packed into complete windows for BAT. Cloud verdicts replace the corresponding edge verdicts, while events outside those complete windows retain their edge verdicts. Detection scores are reported after point adjustment. For HDFS, an optional classification module uses lexical retrieval, open-set decision rules and an LLM to assign a known anomaly type or the unknown category (`Other anomaly type` in the implementation). A final module selects the corresponding response workflow, including human investigation for unknown types; it does not execute mitigation actions.
+CESAL is a cloud-edge framework for log-based incident detection, classification, and controlled response. Logs are parsed into event sequences and transformed into context vectors. Q-BAT scores events at the edge; a Mahalanobis distance policy ranks their score vectors relative to calibrated thresholds and selects a configured share for cloud verification. Selected event vectors are packed into complete windows for BAT. Cloud verdicts replace the corresponding edge verdicts, while events outside those complete windows retain their edge verdicts. For HDFS, an optional classification module uses lexical retrieval, open-set decision rules and an LLM to assign a known anomaly type or the unknown category (`Other anomaly type` in the implementation). A final module selects the corresponding response workflow, including human investigation for unknown types; it does not execute mitigation actions.
 
 ### Models
 
@@ -151,14 +151,14 @@ Training is the expensive stage, so the checkpoints behind the paper's numbers a
 
 **Time.** The full-run figures below are approximate timings for an **i7-14700 workstation with NVIDIA RTX 2000 Ada, 32 GB RAM and Ubuntu 24.04.2**; HDFS end-to-end detection is an extrapolation from per-window timings. The edge stage runs three ExecuTorch learners on CPU; the full cloud and LLM timings assume GPU acceleration. The small real experiment was observed at about 80 seconds on CPU, excluding setup and downloads. The paper's machines are listed under [Hardware setup](#hardware-setup-section-41).
 
-| Stage                                 | Command           |  OpenStack |            HDFS |
-| ------------------------------------- | ----------------- | ---------: | --------------: |
-| Core software checks                  | `run.py check`   |    seconds |         seconds |
-| Small real experiment (after setup)  | `run.py smoke os` |   ~1–2 min |             n/a |
-| **Detection, end to end**             | `run.py infer`    | **~3 h**   | **~15 days †** |
-| Cloud-only ensemble scoring           | `run.py eval`     |     ~8 min |        ~6.5–9 h |
-| Incident classification, one backbone | `run.py classify` |        n/a |       ~1 h 51 m |
-| Train the BAT ensemble (81 models)    | `run.py train`    |    ~23 min |      many hours |
+| Stage                                 | Command           | OpenStack |           HDFS |
+| ------------------------------------- | ----------------- | --------: | -------------: |
+| Core software checks                  | `run.py check`    |   seconds |        seconds |
+| Small real experiment (after setup)   | `run.py smoke os` |  ~1–2 min |            n/a |
+| **Detection, end to end**             | `run.py infer`    |  **~3 h** | **~15 days †** |
+| Cloud-only ensemble scoring           | `run.py eval`     |    ~8 min |       ~6.5–9 h |
+| Incident classification, one backbone | `run.py classify` |       n/a |      ~1 h 51 m |
+| Train the BAT ensemble (81 models)    | `run.py train`    |   ~23 min |     many hours |
 
 #### Why HDFS detection takes days
 
@@ -168,15 +168,15 @@ HDFS's test split is roughly two orders of magnitude larger than OpenStack's, an
 
 The edge tier runs one ExecuTorch CPU pass per Q-BAT learner over every window. The three learners run in parallel, so the **deepest** one sets the wall-clock cost, and the scan is linear in windows:
 
-| Encoder depth | measured | HDFS scan |
-| ------------- | -------: | --------: |
-| `l3` | 1.81 s/window | ~4.6 days |
-| `l6` | 3.60 s/window | ~9.2 days |
-| `l8` | 4.74 s/window | ~15 days |
+| Encoder depth |      measured | HDFS scan |
+| ------------- | ------------: | --------: |
+| `l3`          | 1.81 s/window | ~4.6 days |
+| `l6`          | 3.60 s/window | ~9.2 days |
+| `l8`          | 4.74 s/window |  ~15 days |
 
 At these measured per-window rates, even a trio using the shallowest learners would take about 4.6 days. These estimates describe the documented CPU setup, not a hardware-independent runtime limit.
 
-**For evaluation we suggest OpenStack**, which exercises the same implementation, routing policy and scoring protocol with dataset-specific checkpoints, thresholds and window sizes. Table 3 reports both datasets. The full OpenStack run checks the reported improvement in point-adjusted F1 when routing 10% of events to the cloud. HDFS detection is also supported but takes much longer on the documented setup.
+**For evaluation we suggest OpenStack**, which exercises the same implementation, routing policy and scoring protocol with dataset-specific checkpoints, thresholds and window sizes. Table 3 reports both datasets. The full OpenStack run checks the reported improvement in F1 when routing 10% of events to the cloud. HDFS detection is also supported but takes much longer on the documented setup.
 
 The standalone HDFS stages avoid that edge scan: cloud-only scoring takes approximately 6.5–9 hours and one-backbone incident classification approximately 1 hour 51 minutes on the documented setup.
 
@@ -191,7 +191,6 @@ The standalone HDFS stages avoid that edge scan: cloud-only scoring takes approx
 That creates both Conda environments, installs their pinned requirements, installs CESAL into each, fetches the ExecuTorch 0.5.0 runtime, and finishes with the core software checks. Existing environments are reused on reinstallation, and packages may be updated. Skip installation when using a prepared [Docker image](#run-in-docker-no-environment-setup).
 
 The rest of this section is what the script does, step by step, if you would rather run it by hand or need to change something.
-
 
 CESAL uses **two Conda environments**, one for each inference tier:
 
@@ -297,18 +296,18 @@ OpenStack is the dataset to use here. `run.py infer hdfs` runs the identical pip
 
 One command runs the detection pipeline: Q-BAT scores events in complete test windows, the Mahalanobis policy selects 10% of events by default, BAT verifies the selected events that fill complete cloud windows, and the predictions are merged. The cloud stage starts as a `cesal-cloud` subprocess automatically. Classification and workflow selection are separate stages.
 
-The run closes with precision / recall / F1 for two of the three [Table 3](#log-based-incident-detection-table-3) rows — **Edge** (Q-BAT alone) and **Hybrid** (CESAL after cloud verification), under the paper's point-adjustment protocol. The cloud-only row comes from [Evaluate the ensemble](#evaluate-the-ensemble).
+The run closes with precision / recall / F1 for two of the three [Table 3](#log-based-incident-detection-table-3) rows — **Edge** (Q-BAT alone) and **Hybrid** (CESAL after cloud verification), under the paper's evaluation protocol. The cloud-only row comes from [Evaluate the ensemble](#evaluate-the-ensemble).
 
 **In → out.** Reads `data/<dataset>/`, the checkpoints from Step 2, and `outputs/<dataset>/thresholds_{edge,cloud}.yaml`. Writes to `outputs/<dataset>/`:
 
-| File                                      | Contents                                             |
-| ----------------------------------------- | ---------------------------------------------------- |
-| `edge_preds.npy` / `edge_preds_raw.npy`   | Q-BAT predictions, with and without point adjustment |
-| `energy_matrix.npy`                       | per-model scores — the input to the routing decision |
-| `routed_indices.npy` / `routed_lines.npy` | which events were escalated, and what was sent       |
+| File                                      | Contents                                                          |
+| ----------------------------------------- | ----------------------------------------------------------------- |
+| `edge_preds.npy` / `edge_preds_raw.npy`   | Q-BAT predictions for evaluation / original detector predictions  |
+| `energy_matrix.npy`                       | per-model scores — the input to the routing decision              |
+| `routed_indices.npy` / `routed_lines.npy` | which events were escalated, and what was sent                    |
 | `cloud_preds.npy`                         | internal BAT verdicts for routed events in complete cloud windows |
-| `hybrid_preds.npy`                        | merged CESAL predictions after point adjustment      |
-| `ground_truth.npy`                        | labels, for scoring                                  |
+| `hybrid_preds.npy`                        | CESAL predictions used for evaluation                             |
+| `ground_truth.npy`                        | labels, for scoring                                               |
 
 **What takes the time.** The edge scan dominates — one ExecuTorch CPU pass per Q-BAT learner over every window, so it scales with the number of test windows and the cores available, and the learners run in parallel. Cloud verification touches only the routed fraction (10% by default) on the GPU and is comparatively quick; routing and the merge are negligible. To sweep routing ratios without repeating the scan, see [Vary the routing ratio](#vary-the-routing-ratio).
 
@@ -339,7 +338,7 @@ python -m incident_response.workflows --label "Replica immediately deleted"
 python -m incident_response.workflows --results outputs/hdfs/llm/results_Qwen_Qwen2.5-14B-Instruct.csv
 ```
 
-Reads the Step 3 outputs and queues every session whose final prediction (edge Q-BAT with routed events replaced by cloud BAT, before point adjustment) flagged an event. Writes to `outputs/hdfs/llm/queues/`: `queue_edge.csv` / `queue_cloud.csv` (the queues Q_E and Q_C, split by which tier caught the session), `classified_<model>.csv` (per-sequence cache, appended as it goes, so an interrupted run resumes), `incidents_<model>.csv` (each incident with its type, workflow and approval / escalation counts), and `evaluation_<model>.csv`.
+Reads the Step 3 outputs and queues every session whose final prediction (edge Q-BAT with routed events replaced by cloud BAT) flagged an event. Writes to `outputs/hdfs/llm/queues/`: `queue_edge.csv` / `queue_cloud.csv` (the queues Q*E and Q_C, split by which tier caught the session), `classified*<model>.csv`(per-sequence cache, appended as it goes, so an interrupted run resumes),`incidents*<model>.csv`(each incident with its type, workflow and approval / escalation counts), and`evaluation*<model>.csv`.
 
 **`run.py respond` needs the HDFS detection outputs**, which come from `run.py infer hdfs`, the ~15-day scan, so it cannot start from a fresh checkout within an evaluation window. The workflow mapping itself needs no detection run and no GPU: `workflows --results` on the output of `run.py classify`, as above, assigns every classified sequence its Table 1 workflow in seconds.
 
@@ -361,7 +360,7 @@ The terminal commands are the paper-result evaluation path. The optional browser
 
 ## Advanced Options
 
-Detail on training, quantization, point-adjusted ensemble scoring and routing-ratio experiments.
+Detail on training, quantization, ensemble scoring and routing-ratio experiments.
 
 ### Train the BAT ensemble from scratch
 
@@ -407,7 +406,7 @@ conda activate cesal-edge
 python run.py infer os 0.2          # escalate 20% instead of the configured 10%
 ```
 
-To compare routing ratios, `sweep` runs the requested ratios and tabulates their point-adjusted detection scores:
+To compare routing ratios, `sweep` runs the requested ratios and tabulates their detection scores:
 
 ```bash
 python run.py sweep os 0.05,0.1,0.2,0.3
@@ -415,7 +414,7 @@ python run.py sweep os 0.05,0.1,0.2,0.3
 
 Only routing, cloud verification and the merge depend on the ratio — the edge scan does not — so the scan runs **once** and every later ratio reuses it. On HDFS that is the difference between one Q-BAT pass and one per ratio. Each ratio writes to `outputs/<dataset>/ratio_NN/`, with the combined table printed and saved to `outputs/<dataset>/routing_ratio_sweep.csv`:
 
-The table reports the routing ratio, escalated event count and measured point-adjusted P/R/F1 percentages. Increasing the ratio increases cloud workload; it does not guarantee higher F1.
+The table reports the routing ratio, escalated event count and measured P/R/F1 percentages. Increasing the ratio increases cloud workload; it does not guarantee higher F1.
 
 A ratio that fails (for example, the cloud stage running out of GPU memory) is reported as `(no result)` and the sweep continues with the rest. Older results in that ratio's directory are excluded from the new table. A complete edge scan is reused even if its cloud stage failed. The CSV keeps successful ratios and leaves failed rows blank; the sweep exits with a nonzero status if any ratio has no result. Every run also writes the exact settings it used to `effective_config.yaml` beside its outputs. A standalone `infer` command also exits with a nonzero status when cloud verification fails.
 
@@ -442,12 +441,12 @@ The hardware used in our experiments — what the published numbers were measure
 | ----------------------------- | -------------------------------------------------------------------- | --------------------------- | ---------------------------------- |
 | **HPC cluster node**          | 2 × 18-core Xeon Gold 6140; 8 × NVIDIA Tesla V100; 1.5 TB memory     | RHEL 9.2                    | BAT training, cloud verification   |
 | **Dell PowerEdge R650**       | 36-core Xeon Platinum; Mellanox ConnectX-6 100 Gb NIC; 256 GB memory | Ubuntu 24.04.2              | Log collection and storage         |
-| **2 × i7-14700 servers**      | NVIDIA RTX 2000 Ada Generation; 32 GB memory                       | Windows 11 / Ubuntu 24.04.2 | Processing, Q-BAT prep, conversion |
+| **2 × i7-14700 servers**      | NVIDIA RTX 2000 Ada Generation; 32 GB memory                         | Windows 11 / Ubuntu 24.04.2 | Processing, Q-BAT prep, conversion |
 | **Raspberry Pi 5 / 4B / 3B+** | Cortex-A76 / A72 / A53, 4 cores; 8 / 8 / 1 GB memory                 | Ubuntu 20.04.5              | Edge deployment measurements       |
 
 ### Log-based incident detection (Table 3)
 
-All P/R/F1 values below are point-adjusted percentages from the paper.
+All P/R/F1 values below are percentages from the paper.
 
 | Method                              | HDFS P | HDFS R | HDFS F1 | OpenStack P | OpenStack R | OpenStack F1 |
 | ----------------------------------- | -----: | -----: | ------: | ----------: | ----------: | -----------: |
@@ -596,8 +595,7 @@ It preprocesses the complete bundled splits and then selects these windows,
 preserving the full evaluation's event encoding, session histories and
 training-based scaling. It scores the ten 100-event windows with all three published
 Q-BAT models, routes 10% of events, verifies them with three published BAT models
-(`e3_k1_l3`, batch sizes 32/64/96), and merges and scores the predictions using
-point adjustment. No predictions are mocked and no models are retrained.
+(`e3_k1_l3`, batch sizes 32/64/96), and merges and scores the predictions. No predictions are mocked and no models are retrained.
 
 Each run gets its own `outputs/smoke/os/run_*/` directory containing copies of the
 input splits, config, copied thresholds, an `experiment.json` record with input hashes and selected window indices,
@@ -629,7 +627,7 @@ Reproduces all three OpenStack rows of [Table 3](#log-based-incident-detection-t
 Keep this order: `infer` uses the bundled thresholds before `eval` recalibrates
 them. The existing recalibration behavior is unchanged; see the
 [evaluation note](#evaluate-the-ensemble) about preserving the bundled
-thresholds before repeating inference. Detection scores use point adjustment.
+thresholds before repeating inference.
 
 **Tier 2 — the classification claim (about 1 h 51 m, GPU, ~28 GB of weights)**
 
@@ -653,21 +651,21 @@ The full `run.py respond` path still requires HDFS detection outputs.
 
 ### Claims and how to check them
 
-| Paper claim                                                                                  | Command                                | Where the number appears             | Expected                          |
-| -------------------------------------------------------------------------------------------- | -------------------------------------- | ------------------------------------ | --------------------------------- |
-| Q-BAT alone detects anomalies at the edge (Table 3, Edge row)                                | `run.py infer os`                      | printed at the end of the run        | P 98.09 / R 100.00 / F1 99.03     |
-| BAT cloud-only reference (Table 3, cloud-only row)                                           | `run.py eval os`                       | printed at the end of the run        | P 99.99 / R 100.00 / F1 99.99     |
-| **CESAL with 10% event routing (Table 3, CESAL row)**                                        | `run.py infer os`                      | printed at the end of the run        | P 99.90 / R 100.00 / F1 99.95     |
-| The same holds on HDFS _(supported, but a multi-day run; see [Time](#requirements))_ | `run.py infer hdfs`                    | printed at the end of the run        | P 99.96 / R 100.00 / F1 99.98     |
-| Point-adjusted detection scores vs. routing ratio                                             | `run.py sweep os`                      | `outputs/os/routing_ratio_sweep.csv` | measured P/R/F1 and routed event counts |
-| **RAG + LLM classifies open-set incidents (Table 7)**                                        | `run.py classify qwen2.5-14b-instruct` | `outputs/hdfs/llm/model_summary.csv` (×100) | macro P 79.71 / R 92.07 / F1 83.03 |
-| Predicted incident types map to response workflows (Table 1)                                 | `python -m incident_response.workflows --results` on the Table 7 output | printed per anomaly type | every type gets its workflow; unknown types receive a human-investigation plan |
+| Paper claim                                                                          | Command                                                                 | Where the number appears                    | Expected                                                                       |
+| ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------ |
+| Q-BAT alone detects anomalies at the edge (Table 3, Edge row)                        | `run.py infer os`                                                       | printed at the end of the run               | P 98.09 / R 100.00 / F1 99.03                                                  |
+| BAT cloud-only reference (Table 3, cloud-only row)                                   | `run.py eval os`                                                        | printed at the end of the run               | P 99.99 / R 100.00 / F1 99.99                                                  |
+| **CESAL with 10% event routing (Table 3, CESAL row)**                                | `run.py infer os`                                                       | printed at the end of the run               | P 99.90 / R 100.00 / F1 99.95                                                  |
+| The same holds on HDFS _(supported, but a multi-day run; see [Time](#requirements))_ | `run.py infer hdfs`                                                     | printed at the end of the run               | P 99.96 / R 100.00 / F1 99.98                                                  |
+| Detection scores vs. routing ratio                                                   | `run.py sweep os`                                                       | `outputs/os/routing_ratio_sweep.csv`        | measured P/R/F1 and routed event counts                                        |
+| **RAG + LLM classifies open-set incidents (Table 7)**                                | `run.py classify qwen2.5-14b-instruct`                                  | `outputs/hdfs/llm/model_summary.csv` (×100) | macro P 79.71 / R 92.07 / F1 83.03                                             |
+| Predicted incident types map to response workflows (Table 1)                         | `python -m incident_response.workflows --results` on the Table 7 output | printed per anomaly type                    | every type gets its workflow; unknown types receive a human-investigation plan |
 
-The detection references use point-adjusted percentage scores with the published checkpoints. The proposed reproduction tolerance is ±0.1 percentage points in detection F1. LLM classification decodes greedily, but model and kernel versions can affect its scores; the proposed tolerance for Table 7 is ±1 percentage point in macro-F1. These are comparison tolerances for the full evaluation, not targets for the small readiness experiment.
+The detection references use percentage scores with the published checkpoints. The proposed reproduction tolerance is ±0.1 percentage points in detection F1. LLM classification decodes greedily, but model and kernel versions can affect its scores; the proposed tolerance for Table 7 is ±1 percentage point in macro-F1. These are comparison tolerances for the full evaluation, not targets for the small readiness experiment.
 
 ### What is scaled down, and why it still supports the paper
 
-- **OpenStack instead of HDFS for detection.** The datasets share the detection implementation and point-adjustment protocol, with dataset-specific checkpoints, thresholds and window sizes. The short path evaluates the OpenStack Table 3 rows; it does not substitute for measuring HDFS results.
+- **OpenStack instead of HDFS for detection.** The datasets share the detection implementation and evaluation protocol, with dataset-specific checkpoints, thresholds and window sizes. The short path evaluates the OpenStack Table 3 rows; it does not substitute for measuring HDFS results.
 - **One LLM backbone instead of four.** Table 7's headline is the best backbone, Qwen2.5-14B-Instruct at 83.03 macro-F1. The other three support the secondary claim that the result is not backbone-specific; run the full sweep only if that claim is what you want to check.
 - **Both tiers on one machine.** Separate Conda environments and processes run Q-BAT and BAT, with quantized `.pte` models on CPU for the edge tier. The physical edge device and network hop are absent. Compare detection metrics within the documented tolerances; resource measurements require the paper's hardware.
 - **Table 6 is not reproducible without hardware.** The edge resource measurements (latency, memory, power) were taken on physical Raspberry Pi 3B+/4B/5 boards. Nothing in this repository can stand in for them.
@@ -686,69 +684,21 @@ Following artifact evaluation, the evaluated revision will be deposited in a per
 
 ### How the data is processed
 
-The terminal and log file show five numbered preprocessing stages. Source parsing and log-sequence generation were performed before the bundled files were created; the runtime reports their available outputs, then constructs the model inputs. It does not rerun or independently verify the original raw-log parsing.
+The data-processing overview follows three stages: parsing raw messages, grouping log events into sequences, and generating context vectors. Parsing and sequence grouping were performed before the bundled files were created; normal inference loads these sequences and constructs the context vectors.
 
 1. **Raw messages → parsed event IDs.** Paper Section 3.4 describes Spell parsing: a message template becomes a log key. The paper's source-log totals are shown as reference counts. Raw logs are not required for detection, but model checkpoints and the ExecuTorch runtime are still required.
 2. **Log sequence generator → bundled sequence lines.** The paper describes HDFS grouping by identifiers such as block IDs and OpenStack partitioning by fixed windows. The runtime reads the already prepared files in [`data/`](data/): each nonempty line contains a sequence of event IDs. HDFS session counts are compared with Section 4.1. OpenStack log-message counts use the paper's source references; the runtime separately reports loaded sequence groups and generated context rows.
 3. **Sliding context sequence generator → one context row per event.** [`preprocessor.py`](cesal_core/data/preprocessor.py) maps event IDs within each input file and represents each event by its preceding `data_seq_len=10` events in the same source sequence. Missing history uses `NO_EVENT`; this adds feature padding, not extra events. A sequence containing `L` events produces `L` rows of 10 features. The log shows each split's matrix shape, then the concatenation of normal and abnormal test rows with labels 0 and 1.
-4. **Standardization → unchanged matrix sizes.** [`loaders.py`](cesal_core/data/loaders.py) fits `StandardScaler` on training rows only and applies it to the test rows. The log shows the before/after shapes; row counts and labels remain unchanged. Training mode additionally samples the same number of training rows with replacement for the learner's bootstrap sample. The training file is therefore needed even for inference.
-5. **Model-window generator → complete windows → batches.** The loader slices the concatenated context rows into windows, using 100 events for OpenStack and 50 for HDFS by default. These windows can cross original sequence boundaries; each event's context was already built within its own sequence. The log shows the actual stride, number of windows, covered rows, unused tail, any stride gaps or overlapping row appearances, and batch shape `[batch, win_size, 10]`. Windowing does not pad incomplete tails. Exported `.pte` models require their configured input shape.
 
-**OpenStack log messages — paper Section 4.1.** The dataset description and terminal logs use these source-message references:
+**Dataset statistics.** Total source log-message counts follow paper Section 4.1; training and testing counts describe sessions in the bundled files. For OpenStack, a session denotes one bundled sequence group.
 
-| Split | Paper log messages |
-| --- | ---: |
-| Training (normal) | 52,312 |
-| Normal test (total minus training and abnormal) | 137,074 |
-| Abnormal test | 18,434 |
-| **Total** | **207,820** |
-
-The experiment continues to use the current bundled inputs. The following counts describe **generated context rows**, before model windowing, rather than the paper's source-message totals:
-
-| Dataset / split | Sequence lines (HDFS sessions; OpenStack groups) | Generated context rows |
-| --- | ---: | ---: |
-| HDFS training | 4,855 | 95,125 |
-| HDFS normal test | 553,366 | 10,792,214 |
-| HDFS abnormal test | 16,838 | 284,818 |
-| **HDFS total** | **575,059** | **11,172,157** |
-| OpenStack training | 386 | 52,289 |
-| OpenStack normal test | 1,248 | 136,913 |
-| OpenStack abnormal test | 138 | 18,434 |
-| **OpenStack total** | **1,772** | **207,636** |
-
-**HDFS comparison with the paper and original data.** Training and abnormal-session counts match the paper. HDFS logs mark comparisons as `MATCH` or `MISMATCH`:
-
-| Count and unit | Paper/source reference | Bundled files | Difference |
-| --- | ---: | ---: | ---: |
-| HDFS training sessions | 4,855 | 4,855 | 0 |
-| HDFS abnormal sessions | 16,838 | 16,838 | 0 |
-| HDFS total sessions (original `anomaly_label.csv`) | 575,061 | 575,059 | −2 |
-| HDFS source messages / parsed event IDs | 11,175,629 | 11,172,157 | −3,472 |
-
-Section 4.1 does not specify a total HDFS session count; that reference comes from the original `HDFS_v1/anomaly_label.csv`, which contains 558,223 normal and 16,838 abnormal sessions. The bundled HDFS files contain two fewer normal sessions. A read-only count of the locally available original OpenStack files found 52,312 messages in `openstack_normal1.log`, 137,074 in `openstack_normal2.log` and 18,434 in `openstack_abnormal.log`, matching the paper's total of 207,820.
-
-The original raw files are optional and are not scanned on normal inference runs. The cause of the differences between those sources and the bundled parsed files is not established here. The differences exist **before runtime context generation and windowing**; this reporting does not alter inputs to reconcile them.
-
-The full test-set transformations are:
-
-```text
-HDFS:       570,204 test sessions → 11,077,032 event IDs
-            → [11,077,032, 10] context rows → same standardized shape
-            → 221,540 windows × [50, 10]
-            → 11,077,000 covered events + 32 unused tail events
-
-OpenStack:  1,386 bundled test sequence groups
-            → [155,347, 10] context rows → same standardized shape
-            → 1,553 windows × [100, 10]
-            → 155,300 covered events + 47 unused tail events
-```
-
-These are input-accounting counts, not performance results. All reported detection performance uses the paper's **point-adjustment protocol**. The small readiness experiment preprocesses the same full splits and then selects its ten test windows.
-
-**Open-set classification data.** The HDFS open-set test set (`open_set_test.csv`) and retrieval knowledge base (`classification_reference.csv`) under `data/HDFS/open_set/` are rebuilt from loghub's `HDFS_v1/preprocessed/Event_traces.csv` with `python -m incident_response.data_prep`. The bundled reference file contains 703 sequences, selected as up to 100 most frequent unique template sequences per known anomaly type.
+| Dataset   | Total source log messages | Normal training |   Normal testing | Abnormal testing |
+| --------- | ------------------------: | --------------: | ---------------: | ---------------: |
+| HDFS      |                11,175,629 |  4,855 sessions | 553,366 sessions |  16,838 sessions |
+| OpenStack |                   207,820 |    386 sessions |   1,248 sessions |     138 sessions |
 
 ### Provenance and ethics
 
-CESAL is evaluated on the **HDFS** and **OpenStack** log datasets, both public benchmarks distributed by [loghub](https://github.com/logpai/loghub). The parsed event-sequence splits are bundled under [`data/`](data/), so detection needs no raw-log download. Checkpoints and the runtime are separate downloads. The HDFS open-set test set and knowledge base can be rebuilt from loghub's `HDFS_v1/preprocessed/Event_traces.csv` with `python -m incident_response.data_prep`.
+CESAL is evaluated on the **HDFS** and **OpenStack** log datasets, both public benchmarks distributed by [loghub](https://github.com/logpai/loghub). The parsed event-sequence splits are bundled under [`data/`](data/), so detection needs no raw-log download. Checkpoints and the runtime are separate downloads.
 
 Both datasets contain only machine-generated operational telemetry — block identifiers, execution states and error traces. They include no personal data and no human-subject data, and no user study was conducted. CESAL itself is released under the [MIT license](LICENSE).

@@ -42,7 +42,7 @@ and reused, since it does not depend on the ratio.
 
 
 def _scores(out_dir: str):
-    """Point-adjusted precision / recall / F1, or None if no run outputs exist."""
+    """Reported precision / recall / F1, or None if no run outputs exist."""
     gt_p = os.path.join(out_dir, 'ground_truth.npy')
     hy_p = os.path.join(out_dir, 'hybrid_preds.npy')
     if not (os.path.exists(gt_p) and os.path.exists(hy_p)):

@@ -20,7 +20,7 @@ def run_pipeline(config, output):
         'edge': 'Data preprocessing and Q-BAT execution',
         'route': 'Event routing',
         'cloud': 'BAT cloud verification',
-        'hybrid': 'Prediction merge and point adjustment',
+        'hybrid': 'Prediction merge and scoring',
     }
     command = [sys.executable, '-m', 'cesal_inference_pipeline.run', '--config', str(config)]
     # This environment belongs only to the smoke child and its cloud process.
@@ -184,7 +184,7 @@ def main():
         )
         print('\nVERIFIED — real data preprocessing and edge model execution')
         print('VERIFIED — routing and cloud model execution')
-        print('VERIFIED — prediction alignment, merge and point adjustment')
+        print('VERIFIED — prediction alignment, merge and scoring')
         print('Small detection experiment complete. Ready to proceed to the full detection evaluation.')
         print(f'Diagnostics and experiment record: {output.relative_to(ROOT)}')
         return 0

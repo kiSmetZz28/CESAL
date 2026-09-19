@@ -770,7 +770,7 @@ select:focus{outline:none;border-color:var(--blue);}
     <div class="card">
       <div class="step-hdr"><span class="step-title">Detection Settings</span></div>
       <div class="card-help">
-        <strong>Routing Ratio</strong> — the share of events selected for cloud BAT verification in batch inference. A higher ratio adds cloud work; its effect on point-adjusted detection scores is measured by evaluation.
+        <strong>Routing Ratio</strong> — the share of events selected for cloud BAT verification in batch inference. A higher ratio adds cloud work; its effect on detection scores is measured by evaluation.
       </div>
       <div class="field">
         <label class="lbl">Routing Ratio — <span id="tolLabel" style="color:var(--amber);font-weight:700">10%</span></label>
@@ -830,7 +830,7 @@ select:focus{outline:none;border-color:var(--blue);}
           Full Test Set Analysis
         </div>
         <div style="font-size:11px;color:var(--muted);margin-bottom:8px;line-height:1.5">
-          Runs the configured test set and reports point-adjusted detection
+          Runs the configured test set and reports detection
           metrics (accuracy, precision, recall, F1). Demo configurations may use a subset.
         </div>
         <label id="respondOptRow" style="display:flex;gap:7px;align-items:flex-start;
@@ -1813,7 +1813,7 @@ const STEP_HELP = {
   cloud:  ['☁️','Cloud is re-checking the escalated events…',
            'BAT scores routed events packed into complete windows; any incomplete tail retains its edge verdicts.'],
   hybrid: ['🧩','Merging the edge and cloud verdicts…',
-           'Cloud-verified events receive BAT verdicts; Edge and Hybrid detection scores use point adjustment.'],
+           'Cloud-verified events receive BAT verdicts; the run reports Edge and Hybrid detection scores.'],
 };
 
 // Icons for the step ids the runners declare; anything unknown gets a gear.

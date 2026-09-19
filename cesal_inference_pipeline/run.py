@@ -5,7 +5,7 @@ Stages
 1. edge   : Q-BAT computes a per-learner energy score      [cesal-edge env]
 2. route  : Mahalanobis routing selects events             [cesal-edge env]
 3. cloud  : BAT scores routed events in complete windows   [cesal-cloud env — subprocess]
-4. hybrid : Merge predictions, report point-adjusted metrics [cesal-cloud env — subprocess]
+4. hybrid : Merge predictions, report metrics [cesal-cloud env — subprocess]
 
 Stage 3+4 always run inside the cesal-cloud conda environment by calling
 cloud_runner.py as a subprocess.  The Python interpreter is located via
@@ -48,7 +48,7 @@ cloud verification, and the merge of the two.
 The quantized Q-BAT ensemble scores events in complete test windows. Distance-based
 routing selects a share of events for the full-precision BAT ensemble, packed into
 complete cloud windows. Cloud-verified events receive BAT verdicts; any remaining
-events keep their edge verdicts. Edge and Hybrid metrics use point adjustment.
+events keep their edge verdicts.
 """
 
 

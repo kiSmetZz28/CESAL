@@ -3,6 +3,8 @@
 
 # ── Git and editor state ─────────────────────────────────────────────────────
 .git/
+.agents/
+.codex/
 .claude/
 .vscode/
 .idea/

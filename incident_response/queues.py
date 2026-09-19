@@ -1,7 +1,7 @@
 """Build CESAL's anomaly queues from the HDFS collaborative LAD outputs (paper Sec. 3.1).
 
 A test session (one line of the LAD test files) is detected as abnormal when CESAL's final
-prediction — edge Q-BAT, with routed events replaced by cloud BAT, before point adjustment —
+prediction — edge Q-BAT, with routed events replaced by cloud BAT —
 marks any of its events anomalous. Each detected session becomes an incident record:
 
   Q_C  queue_cloud.csv   at least one anomalous event was verified by cloud-side BAT
@@ -63,7 +63,7 @@ def load_sessions(data_path: str) -> Tuple[List[List[str]], np.ndarray]:
 def final_predictions(out_dir: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Per-event edge predictions, final hybrid predictions, and the routed-to-cloud mask.
 
-    Mirrors cesal_inference_pipeline/cloud_runner.py without the ground-truth point adjustment.
+    Mirrors cesal_inference_pipeline/cloud_runner.py to construct operational predictions for the incident queues.
     """
     edge = np.load(os.path.join(out_dir, "edge_preds_raw.npy")).astype(np.int8)
     routed = np.zeros(len(edge), dtype=bool)

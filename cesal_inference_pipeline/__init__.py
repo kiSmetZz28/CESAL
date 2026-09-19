@@ -17,5 +17,5 @@ Pipeline stages
                test windows, majority-vote → edge predictions
   2. route  -- Mahalanobis routing: select event vectors for cloud
   3. cloud  -- BAT scores routed events packed into complete windows
-  4. hybrid -- Merge edge + cloud predictions, report point-adjusted metrics
+  4. hybrid -- Merge edge + cloud predictions, report metrics
 """

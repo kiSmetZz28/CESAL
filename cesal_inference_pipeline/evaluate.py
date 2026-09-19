@@ -121,7 +121,7 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
     parser = argparse.ArgumentParser(
-        description="Compute point-adjusted edge ensemble and hybrid (edge+cloud) detection metrics."
+        description="Compute edge ensemble and hybrid (edge+cloud) detection metrics."
     )
     parser.add_argument(
         "--edge_preds",

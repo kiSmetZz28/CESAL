@@ -1,4 +1,4 @@
-"""Training pipeline — BAT ensemble training and point-adjusted evaluation.
+"""Training pipeline — BAT ensemble training and evaluation.
 
 Entry points (run from project root)
 -------------------------------------

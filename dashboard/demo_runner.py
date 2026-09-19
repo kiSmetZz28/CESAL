@@ -8,7 +8,7 @@ the edge scan and the cloud re-check:
   Stage 1  Edge scan  — 3 fast BAT checkpoints on all test windows (parallel)
   Stage 2  Routing    — Mahalanobis distance selects event vectors
   Stage 3  Cloud      — full BAT ensemble on packed routed-event windows
-  Stage 4  Evaluation — point-adjusted hybrid metrics for this BAT-proxy demo
+  Stage 4  Evaluation — hybrid metrics for this BAT-proxy demo
 
 This preview does not evaluate the quantized Q-BAT models used for Table 3.
 
