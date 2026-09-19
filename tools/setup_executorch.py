@@ -82,17 +82,22 @@ def install_python_bindings() -> bool:
 
 def setup_executorch(prefix: str = "") -> bool:
     """Install the runtime if it is missing. `prefix` labels the line for a caller
-    that prints a numbered sequence (the dashboard launcher does)."""
+    that prints a numbered sequence (the dashboard launcher does).
+
+    An existing C++ runtime is sufficient for inference. Leave its environment
+    unchanged; optional Python bindings must not trigger a reinstall on each
+    checkpoint download, especially inside a read-only container.
+    """
+    if executorch_present():
+        print(f"{prefix}ExecuTorch runtime already installed — no setup needed.")
+        return True
+
     bindings_ok = False
     try:
         from executorch.runtime import Runtime  # noqa: F401
         bindings_ok = True
     except ImportError:
         pass
-
-    if executorch_present() and bindings_ok:
-        print(f"{prefix}ExecuTorch — already present, skipping.")
-        return True
 
     if not executorch_present():
         print(f"{prefix}Downloading ExecuTorch 0.5.0 (~1.4 GB) from Google Drive …")
