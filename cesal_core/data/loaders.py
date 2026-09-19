@@ -181,5 +181,5 @@ def get_loader_segment(
     ds = _DATASET_MAP[dataset](ensemble_param, data_path, win_size, step, data_seq_len, mode)
     shuffle = mode == 'train'
     loader = DataLoader(dataset=ds, batch_size=batch_size, shuffle=shuffle, num_workers=0)
-    report_windows(ds, batch_size)
+    report_windows(ds, batch_size, dataset=dataset)
     return loader
