@@ -8,7 +8,7 @@
 
 ---
 
-> **Evaluating this artifact?** Start with the [Docker image](#run-in-docker-no-environment-setup) — both Conda environments are already installed — then follow the [running instructions](#running-cesal) for OpenStack detection and HDFS incident classification. Together, these take approximately 5–6 hours after setup and downloads on the documented workstation.
+> **Getting started with CESAL.** Use the [Docker image](#run-in-docker-no-environment-setup), which includes both Conda environments, and follow the [running instructions](#running-cesal) for OpenStack detection and HDFS incident classification. Together, these take approximately 5–6 hours after setup and downloads on the documented workstation.
 
 ## How It Works
 
