@@ -250,8 +250,6 @@ Whenever Q-BAT is in the download set, `run.py download` also installs the **Exe
 
 **If a download stops** with `Cannot retrieve the public link of the file`, Google Drive is temporarily refusing requests from your network after many downloads. Wait a while and run the same command again; files that finished downloading are kept.
 
-**In → out.** Reads `data/<dataset>/` (bundled). Writes `checkpoints/bat/<dataset>/` (81 `.pth`, the BAT ensemble), `checkpoints/qbat/<dataset>/` (`.pte`; the 3 listed under `edge_models` in the inference config are Q-BAT), and `cesal_inference_pipeline/executorch/` (the runtime).
-
 **Check the install once after setup** — no checkpoints or GPU needed:
 
 ```bash
@@ -289,16 +287,7 @@ One command runs the detection pipeline: Q-BAT scores events in complete test wi
 
 The run closes with precision / recall / F1 for two of the three [Table 3](#log-based-incident-detection-table-3) rows — **Edge** (Q-BAT alone) and **Hybrid** (CESAL after cloud verification), under the paper's evaluation protocol. The cloud-only row comes from [Evaluate the ensemble](#evaluate-the-ensemble).
 
-**In → out.** Reads `data/<dataset>/`, the checkpoints from Step 2, and `outputs/<dataset>/thresholds_{edge,cloud}.yaml`. Writes to `outputs/<dataset>/`:
-
-| File                                      | Contents                                                          |
-| ----------------------------------------- | ----------------------------------------------------------------- |
-| `edge_preds.npy` / `edge_preds_raw.npy`   | Q-BAT predictions for evaluation / original detector predictions  |
-| `energy_matrix.npy`                       | per-model scores — the input to the routing decision              |
-| `routed_indices.npy` / `routed_lines.npy` | which events were escalated, and what was sent                    |
-| `cloud_preds.npy`                         | internal BAT verdicts for routed events in complete cloud windows |
-| `hybrid_preds.npy`                        | CESAL predictions used for evaluation                             |
-| `ground_truth.npy`                        | labels, for scoring                                               |
+Detection results are saved under `outputs/<dataset>/`. The run logs report stage progress and output locations.
 
 **What takes the time.** The edge scan dominates — one ExecuTorch CPU pass per Q-BAT learner over every window, so it scales with the number of test windows and the cores available, and the learners run in parallel. Cloud verification touches only the routed fraction (10% by default) on the GPU and is comparatively quick; routing and the merge are negligible. To sweep routing ratios without repeating the scan, see [Vary the routing ratio](#vary-the-routing-ratio).
 
@@ -318,7 +307,9 @@ python run.py classify                          # all four backbones in configs/
 python run.py classify qwen2.5-14b-instruct     # CESAL's default backbone only
 ```
 
-Reads the bundled `data/HDFS/open_set/open_set_test.csv` (4,124 test sequences) and `data/HDFS/open_set/classification_reference.csv` (703 reference sequences) and writes to `outputs/hdfs/llm/`: `results_<model>.csv` (per sequence: type, retrieved evidence, model text when generated), `model_summary.csv` (the **Table 7** macro scores as fractions, 0–1), `per_class_metrics_long.csv`, and `report_<model>.txt`. Multiply summary scores by 100 to compare with the paper's percentages. Per-class references are in `table7_reference_metrics.csv`; per-backbone settings live in `model_overrides` of `configs/llm/hdfs.yaml`. All 4,124 sequences are classified per backbone, but retrieval rules resolve some without LLM generation. Results are written only when a backbone finishes, so run one at a time if yours may be interrupted. Each run rewrites `model_summary.csv`, `per_class_metrics_long.csv` and `per_class_f1_table.csv` with only that run's backbones, while `results_<model>.csv` and `report_<model>.txt` are kept per backbone.
+Classification evaluates 4,124 bundled HDFS sequences using 703 references. Results are saved under `outputs/hdfs/llm/`; `model_summary.csv` contains the Table 7 macro scores as fractions (multiply by 100 for percentages). Per-backbone settings are in `configs/llm/hdfs.yaml`.
+
+Results are saved when each backbone finishes. Running one backbone at a time can help with interruptions. Each invocation replaces the combined summary tables with that run's backbones and retains separate result files for other backbones.
 
 **Response (Table 1)** — connect detection to the module: queue every detected session, classify it, and assign its workflow:
 
@@ -329,7 +320,7 @@ python -m incident_response.workflows --label "Replica immediately deleted"
 python -m incident_response.workflows --results outputs/hdfs/llm/results_Qwen_Qwen2.5-14B-Instruct.csv
 ```
 
-Reads the Step 3 outputs and queues every session whose final prediction (edge Q-BAT with routed events replaced by cloud BAT) flagged an event. Writes to `outputs/hdfs/llm/queues/`: `queue_edge.csv` / `queue_cloud.csv` (the queues Q*E and Q_C, split by which tier caught the session), `classified*<model>.csv`(per-sequence cache, appended as it goes, so an interrupted run resumes),`incidents*<model>.csv`(each incident with its type, workflow and approval / escalation counts), and`evaluation*<model>.csv`.
+Response results are saved under `outputs/hdfs/llm/queues/`.
 
 **`run.py respond` needs the HDFS detection outputs**, which come from `run.py infer hdfs`, the ~15-day scan, so it cannot start from a fresh checkout within an evaluation window. The workflow mapping itself needs no detection run and no GPU: `workflows --results` on the output of `run.py classify`, as above, assigns every classified sequence its Table 1 workflow in seconds.
 
