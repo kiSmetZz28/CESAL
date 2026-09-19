@@ -8,7 +8,7 @@
 
 ---
 
-> **Evaluating this artifact?** Start with the [Docker image](#run-in-docker-no-environment-setup) — both Conda environments are already installed — then follow the [evaluation instructions](#the-short-path-about-three-hours) for OpenStack detection and HDFS incident classification. Together, these take approximately 5–6 hours after setup and downloads on the documented workstation.
+> **Evaluating this artifact?** Start with the [Docker image](#run-in-docker-no-environment-setup) — both Conda environments are already installed — then follow the [running instructions](#running-cesal) for OpenStack detection and HDFS incident classification. Together, these take approximately 5–6 hours after setup and downloads on the documented workstation.
 
 ## How It Works
 
@@ -48,9 +48,9 @@ CESAL is a cloud-edge framework for log-based incident detection, classification
 - the edge stage loads quantized `.pte` models and executes them through ExecuTorch on CPU, using Python bindings or the C++ runner;
 - [cesal_inference_pipeline/run.py](cesal_inference_pipeline/run.py) never loads a full-precision BAT checkpoint inside the edge environment.
 
-This setup preserves the model, threshold, routing and scoring configuration, while omitting the physical edge device and network hop. Compare detection scores using the [documented reproduction tolerances](#claims-and-how-to-check-them); cross-device numerical identity is not guaranteed. Runtime and resource measurements depend on the hardware.
+This setup preserves the model, threshold, routing and scoring configuration, while omitting the physical edge device and network hop. Compare detection scores using the [documented reproduction tolerances](#results); cross-device numerical identity is not guaranteed. Runtime and resource measurements depend on the hardware.
 
-**Physical edge resource measurements require the boards.** The latency, memory-footprint and power figures for Raspberry Pi 3B+, 4B and 5 cannot be reproduced on a workstation. The evaluation path here covers the specific detection, classification and workflow-selection claims listed under [Claims and how to check them](#claims-and-how-to-check-them), subject to the [runtime limits](#requirements).
+**Physical edge resource measurements require the boards.** The latency, memory-footprint and power figures for Raspberry Pi 3B+, 4B and 5 cannot be reproduced on a workstation. The evaluation path here covers detection and classification [results](#results), plus the [workflow-selection commands](#step-4--incident-classification-and-controlled-response-hdfs), subject to the [runtime limits](#requirements).
 
 ### Paper ↔ Code Mapping
 
@@ -261,8 +261,15 @@ Reports which software components were verified: detection energy and voting,
 threshold calibration, pipeline failure handling, training/conversion control
 flow, progress reporting, and response workflow selection. Skipped optional
 checks are identified explicitly. Detailed diagnostics are saved under
-`outputs/checks/`. After downloading the checkpoints, use `python run.py smoke os`
-to verify real model execution on a small input.
+`outputs/checks/`.
+
+After downloading the checkpoints, run the small real detection experiment in `cesal-edge`:
+
+```bash
+python run.py smoke os
+```
+
+It takes approximately 1–2 minutes on the documented setup, using 1,000 OpenStack events, all three Q-BAT learners, and three BAT learners. It shows component readiness rather than benchmark scores, saves diagnostics under `outputs/smoke/os/`, and leaves the published data, checkpoints, and calibration thresholds unchanged. This checks detection execution; use Step 4 for LLM classification.
 
 Once these checks succeed, proceed directly to normal inference or evaluation.
 `install.sh` already runs `python run.py check`, so a successful installation
@@ -373,6 +380,8 @@ python run.py eval os            # per-model scores, then incremental majority-v
 
 Scores each checkpoint alone, then adds them one at a time — weakest first — reporting F1 at a few ensemble sizes and the gain over the strongest single model. The ensemble uses **majority voting**, as in the paper; this is where the **cloud-only** row of Table 3 comes from.
 
+When reproducing all three OpenStack rows of Table 3, run `infer os` before `eval os` so detection uses the bundled thresholds.
+
 > **Note.** `eval` recalibrates every model's EM-GMM threshold and **overwrites the bundled `outputs/<dataset>/thresholds_cloud.yaml` in place**, which changes what later `infer` runs do. The step says so as it happens. Back the file up first if you want to keep the shipped thresholds.
 
 ### Vary the routing ratio
@@ -410,6 +419,8 @@ python cesal_inference_pipeline/cloud_runner.py --config configs/inference/os.ya
 ## Results
 
 Numbers from the paper (Section 4), which also reports baselines, the BAT ensemble-size analysis, routing ablations, and edge resource measurements on Raspberry Pi 3B+, 4B, and 5.
+
+For full evaluations with the published checkpoints, the proposed reproduction tolerances are ±0.1 percentage points in detection F1 and ±1 percentage point in classification macro-F1. Model and kernel versions can affect classification scores. These tolerances do not apply to the small readiness experiment.
 
 ### Hardware setup (Section 4.1)
 
@@ -531,133 +542,6 @@ CESAL/
 
 ---
 
-## Artifact evaluation
-
-### The short path (about three hours)
-
-The path below evaluates the paper's OpenStack detection claim. HDFS detection is excluded because its edge scan is estimated at about 15 days ([why](#why-hdfs-detection-takes-days)); optional tiers cover standalone HDFS classification and workflow selection. Each tier states its prerequisites. The commands also run inside the [published `v1.1` Docker image](#run-in-docker-no-environment-setup).
-
-**Tier 0 — verify the software setup once (seconds, no checkpoints, no GPU)**
-
-Skip this step if `install.sh` or `python run.py check` has already succeeded
-for your current code and environment. Checks are not required before each run;
-repeat them only after setup changes or when troubleshooting.
-
-```bash
-conda activate cesal-edge
-python run.py check
-```
-
-The terminal reports **VERIFIED** for each component whose checks completed,
-or **NEEDS ATTENTION** if a check failed. Optional checks that could not run are
-marked separately. A successful run ends with **“Core software checks completed
-successfully”** and points to the next experiment. This checks software behavior;
-the experiment below verifies execution with actual pretrained models. LLM
-generation is verified separately in Tier 2.
-
-**Small real end-to-end detection experiment (CPU supported; checkpoints required)**
-
-Run this once after the checkpoints are available. If it has already succeeded
-with the same code, environment, models, data and configuration, skip directly
-to Tier 1. It is not a prerequisite that repeats before normal inference.
-
-```bash
-conda activate cesal-edge
-python run.py download os             # once; skip if the checkpoints are present
-python run.py smoke os
-```
-
-This runs the actual detection pipeline on **1,000 bundled OpenStack events**:
-five evenly spaced normal windows and five evenly spaced abnormal windows.
-It preprocesses the complete bundled splits and then selects these windows,
-preserving the full evaluation's event encoding, session histories and
-training-based scaling. It scores the ten 100-event windows with all three published
-Q-BAT models, routes 10% of events, verifies them with three published BAT models
-(`e3_k1_l3`, batch sizes 32/64/96), and merges and scores the predictions. No predictions are mocked and no models are retrained.
-
-Each run gets its own `outputs/smoke/os/run_*/` directory containing copies of the
-input splits, config, copied thresholds, an `experiment.json` record with input hashes and selected window indices,
-and the pipeline's output arrays. The terminal shows execution progress and
-component readiness, without detection scores or anomaly-count summaries.
-The full pipeline output is retained in `pipeline.log` for troubleshooting;
-any subset metrics there are diagnostic values, not paper-result estimates.
-`READY.txt` is written only after the outputs
-have been checked. The closing summary confirms preprocessing, edge inference,
-routing, cloud verification and hybrid scoring completed. Published datasets,
-checkpoints, thresholds and the full evaluation configuration are preserved.
-
-This is an execution check using a small dataset and a smaller cloud ensemble.
-Use Tier 1 to evaluate the full dataset and compare scores with Table 3. It does not run
-LLM classification or cluster response actions.
-
-**Tier 1 — the detection claim (about 3 h 10 m, CPU + one GPU)**
-
-```bash
-conda activate cesal-edge
-python run.py download os      # ~10 min, ~5 GB
-python run.py infer os         # ~3 h
-conda activate cesal-cloud     # cloud-only evaluation uses the cloud environment
-python run.py eval os          # ~8 min, cloud-only row
-```
-
-Reproduces all three OpenStack rows of [Table 3](#log-based-incident-detection-table-3). `infer` prints the Edge and Hybrid rows when it finishes; `eval` prints the cloud-only row.
-
-Keep this order: `infer` uses the bundled thresholds before `eval` recalibrates
-them. The existing recalibration behavior is unchanged; see the
-[evaluation note](#evaluate-the-ensemble) about preserving the bundled
-thresholds before repeating inference.
-
-**Tier 2 — the classification claim (about 1 h 51 m, GPU, ~28 GB of weights)**
-
-```bash
-conda activate cesal-cloud
-python run.py classify qwen2.5-14b-instruct
-```
-
-Reproduces the best-backbone row of [Table 7](#open-set-incident-classification-on-hdfs-table-7-macro-average). Running `run.py classify` with no argument evaluates all four backbones and takes about 5 h 46 m instead. On a 16 GB GPU, set `PYTORCH_CUDA_ALLOC_CONF` first, as described in [Step 4](#step-4--incident-classification-and-controlled-response-hdfs).
-
-**Tier 3 — workflow selection (seconds; uses Tier 2's classification output)**
-
-```bash
-conda activate cesal-cloud
-python -m incident_response.workflows --results outputs/hdfs/llm/results_Qwen_Qwen2.5-14B-Instruct.csv
-```
-
-Checks the Table 1 workflow mapping without the HDFS detection run. This command
-prints selected workflows; it does not execute actions against a cluster.
-The full `run.py respond` path still requires HDFS detection outputs.
-
-### Claims and how to check them
-
-| Paper claim                                                                          | Command                                                                 | Where the number appears                    | Expected                                                                       |
-| ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------ |
-| Q-BAT alone detects anomalies at the edge (Table 3, Edge row)                        | `run.py infer os`                                                       | printed at the end of the run               | P 98.09 / R 100.00 / F1 99.03                                                  |
-| BAT cloud-only reference (Table 3, cloud-only row)                                   | `run.py eval os`                                                        | printed at the end of the run               | P 99.99 / R 100.00 / F1 99.99                                                  |
-| **CESAL with 10% event routing (Table 3, CESAL row)**                                | `run.py infer os`                                                       | printed at the end of the run               | P 99.90 / R 100.00 / F1 99.95                                                  |
-| The same holds on HDFS _(supported, but a multi-day run; see [Time](#requirements))_ | `run.py infer hdfs`                                                     | printed at the end of the run               | P 99.96 / R 100.00 / F1 99.98                                                  |
-| Detection scores vs. routing ratio                                                   | `run.py sweep os`                                                       | `outputs/os/routing_ratio_sweep.csv`        | measured P/R/F1 and routed event counts                                        |
-| **RAG + LLM classifies open-set incidents (Table 7)**                                | `run.py classify qwen2.5-14b-instruct`                                  | `outputs/hdfs/llm/model_summary.csv` (×100) | macro P 79.71 / R 92.07 / F1 83.03                                             |
-| Predicted incident types map to response workflows (Table 1)                         | `python -m incident_response.workflows --results` on the Table 7 output | printed per anomaly type                    | every type gets its workflow; unknown types receive a human-investigation plan |
-
-The detection references use percentage scores with the published checkpoints. The proposed reproduction tolerance is ±0.1 percentage points in detection F1. LLM classification decodes greedily, but model and kernel versions can affect its scores; the proposed tolerance for Table 7 is ±1 percentage point in macro-F1. These are comparison tolerances for the full evaluation, not targets for the small readiness experiment.
-
-### What is scaled down, and why it still supports the paper
-
-- **OpenStack instead of HDFS for detection.** The datasets share the detection implementation and evaluation protocol, with dataset-specific checkpoints, thresholds and window sizes. The short path evaluates the OpenStack Table 3 rows; it does not substitute for measuring HDFS results.
-- **One LLM backbone instead of four.** Table 7's headline is the best backbone, Qwen2.5-14B-Instruct at 83.03 macro-F1. The other three support the secondary claim that the result is not backbone-specific; run the full sweep only if that claim is what you want to check.
-- **Both tiers on one machine.** Separate Conda environments and processes run Q-BAT and BAT, with quantized `.pte` models on CPU for the edge tier. The physical edge device and network hop are absent. Compare detection metrics within the documented tolerances; resource measurements require the paper's hardware.
-- **Table 6 is not reproducible without hardware.** The edge resource measurements (latency, memory, power) were taken on physical Raspberry Pi 3B+/4B/5 boards. Nothing in this repository can stand in for them.
-
-### Public release statement
-
-The entire artifact is public and stays public. This repository holds all of the source code — data processing, the EM-AT base learner, BAT training, Q-BAT quantization and ExecuTorch export, the routing policy, the cloud-edge inference pipeline, the RAG-based classifier and the response workflows — under the [MIT license](LICENSE), together with the parsed dataset splits, the inference configs, the calibration thresholds and the unit test suite. The trained BAT and Q-BAT checkpoints behind the published numbers, and the ExecuTorch runtime the edge tier needs, are hosted separately only because of file-size limits and are fetched by `run.py download` without credentials.
-
-**No part of the artifact is withheld.** There are no proprietary components, no private datasets and no code held back from release. Both log datasets are public benchmarks redistributed by [loghub](https://github.com/logpai/loghub); the LLM backbones are public Hugging Face models, two of which (Llama-3.1-8B-Instruct and Gemma-2-9B-IT) require accepting the publisher's license before download.
-
-Following artifact evaluation, the evaluated revision will be deposited in a permanent public archive and the citation updated with its identifier. Until that deposit exists, this repository is the canonical location and no DOI has been minted for it.
-
----
-
 ## Datasets and provenance
 
 ### How the data is processed
@@ -680,3 +564,11 @@ The data-processing overview follows three stages: parsing raw messages, groupin
 CESAL is evaluated on the **HDFS** and **OpenStack** log datasets, both public benchmarks distributed by [loghub](https://github.com/logpai/loghub). The parsed event-sequence splits are bundled under [`data/`](data/), so detection needs no raw-log download. Checkpoints and the runtime are separate downloads.
 
 Both datasets contain only machine-generated operational telemetry — block identifiers, execution states and error traces. They include no personal data and no human-subject data, and no user study was conducted. CESAL itself is released under the [MIT license](LICENSE).
+
+### Public release statement
+
+The entire artifact is public and stays public. This repository holds all of the source code — data processing, the EM-AT base learner, BAT training, Q-BAT quantization and ExecuTorch export, the routing policy, the cloud-edge inference pipeline, the RAG-based classifier and the response workflows — under the [MIT license](LICENSE), together with the parsed dataset splits, the inference configs, the calibration thresholds and the unit test suite. The trained BAT and Q-BAT checkpoints behind the published numbers, and the ExecuTorch runtime the edge tier needs, are hosted separately only because of file-size limits and are fetched by `run.py download` without credentials.
+
+**No part of the artifact is withheld.** There are no proprietary components, no private datasets and no code held back from release. Both log datasets are public benchmarks redistributed by [loghub](https://github.com/logpai/loghub); the LLM backbones are public Hugging Face models, two of which (Llama-3.1-8B-Instruct and Gemma-2-9B-IT) require accepting the publisher's license before download.
+
+Following artifact evaluation, the evaluated revision will be deposited in a permanent public archive and the citation updated with its identifier. Until that deposit exists, this repository is the canonical location and no DOI has been minted for it.

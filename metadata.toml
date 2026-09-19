@@ -61,7 +61,7 @@ Installation creates or updates Conda environments and dependencies. Downloads w
 
 # Paper claims only. Readiness checks above do not reproduce paper scores.
 claim1 = "On OpenStack, Q-BAT provides edge-side detection, and CESAL's 10% event routing with BAT cloud verification achieves the collaborative detection result in Table 3."
-script1 = "https://github.com/kiSmetZz28/CESAL/blob/main/README.md#the-short-path-about-three-hours"
+script1 = "https://github.com/kiSmetZz28/CESAL/blob/main/README.md#step-3--run-the-detection-pipeline"
 expected1 = """
 In cesal-edge, run python run.py download os once, then python run.py infer os. Inference takes about 3-3.5 hours on the documented workstation and starts the cloud environment automatically. The final Edge and Hybrid rows report percentage scores. Table 3 references: Edge P 98.09, R 100.00, F1 99.03; Hybrid P 99.90, R 100.00, F1 99.95. Proposed reproduction tolerance: 0.1 percentage points in F1. Predictions and ground truth are saved under outputs/os/. Do not compare smoke-experiment subset scores against these full-test-set references.
 """
@@ -79,7 +79,7 @@ In cesal-cloud, run python run.py classify qwen2.5-14b-instruct. It uses the bun
 """
 
 claim4 = "The response module maps predicted known HDFS anomaly types to their predefined Table 1 workflows and unknown types to human investigation without automated mitigation."
-script4 = "https://github.com/kiSmetZz28/CESAL/blob/main/README.md#the-short-path-about-three-hours"
+script4 = "https://github.com/kiSmetZz28/CESAL/blob/main/README.md#step-4--incident-classification-and-controlled-response-hdfs"
 expected4 = """
 After claim 3, run python -m incident_response.workflows --results outputs/hdfs/llm/results_Qwen_Qwen2.5-14B-Instruct.csv. This takes seconds on CPU and prints a row per predicted label with its sequence count and selected workflow. Known labels map to their named workflows; Other anomaly type maps to Unknown Anomaly Types. Definitions are in incident_response/workflows.py. This checks workflow selection without executing cluster actions or requiring the multi-day HDFS detection run.
 """
