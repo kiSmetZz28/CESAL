@@ -83,15 +83,21 @@ This setup preserves the model, threshold, routing and scoring configuration, wh
 
 ```bash
 docker pull ghcr.io/kismetzz28/cesal:v1.1
-docker run -it --gpus all --name cesal \
+docker run -it --gpus all --name cesal-v1.1 \
     -v cesal-checkpoints:/app/checkpoints \
     -v cesal-hf:/root/.cache/huggingface \
     ghcr.io/kismetzz28/cesal:v1.1
-
-python run.py all os          # inside the container
 ```
 
-The image already contains both Conda environments and the ExecuTorch runtime, and opens a shell with `cesal-edge` active — see [Run in Docker](#run-in-docker-no-environment-setup) for volumes, GPU flags and copying results out.
+The container opens in `/app` with `cesal-edge` already active, so no Conda activation is needed before detection. Inside the container, run:
+
+```bash
+python run.py all os                         # download pretrained BAT/Q-BAT if needed, then detect
+conda activate cesal-cloud                   # switch environments for classification
+python run.py classify qwen2.5-14b-instruct  # classify the bundled HDFS test sequences
+```
+
+`all os` runs OpenStack detection with pretrained models; it does not train models or automatically run classification. The classification command is a separate HDFS experiment using the bundled test set and references; it does not classify the OpenStack detection output. The image includes both Conda environments and the ExecuTorch runtime — see [Run in Docker](#run-in-docker-no-environment-setup) for volumes, GPU flags and copying results out.
 
 **Prefer a native install?** Run `./install.sh` once ([Step 1](#step-1--set-up-environments)), then:
 
@@ -104,7 +110,7 @@ That fetches the published checkpoints (skipped if you already have them) and ru
 
 **OpenStack is the default for `infer`, `eval`, `train`, `convert` and `sweep`**, and is recommended for the short detection evaluation. See [Why HDFS detection takes days](#why-hdfs-detection-takes-days). Incident classification and workflow selection are HDFS-only. `run.py all` defaults to HDFS and includes its multi-day detection stage, so use the explicit `run.py all os` command for the OpenStack path.
 
-**Steps 1-4 below are the same pipeline, one stage at a time.** Follow them to run only part of it, to change a setting, or to see exactly what each stage reads and writes. Nothing else is required, and the optional dashboard at the end changes none of it.
+**Steps 1-4 below explain setup, checkpoints, detection, and classification/response.** Follow them to run individual stages or see what each reads and writes. OpenStack detection and standalone HDFS classification are separate experiments. The optional dashboard provides another interface to these stages.
 
 ### Run in Docker (no environment setup)
 
@@ -114,13 +120,21 @@ The published `v1.1` image contains both environments from [Step 1](#step-1--set
 
 ```bash
 docker pull ghcr.io/kismetzz28/cesal:v1.1        # ~10 GB
-docker run -it --gpus all --name cesal \
+docker run -it --gpus all --name cesal-v1.1 \
     -v cesal-checkpoints:/app/checkpoints \
     -v cesal-hf:/root/.cache/huggingface \
     ghcr.io/kismetzz28/cesal:v1.1
 ```
 
-The shell opens in `/app` with `cesal-edge` active; `conda activate cesal-cloud` switches environments as usual, and the edge stage finds `cesal-cloud` on its own. Checkpoints and LLM weights are not in the image: `run.py download` and the first `run.py classify` fetch them into the two named volumes, which outlive the container. `docker start -ai cesal` returns to the same container later, and `docker cp cesal:/app/outputs ./outputs` copies results out. For the gated Llama and Gemma backbones, add `-e HF_TOKEN=<your token>` to `docker run`.
+The shell opens in `/app` with `cesal-edge` active. No environment activation is needed before the first command below; detection starts its cloud subprocess automatically. Inside the container:
+
+```bash
+python run.py all os                         # pretrained OpenStack detection; no training
+conda activate cesal-cloud
+python run.py classify qwen2.5-14b-instruct  # separate HDFS classification experiment
+```
+
+`all os` finishes after detection; classification runs only when you invoke the separate command. Checkpoints and LLM weights are not in the image: `all os` downloads missing BAT/Q-BAT checkpoints, and the first `classify` run fetches the LLM weights. The two named volumes retain these downloads. `docker start -ai cesal-v1.1` returns to the same container later, and `docker cp cesal-v1.1:/app/outputs ./outputs` copies results out. For the gated Llama and Gemma backbones, add `-e HF_TOKEN=<your token>` to `docker run`.
 
 To build the image instead of pulling it, run `docker build -t cesal .` from the repository root (about 10 minutes, mostly package downloads).
 
