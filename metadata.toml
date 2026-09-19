@@ -87,7 +87,7 @@ After claim 3, run python -m incident_response.workflows --results outputs/hdfs/
 hw = """
 Linux x86-64 CPU: required by the supplied native ExecuTorch runner. Software checks and the small detection experiment require no GPU.
 Full evaluation timings: measured locally on workstations including an Intel i7-14700, NVIDIA RTX 2000 Ada with 16 GB VRAM, and 32 GB RAM. Use an NVIDIA GPU for practical full BAT/LLM evaluation runtimes. Large LLMs may offload weights to system RAM.
-Disk: approximately 12 GB for detection assets/runtime/results, plus approximately 28 GB for Qwen2.5-14B weights. Also allow space for Conda environments or the approximately 10 GB Docker image and its extracted layers.
+Disk: approximately 12 GB for detection assets/runtime/results, plus approximately 28 GB for Qwen2.5-14B weights. Also allow approximately 3.5 GB per dataset for cached BAT ZIP archives, plus space for Conda environments or the approximately 10 GB Docker image and its extracted layers.
 Physical Raspberry Pi measurements from Table 6 are excluded from the proposed workstation evaluation.
 """
 
@@ -100,7 +100,7 @@ The optional dashboard is not required for any claim above.
 
 api = """
 No paid inference service or API key is required for the proposed experiments. Network access is needed during installation and downloads from package repositories, GitHub/container registry, Google Drive and Hugging Face.
-BAT/Q-BAT checkpoints and the ExecuTorch runtime are fetched without credentials. Download URLs are in tools/download_checkpoints.py and tools/download_data.py. Qwen2.5-14B-Instruct is downloaded by the classification command.
+BAT/Q-BAT checkpoints and the ExecuTorch runtime are fetched without credentials. BAT ZIP file IDs and SHA-256 checksums are in tools/bat_archives.json; Q-BAT and runtime download locations are in tools/download_checkpoints.py and tools/setup_executorch.py. BAT archives are verified before installing their 81 models, and local archives are reused. Qwen2.5-14B-Instruct is downloaded by the classification command.
 The optional four-backbone sweep includes gated Llama-3.1-8B-Instruct and Gemma-2-9B-IT models; those require accepting publisher terms and authenticating with Hugging Face. They are not required for the Qwen-only claim.
 """
 gui = "n"

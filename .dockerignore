@@ -9,6 +9,11 @@
 .vscode/
 .idea/
 
+# Local Python packaging output; build the installed package from source.
+build/
+dist/
+*.egg-info/
+
 # ── Checkpoints — fetched by `run.py download` into a mounted volume ─────────
 checkpoints/
 

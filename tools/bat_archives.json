@@ -1,0 +1,666 @@
+{
+  "hdfs": {
+    "bytes": 3453074735,
+    "file_id": "1cKgx7JgrfN5hfUxMVOqaojsYSRXtrLXu",
+    "filename": "ensemble_hdfs.zip",
+    "models": {
+      "HDFS_e10_k3_l3_b32_checkpoint.pth": {
+        "bytes": 29350164,
+        "sha256": "d4f1d0422a18f0d3cc79aabfb620c156b840d98f58898572ed5cbcfe15749e87"
+      },
+      "HDFS_e10_k3_l3_b64_checkpoint.pth": {
+        "bytes": 29350164,
+        "sha256": "324a8b884da2e835de107108f1787fd76732a3bc46f714bc2e8289a6848009e9"
+      },
+      "HDFS_e10_k3_l3_b96_checkpoint.pth": {
+        "bytes": 29350164,
+        "sha256": "22032f597ecfb8830cdb4eab7d4a2a23b49ba6bde6f99f1efc4c198fe9f62a33"
+      },
+      "HDFS_e10_k3_l6_b32_checkpoint.pth": {
+        "bytes": 48371490,
+        "sha256": "d425d24801d47710dcacf1c26e04ef74d75aa2edb463361034b625d80179b1cd"
+      },
+      "HDFS_e10_k3_l6_b64_checkpoint.pth": {
+        "bytes": 48371490,
+        "sha256": "28ffc41e20c81008d3e4d2419e37e04fc2495a498a70a8637458f0105c6e5a34"
+      },
+      "HDFS_e10_k3_l6_b96_checkpoint.pth": {
+        "bytes": 48371490,
+        "sha256": "6c6e6db7eb91086d083e13a28e21f25966000b7005583ac6193d3961b87a73b0"
+      },
+      "HDFS_e10_k3_l8_b32_checkpoint.pth": {
+        "bytes": 61052482,
+        "sha256": "8fa140eb90fa51a69c1b54712286f09c864e53b4a51c24a1d940f7a514ffee4e"
+      },
+      "HDFS_e10_k3_l8_b64_checkpoint.pth": {
+        "bytes": 61052482,
+        "sha256": "00403284ba7e41e3350d653a0d59b3b59178188c93205b8ba8c7ed34987f31d8"
+      },
+      "HDFS_e10_k3_l8_b96_checkpoint.pth": {
+        "bytes": 61052482,
+        "sha256": "7b3f182cb3682319e835efb4b2cd15ac37437b1da50cdac521325ab80926f084"
+      },
+      "HDFS_e10_k4_l3_b32_checkpoint.pth": {
+        "bytes": 29350164,
+        "sha256": "996cb1e69ca40a8ea0add2fc78610e023da3fd26ee16d46818be3e51e54f00c1"
+      },
+      "HDFS_e10_k4_l3_b64_checkpoint.pth": {
+        "bytes": 29350164,
+        "sha256": "bb408f116dd1d30ba74e34501eef5fab3eb6006d1ae916b3c51701c51e6a880e"
+      },
+      "HDFS_e10_k4_l3_b96_checkpoint.pth": {
+        "bytes": 29350164,
+        "sha256": "624e5b8356fce0231e7f505e6061e496493dc4acb3508041470dd758e7799b3d"
+      },
+      "HDFS_e10_k4_l6_b32_checkpoint.pth": {
+        "bytes": 48371490,
+        "sha256": "f3697c8de95336dc19491224a510aedef5588140f17166dc6ab05b5975cd00da"
+      },
+      "HDFS_e10_k4_l6_b64_checkpoint.pth": {
+        "bytes": 48371490,
+        "sha256": "aa8a921e0bc743ccf56c14f102d87c3d5267f039a31b0cecea44b69f5b902d4f"
+      },
+      "HDFS_e10_k4_l6_b96_checkpoint.pth": {
+        "bytes": 48371490,
+        "sha256": "a5d12f2a126820950d7243f143076be1aa322224bc83558e6ebd3c7ee4be74ac"
+      },
+      "HDFS_e10_k4_l8_b32_checkpoint.pth": {
+        "bytes": 61052482,
+        "sha256": "29ec890f2d96f8dfabf37da2b5af19b632e12ff4beb78098ab5e8e6aed547115"
+      },
+      "HDFS_e10_k4_l8_b64_checkpoint.pth": {
+        "bytes": 61052482,
+        "sha256": "15c5f9c4b1a994dd1de45d40818a4a1e1ada623289ed4edbef743ae5cedf2f1d"
+      },
+      "HDFS_e10_k4_l8_b96_checkpoint.pth": {
+        "bytes": 61052482,
+        "sha256": "eccec389009e315fee4caea33b8b84fd32d470ce8a111bf5154c33b297179db1"
+      },
+      "HDFS_e10_k5_l3_b32_checkpoint.pth": {
+        "bytes": 29350164,
+        "sha256": "024900ab9f06484921f72cc3666d271d495ee636c0f9c9e560706434061c3107"
+      },
+      "HDFS_e10_k5_l3_b64_checkpoint.pth": {
+        "bytes": 29350164,
+        "sha256": "08879bc18085f7b970fd45001d7ef63c01a5f45cbaa4b64b02ffd444ccecb29c"
+      },
+      "HDFS_e10_k5_l3_b96_checkpoint.pth": {
+        "bytes": 29350164,
+        "sha256": "d92963de059f047dcd2d8cfebb2c21d5c6dfe0338b2434858f66e998a17db06d"
+      },
+      "HDFS_e10_k5_l6_b32_checkpoint.pth": {
+        "bytes": 48371490,
+        "sha256": "45aad4ad68317b5be1c2cdc767fdc9130eb9d7eee5116194e00f11eb4e5535ee"
+      },
+      "HDFS_e10_k5_l6_b64_checkpoint.pth": {
+        "bytes": 48371490,
+        "sha256": "0f865b46ce3eed7578d862e678765ec83b1e8bc3125e8911a7a901568df78e8c"
+      },
+      "HDFS_e10_k5_l6_b96_checkpoint.pth": {
+        "bytes": 48371490,
+        "sha256": "aedcfa520ddd2b25e16e0a66ec4e3f448ac793b2cea17d40c5447f9a785c2f06"
+      },
+      "HDFS_e10_k5_l8_b32_checkpoint.pth": {
+        "bytes": 61052482,
+        "sha256": "06be0c6f0117cb4a9da272fd4d2dd46b609374802eb7f22050dd959f58db04de"
+      },
+      "HDFS_e10_k5_l8_b64_checkpoint.pth": {
+        "bytes": 61052482,
+        "sha256": "246110c9d17eadd78c009b440ebde1cf21dec0e8e1bdd960f5710e76ca562e5c"
+      },
+      "HDFS_e10_k5_l8_b96_checkpoint.pth": {
+        "bytes": 61052482,
+        "sha256": "8d14c4f18d92b61fbaa6eecf71673570db0d056bd1c71175b503c66824f6d341"
+      },
+      "HDFS_e3_k3_l3_b32_checkpoint.pth": {
+        "bytes": 29350094,
+        "sha256": "b65e93580159fc20e4adabdf2f89d8427feb95692c55f02015c8cd8691146ce6"
+      },
+      "HDFS_e3_k3_l3_b64_checkpoint.pth": {
+        "bytes": 29350094,
+        "sha256": "aa38df88c69254c78aa4dd2ae243f0470dc13f7ebcff1c50a6a446cea7082637"
+      },
+      "HDFS_e3_k3_l3_b96_checkpoint.pth": {
+        "bytes": 29350094,
+        "sha256": "c98d80d627b5ed1208c60477db8bfeaa2dee6f2f40f66b3b8cd6a28279cecf45"
+      },
+      "HDFS_e3_k3_l6_b32_checkpoint.pth": {
+        "bytes": 48371360,
+        "sha256": "4571a61fca8d73d3cc832f0d6d12ded8ad23139f4b1df46f9ef8b943b9330572"
+      },
+      "HDFS_e3_k3_l6_b64_checkpoint.pth": {
+        "bytes": 48371360,
+        "sha256": "02006cb6012b031532d494d984b04fe4bd4da7f633fcd481f80615c38eec44eb"
+      },
+      "HDFS_e3_k3_l6_b96_checkpoint.pth": {
+        "bytes": 48371360,
+        "sha256": "7a29c382f862e1eee9d554559d368e8cff82f11b0ec60d8743e4f00daaa3a8a5"
+      },
+      "HDFS_e3_k3_l8_b32_checkpoint.pth": {
+        "bytes": 61052312,
+        "sha256": "0fe12d8cfc9ed382fe66c24375744799f63c4c0a4b0861c3ded9d512d0ee5f63"
+      },
+      "HDFS_e3_k3_l8_b64_checkpoint.pth": {
+        "bytes": 61052312,
+        "sha256": "75c40608c6e88f2452333b52ed0203c6576f248ad53fd069b451e997ae4268e9"
+      },
+      "HDFS_e3_k3_l8_b96_checkpoint.pth": {
+        "bytes": 61052312,
+        "sha256": "547b4ba53728fa88e6427f575419661cc3a5a9a7ccf0ea389193b1fef88d45c2"
+      },
+      "HDFS_e3_k4_l3_b32_checkpoint.pth": {
+        "bytes": 29350094,
+        "sha256": "56da978633d1ff7f81013742038d07b04bd329c0154e3ec8299e58a8f12597ce"
+      },
+      "HDFS_e3_k4_l3_b64_checkpoint.pth": {
+        "bytes": 29350094,
+        "sha256": "d901d360da9c9ec798e573c053625f973de222029310b11ffb5929f76e8a96a0"
+      },
+      "HDFS_e3_k4_l3_b96_checkpoint.pth": {
+        "bytes": 29350094,
+        "sha256": "87b271b247fef05ae0eba270accc34a72368d2830865e3acd29aff8713bf5ad2"
+      },
+      "HDFS_e3_k4_l6_b32_checkpoint.pth": {
+        "bytes": 48371360,
+        "sha256": "065173430f8450ecae6ccd57bb0439bb1cd99eb9fa37a4db4ec1271703efd8e1"
+      },
+      "HDFS_e3_k4_l6_b64_checkpoint.pth": {
+        "bytes": 48371360,
+        "sha256": "7e1a3539ccb3cc7c444560368bbf4c85499a62b97586b34c3b0ddaab95a36393"
+      },
+      "HDFS_e3_k4_l6_b96_checkpoint.pth": {
+        "bytes": 48371360,
+        "sha256": "3780f386da31223553c51435803ba9a681c93dbfcbe5661a0144408f90c1c9a1"
+      },
+      "HDFS_e3_k4_l8_b32_checkpoint.pth": {
+        "bytes": 61052312,
+        "sha256": "6490975b9653d063424d0419e7e9beda70fb81db16c5da607ee87ac16b16d69e"
+      },
+      "HDFS_e3_k4_l8_b64_checkpoint.pth": {
+        "bytes": 61052312,
+        "sha256": "207bd0ebe501ca2f85494ed95139f34f66c0ebfac85a187bbba824c0834fba40"
+      },
+      "HDFS_e3_k4_l8_b96_checkpoint.pth": {
+        "bytes": 61052312,
+        "sha256": "0f88c48dae88e8ba4766820b7dcf85e5d434b4eb791f6507ceaa524db28b050f"
+      },
+      "HDFS_e3_k5_l3_b32_checkpoint.pth": {
+        "bytes": 29350094,
+        "sha256": "ba1c4c15d6778f73011c118abcd01d9c7ef278760d3fab0f4f832edadd1fb5b0"
+      },
+      "HDFS_e3_k5_l3_b64_checkpoint.pth": {
+        "bytes": 29350094,
+        "sha256": "f8362439f9efd92edc001869d68ad307d26252391d03ce16350e4d82c0cad00e"
+      },
+      "HDFS_e3_k5_l3_b96_checkpoint.pth": {
+        "bytes": 29350094,
+        "sha256": "44e43188de7e6cabd94b1f44f2e61629078994353ff21c8ae59dace02b95ee49"
+      },
+      "HDFS_e3_k5_l6_b32_checkpoint.pth": {
+        "bytes": 48371360,
+        "sha256": "9a6ff98d40e4c4c514d2e5ef16ebb2e62f9790d7302d975b21538198a89a6374"
+      },
+      "HDFS_e3_k5_l6_b64_checkpoint.pth": {
+        "bytes": 48371360,
+        "sha256": "be9e5e42eaaae0fb4e9f040fd97cfe2796c333af209354af785e80d0806daf78"
+      },
+      "HDFS_e3_k5_l6_b96_checkpoint.pth": {
+        "bytes": 48371360,
+        "sha256": "3309f351195d20fd5c01eda678a5fa044baaf2eac62bb0fdd88cb0e4dae5f86e"
+      },
+      "HDFS_e3_k5_l8_b32_checkpoint.pth": {
+        "bytes": 61052312,
+        "sha256": "6d61bc37ddf661fda0656221d38fb48e290a8321b8db675c457f0c8810364472"
+      },
+      "HDFS_e3_k5_l8_b64_checkpoint.pth": {
+        "bytes": 61052312,
+        "sha256": "fcb4b19f4b76923e65132f1abe3cd62c877f1c8ec0b6dd890f50326abe5065d2"
+      },
+      "HDFS_e3_k5_l8_b96_checkpoint.pth": {
+        "bytes": 61052312,
+        "sha256": "6e5dafab3522b253a6202bb2e5a8c00ee51f6ba8035a9cdb8501cd7c382297ed"
+      },
+      "HDFS_e6_k3_l3_b32_checkpoint.pth": {
+        "bytes": 29350094,
+        "sha256": "8a2621bcc211af15c597830f963bbc7791984b7afadd9eebf590ba1ba83d7b34"
+      },
+      "HDFS_e6_k3_l3_b64_checkpoint.pth": {
+        "bytes": 29350094,
+        "sha256": "fef2bf09bad1761b3df740d5f6479f899cc4d5856ee1c7a02ba44766cec4160b"
+      },
+      "HDFS_e6_k3_l3_b96_checkpoint.pth": {
+        "bytes": 29350094,
+        "sha256": "667a944b282b5d1ebcd2a145c68bc9bd6218c6376b56daafce3a34187cdf8614"
+      },
+      "HDFS_e6_k3_l6_b32_checkpoint.pth": {
+        "bytes": 48371360,
+        "sha256": "1cf8594c09a262604229b39d35023c63946568241e6d493b25e0ecf0537be8ea"
+      },
+      "HDFS_e6_k3_l6_b64_checkpoint.pth": {
+        "bytes": 48371360,
+        "sha256": "6d20f53d40a035d0dffab52a74a8fa725fbfec4c5a92cfafe3611a38be2a2506"
+      },
+      "HDFS_e6_k3_l6_b96_checkpoint.pth": {
+        "bytes": 48371360,
+        "sha256": "005d8f6840948155f63f889618a6a9f7ab3f75c3a5fc43c1446363a8e6037d5c"
+      },
+      "HDFS_e6_k3_l8_b32_checkpoint.pth": {
+        "bytes": 61052312,
+        "sha256": "38cde5ff3a3a46f5bd64e504986f118ea93d3fefedf96724d7900f7548660516"
+      },
+      "HDFS_e6_k3_l8_b64_checkpoint.pth": {
+        "bytes": 61052312,
+        "sha256": "bc85e9543f5aa679c009ff71ee5ee575a7c40512d76a1972b3011cb0e2e04f3b"
+      },
+      "HDFS_e6_k3_l8_b96_checkpoint.pth": {
+        "bytes": 61052312,
+        "sha256": "3254979c0c2852f44a272b6af99ad13c9847e66a6591f77c6b5a024ecbf1a784"
+      },
+      "HDFS_e6_k4_l3_b32_checkpoint.pth": {
+        "bytes": 29350094,
+        "sha256": "819e34e35a8551fe942d4ce4a8bafeb6975644bc1be461ff82e2dcd6648d91ba"
+      },
+      "HDFS_e6_k4_l3_b64_checkpoint.pth": {
+        "bytes": 29350094,
+        "sha256": "88ba685ff300e8cac94f2a826426d46656f2c427d71a959c802569a0ef21323d"
+      },
+      "HDFS_e6_k4_l3_b96_checkpoint.pth": {
+        "bytes": 29350094,
+        "sha256": "ef433daed397fc6b8971518c8b638e64e1ad7041fd0ce0164b4041a3d564ef08"
+      },
+      "HDFS_e6_k4_l6_b32_checkpoint.pth": {
+        "bytes": 48371360,
+        "sha256": "491ad7126034c17458253851d24ba29445348133bd6a359dcf6c30bf453e601a"
+      },
+      "HDFS_e6_k4_l6_b64_checkpoint.pth": {
+        "bytes": 48371360,
+        "sha256": "d9b83a5b60616db1b83b766205e56c609f04cb7b02b08931716042610ec8f6ea"
+      },
+      "HDFS_e6_k4_l6_b96_checkpoint.pth": {
+        "bytes": 48371360,
+        "sha256": "c481812f4221568ad308c292ab0472cd57acc3ad4afc9e5b8a68eb2d0431e390"
+      },
+      "HDFS_e6_k4_l8_b32_checkpoint.pth": {
+        "bytes": 61052312,
+        "sha256": "7af0aa50d3472cc4a13ca0b07d8ebc6e4263ed9abdb067d0962819588fc94017"
+      },
+      "HDFS_e6_k4_l8_b64_checkpoint.pth": {
+        "bytes": 61052312,
+        "sha256": "69a82fa4871ade41b362f7052ed5f6385c66439934c2228ea86c7146efe6dc94"
+      },
+      "HDFS_e6_k4_l8_b96_checkpoint.pth": {
+        "bytes": 61052312,
+        "sha256": "1495abffbc392909186456cef8c35afbd9fed02d8830b34c9e30ce0a6361cb99"
+      },
+      "HDFS_e6_k5_l3_b32_checkpoint.pth": {
+        "bytes": 29350094,
+        "sha256": "f662598b7ddb5af66bf92a85bba56b800131a30181bc3eab9467e62138ff9384"
+      },
+      "HDFS_e6_k5_l3_b64_checkpoint.pth": {
+        "bytes": 29350094,
+        "sha256": "82916c753492e809cc23d07b8b93edb3a9614e7fb0e198a07037b91ab2d80b46"
+      },
+      "HDFS_e6_k5_l3_b96_checkpoint.pth": {
+        "bytes": 29350094,
+        "sha256": "8160497b76b70dcbe4cd9f47aff70a20459533ac5c5650a28749a9db4049aa49"
+      },
+      "HDFS_e6_k5_l6_b32_checkpoint.pth": {
+        "bytes": 48371360,
+        "sha256": "c49a4e7a484f4c7f573dc73907fa5cc8cce1cc7fa6f3841803fc8076db69ea08"
+      },
+      "HDFS_e6_k5_l6_b64_checkpoint.pth": {
+        "bytes": 48371360,
+        "sha256": "f33920f8c2c15b06220cb6bdbb4f84200832c8ee6f6f19ea1f1466ead68bf670"
+      },
+      "HDFS_e6_k5_l6_b96_checkpoint.pth": {
+        "bytes": 48371360,
+        "sha256": "4f75b6d2d96262f9dbe6421647421ae63318a56c088e865dc2a64d238b7c32bb"
+      },
+      "HDFS_e6_k5_l8_b32_checkpoint.pth": {
+        "bytes": 61052312,
+        "sha256": "146432e582350625d6b8212df4bb627c088e8346b25c3cc7cd41a1efbc5fb3b6"
+      },
+      "HDFS_e6_k5_l8_b64_checkpoint.pth": {
+        "bytes": 61052312,
+        "sha256": "50f20ccbf0f6e554a49c9ed43a764453882384876455defec203f680d7c25ac0"
+      },
+      "HDFS_e6_k5_l8_b96_checkpoint.pth": {
+        "bytes": 61052312,
+        "sha256": "b44b7fc0ded5d461f59f67a8897b9ec593068ac480cb27e9c5b07a23fde8cb3c"
+      }
+    },
+    "sha256": "a7424cdc1d75835a5ad845ccdb5c58dc7bde6a5bb0d6d186efbed096ab20dfbe"
+  },
+  "os": {
+    "bytes": 3451987013,
+    "file_id": "1xli-WTs8xLd0_gCmyun2F41vSHf2ONsH",
+    "filename": "ensemble_os.zip",
+    "models": {
+      "Openstack_e10_k1_l3_b32_checkpoint.pth": {
+        "bytes": 29347551,
+        "sha256": "bdb052ce1f27c45c1c136564dcd26179f7628bee750983facffbb6e0f03385f4"
+      },
+      "Openstack_e10_k1_l3_b64_checkpoint.pth": {
+        "bytes": 29347551,
+        "sha256": "cd4808660d7ce983fb9788e02c80d54aa89ba791059e54f3d117038337e496bd"
+      },
+      "Openstack_e10_k1_l3_b96_checkpoint.pth": {
+        "bytes": 29347551,
+        "sha256": "0aa28b2b4619d5f5942ea58ec5486d9f2746b0ec6228b429deb7073812de2ec1"
+      },
+      "Openstack_e10_k1_l6_b32_checkpoint.pth": {
+        "bytes": 48367557,
+        "sha256": "78447449cf0d6520977416db1f7f9aed996343c468a3dd0c0cafe34b92732bf2"
+      },
+      "Openstack_e10_k1_l6_b64_checkpoint.pth": {
+        "bytes": 48367557,
+        "sha256": "1293f1d246298ab9a0578e30d03a9fe0623f5b2b1784112055c665ad0d6bebb9"
+      },
+      "Openstack_e10_k1_l6_b96_checkpoint.pth": {
+        "bytes": 48367557,
+        "sha256": "ce9d49626d96d3cb7257b9e5c8582d81a1374f6215568c8484d2003a406b5ab3"
+      },
+      "Openstack_e10_k1_l8_b32_checkpoint.pth": {
+        "bytes": 61047605,
+        "sha256": "1feec0777a5308644891aeb8db9bd3f4b83eebe7eaa9ab03f6b170419e3d4afd"
+      },
+      "Openstack_e10_k1_l8_b64_checkpoint.pth": {
+        "bytes": 61047605,
+        "sha256": "c43107ff820899b13f1de7713827d8cbbd9e71841a09ac143e801c8f833df677"
+      },
+      "Openstack_e10_k1_l8_b96_checkpoint.pth": {
+        "bytes": 61047605,
+        "sha256": "012e999e2e68c36c097ad37e920712338fd7b43c171be832c5a423826e77605b"
+      },
+      "Openstack_e10_k3_l3_b32_checkpoint.pth": {
+        "bytes": 29347551,
+        "sha256": "b383e43da52ed210c1791b26415cf8bb37cbc852e4854f45bdcc3307d613829a"
+      },
+      "Openstack_e10_k3_l3_b64_checkpoint.pth": {
+        "bytes": 29347551,
+        "sha256": "88f2ee8e066803defb4770b59624cb2b7d6edff68f9e0117e0fd37f0c1ef121e"
+      },
+      "Openstack_e10_k3_l3_b96_checkpoint.pth": {
+        "bytes": 29347551,
+        "sha256": "7b51ce72c8daf1fd3a8b29190955ad50d163c8a9addf189757871d0df1c32da1"
+      },
+      "Openstack_e10_k3_l6_b32_checkpoint.pth": {
+        "bytes": 48367557,
+        "sha256": "c58bf68c71f9594073dd2885139df9cf4cea98fc0f67467da78ce6406fb02ac2"
+      },
+      "Openstack_e10_k3_l6_b64_checkpoint.pth": {
+        "bytes": 48367557,
+        "sha256": "aa447f6dd62e262b345132051ce23cebf8dcdb90026c9d9cd3f5e8b9e37668cb"
+      },
+      "Openstack_e10_k3_l6_b96_checkpoint.pth": {
+        "bytes": 48367557,
+        "sha256": "5e3a7d8bc9e608a34e01ab44dcef2f527ff1afc852e37e18bffa7aae161617fd"
+      },
+      "Openstack_e10_k3_l8_b32_checkpoint.pth": {
+        "bytes": 61047605,
+        "sha256": "c592f4438c6123b6096af8660101a56780378f61dea83982490c1a61ed61e44d"
+      },
+      "Openstack_e10_k3_l8_b64_checkpoint.pth": {
+        "bytes": 61047605,
+        "sha256": "86da378166cbe60a8a50d286148addeb9d829110f5a4c9fefb89a8e0e6fffd0b"
+      },
+      "Openstack_e10_k3_l8_b96_checkpoint.pth": {
+        "bytes": 61047605,
+        "sha256": "e5b56d8c96ba2c84a5390fb0bec09affa6c5cf77d86e5d88077d67883c5d8a2e"
+      },
+      "Openstack_e10_k5_l3_b32_checkpoint.pth": {
+        "bytes": 29347551,
+        "sha256": "7b10790bd5b86d910927a6ad8b9f8cd13a0bbb48b57574531cad868091bb181b"
+      },
+      "Openstack_e10_k5_l3_b64_checkpoint.pth": {
+        "bytes": 29347551,
+        "sha256": "436c3a0387820569f988c274da2413e0e1f31ff53891bc71e282aef2d5105356"
+      },
+      "Openstack_e10_k5_l3_b96_checkpoint.pth": {
+        "bytes": 29347551,
+        "sha256": "8a51a107962dd0884ae5997edadf7fc4a73782a23575ad5833afb3ef8cb84422"
+      },
+      "Openstack_e10_k5_l6_b32_checkpoint.pth": {
+        "bytes": 48367557,
+        "sha256": "455a00799de2dd5041ba0e9eca33c8e6b1d7fdc8d8302357fd6b1edf0f6e8d51"
+      },
+      "Openstack_e10_k5_l6_b64_checkpoint.pth": {
+        "bytes": 48367557,
+        "sha256": "d0c83916d7cc92b0fcbd211b05591b50cc4262455671eaeffae96a2d8e90e3ba"
+      },
+      "Openstack_e10_k5_l6_b96_checkpoint.pth": {
+        "bytes": 48367557,
+        "sha256": "ae7b5819f76435737c33fecdb0c6289052b2a21558867dac3bc5b6952c7bfd39"
+      },
+      "Openstack_e10_k5_l8_b32_checkpoint.pth": {
+        "bytes": 61047605,
+        "sha256": "c968f2009377d2f70a37c9a1afed3722e8b5ccf5c13c1c4b0002bcc8ee57ee10"
+      },
+      "Openstack_e10_k5_l8_b64_checkpoint.pth": {
+        "bytes": 61047605,
+        "sha256": "c76c58406c16a1471096c5641c827d36105fe02901c5025dee7f7d9b8c5143e7"
+      },
+      "Openstack_e10_k5_l8_b96_checkpoint.pth": {
+        "bytes": 61047605,
+        "sha256": "8a854d87646bd69f676347043d58a036def28330a13cea2248eefc12cac3eafd"
+      },
+      "Openstack_e3_k1_l3_b32_checkpoint.pth": {
+        "bytes": 29350508,
+        "sha256": "45c1ba6fcdfe942e9889fcba84a5d4ad0fa6644108fde40c058201d242b6fea4"
+      },
+      "Openstack_e3_k1_l3_b64_checkpoint.pth": {
+        "bytes": 29347551,
+        "sha256": "0c8168b44417eabd7749fd140487859272a6f20f1f9717cfe8eb627a058a8403"
+      },
+      "Openstack_e3_k1_l3_b96_checkpoint.pth": {
+        "bytes": 29347551,
+        "sha256": "1b52d9811c5858edfcb2a68b9bfed5dda310e563dca6b57d816fa44223a75b93"
+      },
+      "Openstack_e3_k1_l6_b32_checkpoint.pth": {
+        "bytes": 48367557,
+        "sha256": "bbe415b7384473405893618adc387b46184c25d24bed2ba3247d92bc2c43f1a7"
+      },
+      "Openstack_e3_k1_l6_b64_checkpoint.pth": {
+        "bytes": 48367557,
+        "sha256": "a3c3584ff17e44fb19df5960309a7798842ddd175b4dd2a119697a73ea606cb6"
+      },
+      "Openstack_e3_k1_l6_b96_checkpoint.pth": {
+        "bytes": 48367557,
+        "sha256": "dc19df9b14be942622838ee3679b3237a25ac5907cb2fd1b346d585d36b394da"
+      },
+      "Openstack_e3_k1_l8_b32_checkpoint.pth": {
+        "bytes": 61047605,
+        "sha256": "191f37e57f723e1fadced59af7d194953490cb9aad3c53155f4e03791270885f"
+      },
+      "Openstack_e3_k1_l8_b64_checkpoint.pth": {
+        "bytes": 61047605,
+        "sha256": "a912ca6f01c1ccbb35258b401aaeae84c50515c30e650ff87c89f90232fe1d8e"
+      },
+      "Openstack_e3_k1_l8_b96_checkpoint.pth": {
+        "bytes": 61047605,
+        "sha256": "db7a733f129c53e6aeb6a08db7b4331eb5bc6d40334ce5802f3eff6f74c9842e"
+      },
+      "Openstack_e3_k3_l3_b32_checkpoint.pth": {
+        "bytes": 29347551,
+        "sha256": "01fd2fb42ce5e19a017f9f6623251650a8f2704eb866507fb8a8ed4d9d7709c0"
+      },
+      "Openstack_e3_k3_l3_b64_checkpoint.pth": {
+        "bytes": 29347551,
+        "sha256": "5cd1b30b2df0a6bd89dc47d42f205b048447294617d493d40fa20deebe73903c"
+      },
+      "Openstack_e3_k3_l3_b96_checkpoint.pth": {
+        "bytes": 29347551,
+        "sha256": "fc0fcbdcf544e5cfd5a1de05ea98dfec1181a163df81b25409d5ac284161d9f3"
+      },
+      "Openstack_e3_k3_l6_b32_checkpoint.pth": {
+        "bytes": 48367557,
+        "sha256": "32f8fba24c3763a43ace9497e052d11192497efb42a79df257ffd79c6adfec99"
+      },
+      "Openstack_e3_k3_l6_b64_checkpoint.pth": {
+        "bytes": 48367557,
+        "sha256": "dd0b14af9439ec40f3915726d89011ef76192c0cc6bf36a05cb55705a05f481a"
+      },
+      "Openstack_e3_k3_l6_b96_checkpoint.pth": {
+        "bytes": 48367557,
+        "sha256": "4784424e6f037c5ec85a018e41f9abf437eb08f245731c035e07e0e2f73bed84"
+      },
+      "Openstack_e3_k3_l8_b32_checkpoint.pth": {
+        "bytes": 61047605,
+        "sha256": "5fc94a30d08cc9d2c1e21f60913e3a3bd385b3edb28f0090cee6c48209107ffb"
+      },
+      "Openstack_e3_k3_l8_b64_checkpoint.pth": {
+        "bytes": 61047605,
+        "sha256": "4a20503d588755dbe7ca72e2ade3db6e6753ce5ff5f52150c892bca30df3cc86"
+      },
+      "Openstack_e3_k3_l8_b96_checkpoint.pth": {
+        "bytes": 61047605,
+        "sha256": "b0367de723ec25c14ae27e3c4906f05ab5ba814052cd819ac7fdfbb05fb8b86e"
+      },
+      "Openstack_e3_k5_l3_b32_checkpoint.pth": {
+        "bytes": 29347551,
+        "sha256": "e2085cd602ddda44e431625927e3428d1429d3ac7bf0ff7757d427d50a4662d2"
+      },
+      "Openstack_e3_k5_l3_b64_checkpoint.pth": {
+        "bytes": 29347551,
+        "sha256": "375673b77f34e76d9f7d5af05225fb880a4684b3f6b52ee82a962096db071ce6"
+      },
+      "Openstack_e3_k5_l3_b96_checkpoint.pth": {
+        "bytes": 29347551,
+        "sha256": "cbc9486df9f904f557f83d7a0dfdc15f394d3d83e4f88b290bc3e955432bd6d1"
+      },
+      "Openstack_e3_k5_l6_b32_checkpoint.pth": {
+        "bytes": 48367557,
+        "sha256": "e200e29aa00451b8ba0455480bbf33d5555d57c9e3bca311f4c642c495b755e1"
+      },
+      "Openstack_e3_k5_l6_b64_checkpoint.pth": {
+        "bytes": 48367557,
+        "sha256": "f3b74baff3fcfa14237271bc5c1ec7bfb4ac03dd18e182a4c46e64f970dfe2b8"
+      },
+      "Openstack_e3_k5_l6_b96_checkpoint.pth": {
+        "bytes": 48367557,
+        "sha256": "373c2d435367efbb8d0c780434f3e33ce4d4938079feee11362f3ca97fc1b765"
+      },
+      "Openstack_e3_k5_l8_b32_checkpoint.pth": {
+        "bytes": 61047605,
+        "sha256": "8d50cc20dc1ece15efbdc4e9f65ce198c958c2d25ddcd7558fc050563c7608c5"
+      },
+      "Openstack_e3_k5_l8_b64_checkpoint.pth": {
+        "bytes": 61047605,
+        "sha256": "291686d127de2f91c46d28b46db3e90d20c88e3a27f41a20cbe2e084516e6e86"
+      },
+      "Openstack_e3_k5_l8_b96_checkpoint.pth": {
+        "bytes": 61047605,
+        "sha256": "e39de83d0adc8925263ef7e3e1d1426d56a66c1935a49d3f9005ea24a2245313"
+      },
+      "Openstack_e6_k1_l3_b32_checkpoint.pth": {
+        "bytes": 29347551,
+        "sha256": "229c52280b36deee4886bc6e515c2a5cc2fbc0c8dc7eaafa094ea22427953ad6"
+      },
+      "Openstack_e6_k1_l3_b64_checkpoint.pth": {
+        "bytes": 29347551,
+        "sha256": "383f60e85421084d8c11509b82e82a25c7059a2cfc63f43a3faed8198f74af62"
+      },
+      "Openstack_e6_k1_l3_b96_checkpoint.pth": {
+        "bytes": 29347551,
+        "sha256": "84f7abab30b9effb846fe2656a090042e34d4e7f59ae05d9a86f3ec76968af53"
+      },
+      "Openstack_e6_k1_l6_b32_checkpoint.pth": {
+        "bytes": 48367557,
+        "sha256": "b2308915b8b84fce07aebd251f6715edda602f7817bae7d682be0faeeb7ef0d5"
+      },
+      "Openstack_e6_k1_l6_b64_checkpoint.pth": {
+        "bytes": 48367557,
+        "sha256": "ebef99a2faebcac92c62ea3304b7a70dcd7c636affcf2c0f25992e38686b1f77"
+      },
+      "Openstack_e6_k1_l6_b96_checkpoint.pth": {
+        "bytes": 48367557,
+        "sha256": "d6a6c53512f4d8d5286ca692551c84da9ed5dff96d214b6f7319bd7ed9b09a00"
+      },
+      "Openstack_e6_k1_l8_b32_checkpoint.pth": {
+        "bytes": 61047605,
+        "sha256": "f40149c66105012a814ce9ff4976c3a0d121e014628f573022a0c31c78f4d440"
+      },
+      "Openstack_e6_k1_l8_b64_checkpoint.pth": {
+        "bytes": 61047605,
+        "sha256": "a622bf4fc424701f57eb847989bd85af742b6290e9c085b7584d81103539b99b"
+      },
+      "Openstack_e6_k1_l8_b96_checkpoint.pth": {
+        "bytes": 61047605,
+        "sha256": "2aff42d9f5944893361fc9a200f0379008bb9b950c622ebcf29a0322dde4893d"
+      },
+      "Openstack_e6_k3_l3_b32_checkpoint.pth": {
+        "bytes": 29347551,
+        "sha256": "cd1e963be3e481f1ed1a7413fc14ff0ea2937d6da918338457ddeb65032ac3da"
+      },
+      "Openstack_e6_k3_l3_b64_checkpoint.pth": {
+        "bytes": 29347551,
+        "sha256": "6f0dba4f4628eeb24e4c4e617496ffef1cda3136d7e3ec790f8e631a6f4e6ac7"
+      },
+      "Openstack_e6_k3_l3_b96_checkpoint.pth": {
+        "bytes": 29347551,
+        "sha256": "f8856ecefa4e21a0629de679f8fe6a0367b2858e0dfe5f517246fd1f7cddd855"
+      },
+      "Openstack_e6_k3_l6_b32_checkpoint.pth": {
+        "bytes": 48367557,
+        "sha256": "1042ea8c28131fa328de009370107c58140f862ef40f47974a0868cd12694df1"
+      },
+      "Openstack_e6_k3_l6_b64_checkpoint.pth": {
+        "bytes": 48367557,
+        "sha256": "d06e11b1a44b9b8dd9f3572ea9eee3400791092690a909e33cd02223cf66e787"
+      },
+      "Openstack_e6_k3_l6_b96_checkpoint.pth": {
+        "bytes": 48367557,
+        "sha256": "a533a4f213e3ef0f12ffeabbb24cd939110cf7eea151744b96642d6358fc2283"
+      },
+      "Openstack_e6_k3_l8_b32_checkpoint.pth": {
+        "bytes": 61047605,
+        "sha256": "2e65db22fddcaef6b1bbac3db7e5cbbed3a0371a21a382dd8a4a20895d6347fa"
+      },
+      "Openstack_e6_k3_l8_b64_checkpoint.pth": {
+        "bytes": 61047605,
+        "sha256": "15f46bef8e17403000c2ab681f89bdd61a1f41f6d8f3a31e2a9a06da44b0c6ed"
+      },
+      "Openstack_e6_k3_l8_b96_checkpoint.pth": {
+        "bytes": 61047605,
+        "sha256": "c93f3dc9bec1bc8ceec00bfa073dee11dcccc4d60e905be9dd7aa01d0e7aa9fa"
+      },
+      "Openstack_e6_k5_l3_b32_checkpoint.pth": {
+        "bytes": 29347551,
+        "sha256": "a7dfbc3d726fdd0ced45c56362b109c31097a7b4c7727b101ab4fc335ab57b7a"
+      },
+      "Openstack_e6_k5_l3_b64_checkpoint.pth": {
+        "bytes": 29347551,
+        "sha256": "9457ddd5d75e4407ab5a38bb36e2e626e84e37f899419b49fa4a704cb300c120"
+      },
+      "Openstack_e6_k5_l3_b96_checkpoint.pth": {
+        "bytes": 29347551,
+        "sha256": "466f24be070e4c9b326e8413d570ba747a2fa5e8722ffbc045948ee4fea4e225"
+      },
+      "Openstack_e6_k5_l6_b32_checkpoint.pth": {
+        "bytes": 48367557,
+        "sha256": "a9ec3078946fc573dbe96b04715587a471de8f4495091da013be6812d947482f"
+      },
+      "Openstack_e6_k5_l6_b64_checkpoint.pth": {
+        "bytes": 48367557,
+        "sha256": "f2816417de243c31d4059e9a1b739340c66798003411eaac53eba4ef6e609e78"
+      },
+      "Openstack_e6_k5_l6_b96_checkpoint.pth": {
+        "bytes": 48367557,
+        "sha256": "bf0791255ea2091e8a3014e5f69e5258df84d87941956fdbf06dc4f06e710bfb"
+      },
+      "Openstack_e6_k5_l8_b32_checkpoint.pth": {
+        "bytes": 61047605,
+        "sha256": "04d1540f85ad44227c88213f72b8c5aee0390d1bd984236dd3b81301213201cd"
+      },
+      "Openstack_e6_k5_l8_b64_checkpoint.pth": {
+        "bytes": 61047605,
+        "sha256": "d5aed40213d27b32bbbb2c2741f92803cbd792e1a2d8d439b18974b9d71e3c68"
+      },
+      "Openstack_e6_k5_l8_b96_checkpoint.pth": {
+        "bytes": 61047605,
+        "sha256": "afebe397d3e4f82442e8f7e11cb6c363ff745421f49821f99598001a104e6d65"
+      }
+    },
+    "sha256": "90869230c03b630da5b1257845a67b65d6a0e2690d40b48389212a7d9b79944b"
+  }
+}

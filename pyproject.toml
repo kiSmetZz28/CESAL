@@ -32,3 +32,6 @@ cesal-download = "tools.download_checkpoints:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["cesal_core*", "training_pipeline*", "cesal_inference_pipeline*", "incident_response*", "quantization*", "tools*", "dashboard*"]
+
+[tool.setuptools.package-data]
+tools = ["bat_archives.json"]

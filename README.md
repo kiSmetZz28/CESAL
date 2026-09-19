@@ -150,7 +150,7 @@ Training is the expensive stage, so the checkpoints behind the paper's numbers a
 
 **GPU.** Core software checks and the small real experiment run on CPU, as do edge detection and the dashboard server. BAT supports CPU fallback; an NVIDIA GPU is recommended for full BAT evaluation and expected for the documented LLM timings. LLM loading can offload weights to CPU RAM when VRAM is limited, but sufficient total memory is still required.
 
-**Disk.** Detection (Steps 1-3) needs about **12 GB** — BAT checkpoints ~3.5 GB per dataset, the ExecuTorch runtime and build tree ~3.1 GB, prediction outputs ~1.2 GB per dataset, everything else under 250 MB. Step 4 is dominated by the LLM weights, pulled from Hugging Face on first use into `~/.cache/huggingface/hub`: **~28 GB** for the default Qwen2.5-14B-Instruct, or **~76 GB** for all four LLM backbones.
+**Disk.** Cached BAT ZIP files require approximately **3.5 GB per dataset**, in addition to the extracted files. Detection (Steps 1-3) needs about **12 GB** — BAT checkpoints ~3.5 GB per dataset, the ExecuTorch runtime and build tree ~3.1 GB, prediction outputs ~1.2 GB per dataset, everything else under 250 MB. Step 4 is dominated by the LLM weights, pulled from Hugging Face on first use into `~/.cache/huggingface/hub`: **~28 GB** for the default Qwen2.5-14B-Instruct, or **~76 GB** for all four LLM backbones.
 
 **Time.** The full-run figures below are approximate timings for an **i7-14700 workstation with NVIDIA RTX 2000 Ada, 32 GB RAM and Ubuntu 24.04.2**; HDFS end-to-end detection is an extrapolation from per-window timings. The edge stage runs three ExecuTorch learners on CPU; the full cloud and LLM timings assume GPU acceleration. The small real experiment was observed at about 80 seconds on CPU, excluding setup and downloads. The paper's machines are listed under [Hardware setup](#hardware-setup-section-41).
 
@@ -235,6 +235,8 @@ python run.py download hdfs bat       # HDFS full-precision only (no ExecuTorch 
 python run.py download hdfs qbat      # HDFS quantized Q-BAT + ExecuTorch runtime
 ```
 
+BAT downloads use one ZIP per dataset (`ensemble_os.zip` or `ensemble_hdfs.zip`). The downloader verifies the archive and extracted models with SHA-256 checksums, then installs the 81 `.pth` files into the existing checkpoint directory. It reuses matching installed models and local archives under `checkpoints/bat/`; Q-BAT still downloads its three `.pte` files individually. Existing model files are never silently replaced.
+
 **or train them yourself** — 81 models per dataset, the most expensive stage in the pipeline (see [Train the BAT ensemble](#train-the-bat-ensemble-from-scratch) and [Quantize and export Q-BAT](#quantize-and-export-q-bat-edge-models)):
 
 ```bash
@@ -248,7 +250,7 @@ python run.py convert hdfs            # quantize → .pte in checkpoints/qbat/hd
 
 Whenever Q-BAT is in the download set, `run.py download` also installs the **ExecuTorch 0.5.0 runtime** and its bundled `torchao`, which `infer` and `convert` both need. Raw log files are _not_ fetched — only the optional dashboard needs those.
 
-**If a download stops** with `Cannot retrieve the public link of the file`, Google Drive is temporarily refusing requests from your network after many downloads. Wait a while and run the same command again; files that finished downloading are kept.
+**If a download stops**, run the same command again to resume the transfer. Google Drive can throttle downloads or refuse a file request; if it reports `Cannot retrieve the public link of the file`, wait before retrying and check that the shared file remains accessible. ZIP downloads reduce the number of file requests but remain subject to Drive limits. If checksum verification fails, the downloader stops without replacing existing model files and identifies the file to move aside before retrying.
 
 **Check the install once after setup** — no checkpoints or GPU needed:
 

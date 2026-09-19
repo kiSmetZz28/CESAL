@@ -7,6 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 GROUPS = {
+    'Checkpoint download and archive integrity': ('test_checkpoint_downloads',),
     'Detection energy and voting': ('test_energy', 'test_voting', 'test_predict'),
     'EM-GMM threshold calibration': ('test_threshold',),
     'Pipeline execution and failure handling': ('test_pipeline_failures', 'test_sweep'),
