@@ -12,6 +12,7 @@ from cesal_core.utils.metrics import evaluate
 from cesal_core.utils.steps import StepReporter
 from cesal_core.utils.voting import ensemble_method
 from training_pipeline.solver import Solver
+from cesal_core.utils.reproducibility import model_seed, seed_training
 
 
 _ABOUT = """
@@ -26,7 +27,11 @@ visible directly.
 
 
 def _single_model_pred(config: argparse.Namespace) -> tuple:
-    cudnn.benchmark = True
+    if getattr(config, 'seed', None) is not None:
+        seed_training(model_seed(config.seed, config.dataset,
+            (config.num_epochs, config.k, config.e_layer_num, config.batch_size)))
+    else:
+        cudnn.benchmark = True
     mkdir(config.model_save_path)
     solver = Solver(vars(config))
     pred, gt = solver.singlemodelpred()
@@ -113,8 +118,9 @@ def run_bat_ensemble(
         if n_thresh:
             # Scoring recalibrates every model's threshold and overwrites the
             # bundled file in place, which changes what `run.py infer` will do.
-            st.warn(f"{n_thresh} calibration thresholds were recomputed and written "
-                    f"over the bundled ones — this changes subsequent inference runs.")
+            st.warn(f"{n_thresh} calibration thresholds were recomputed in "
+                    f"{base_config.get('threshold_output', 'the default threshold file')}; "
+                    "use them with the evaluated checkpoints.")
 
     # ── Step 2: combine them, adding one model at a time ──────────────────
     methods = ['majority', 'at least one', 'consensus'] if voting_method == 'all' else [voting_method]

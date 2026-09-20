@@ -7,6 +7,7 @@ Usage
   python run.py all      [DATASET]          # download → detect → HDFS queued response
   python run.py download [DATASET] [TYPE]
   python run.py train    [DATASET]
+  python run.py retrain  [os hdfs] [--seed 42] [--edge-python PATH]
   python run.py eval     [DATASET] [VOTING]
   python run.py convert  [DATASET]
   python run.py infer    [DATASET] [RATIO]
@@ -89,10 +90,13 @@ def main() -> None:
             sys.exit(0 if ok else 1)
         sys.exit(0)
 
+    elif command == "retrain":
+        _run_module('tools.retrain', *argv[1:])
+
     elif command == "train":
         dataset = argv[1] if len(argv) > 1 else "os"
         print(f"[run] Training BAT ensemble — dataset: {dataset}")
-        _run_module("training_pipeline.train", "--config", f"configs/training/{dataset}.yaml")
+        _run_module("training_pipeline.train", "--config", f"configs/training/{dataset}.yaml", *argv[2:])
 
     elif command == "eval":
         dataset = argv[1] if len(argv) > 1 else "os"

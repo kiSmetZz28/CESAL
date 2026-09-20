@@ -35,6 +35,7 @@ from cesal_core.utils.energy import my_kl_loss
 from cesal_core.utils.config import load_config, setup_logging
 from cesal_core.utils.io import mkdir
 from cesal_core.utils.steps import StepReporter
+from cesal_core.utils.reproducibility import model_seed, seed_training, environment, sha256, write_json
 
 
 _ABOUT = """
@@ -94,6 +95,7 @@ def convert_one(
     input_c: int,
     output_c: int,
     e_layer_num: int,
+    seed: int = 42,
 ) -> None:
     """Export and quantize one EMAT .pth checkpoint into a .pte file.
 
@@ -101,6 +103,7 @@ def convert_one(
     cesal_core/utils/steps.py), so a long conversion shows what it is doing
     rather than appearing to hang.
     """
+    seed_training(seed)
     device = torch.device("cpu")
     dtype = torch.float32
     step = steps.current()
@@ -161,6 +164,7 @@ def main() -> None:
                         help="Directory to write .pte files (default: checkpoints/qbat/<dataset>).")
     parser.add_argument("--all", action="store_true",
                         help="Convert every combination in the hyperparameter sweep.")
+    parser.add_argument('--seed', type=int, default=42)
     args = parser.parse_args()
 
     cfg      = load_config(args.config)
@@ -221,7 +225,15 @@ def main() -> None:
 
         for fileparam, src, dst, e_layers in pending:
             try:
-                convert_one(src, dst, win_size, input_c, output_c, e_layers)
+                if os.path.exists(dst):
+                    raise FileExistsError(f'Export already exists: {dst}; choose a new output directory.')
+                parameters = tuple(int(part[1:]) for part in fileparam.split('_'))
+                seed = model_seed(args.seed, dataset, parameters)
+                convert_one(src, dst, win_size, input_c, output_c, e_layers, seed)
+                write_json(dst + '.json', dict(seed=seed, master_seed=args.seed,
+                    source_checkpoint=src, source_sha256=sha256(src), pte_sha256=sha256(dst),
+                    exporter_sha256=sha256(__file__), environment=environment(),
+                    input_shape=[1, win_size, input_c], quantization='int8_dynamic_activation_int4_weight'))
                 before, after = _mb(src), _mb(dst)
                 src_mb += before
                 dst_mb += after
@@ -232,6 +244,7 @@ def main() -> None:
                     (1 - after / before) * 100 if before else 0.0,
                 )
             except Exception as exc:  # one failure must not abort the batch
+                logging.debug('Learner conversion failure', exc_info=True)
                 failed += 1
                 st.warn(f"{fileparam} could not be quantized — {exc}")
             st.tick("learners")

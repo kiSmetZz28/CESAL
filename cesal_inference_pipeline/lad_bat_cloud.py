@@ -104,6 +104,10 @@ def run(windows: np.ndarray, config: dict) -> np.ndarray:
     if len(windows) == 0:
         raise ValueError("No routed windows to process.")
 
+    if config.get('seed') is not None:
+        from cesal_core.utils.reproducibility import seed_training
+        seed_training(config['seed'])
+
     try:
         _cuda = torch.cuda.is_available()
     except Exception:

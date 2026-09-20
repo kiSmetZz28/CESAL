@@ -483,6 +483,7 @@ class Solver:
             return
 
         cfg_path, prefix = _THRESHOLD_OUTPUT[dataset_name]
+        cfg_path = getattr(self, 'threshold_output', cfg_path)
         fileparam = f"e{self.num_epochs}_k{self.k}_l{self.e_layer_num}_b{self.batch_size}"
         model_name = f"{prefix}{fileparam}" if prefix else fileparam
 
@@ -505,6 +506,7 @@ class Solver:
             return
 
         cfg_path, prefix = _THRESHOLD_OUTPUT[dataset_name]
+        cfg_path = getattr(self, 'threshold_output', cfg_path)
         os.makedirs(os.path.dirname(cfg_path), exist_ok=True)
 
         fileparam = f"e{self.num_epochs}_k{self.k}_l{self.e_layer_num}_b{self.batch_size}"

@@ -351,13 +351,31 @@ Detail on training, quantization, ensemble scoring and routing-ratio experiments
 
 ### Train the BAT ensemble from scratch
 
+For a new seeded baseline, run the complete workflow in `cesal-cloud`:
+
 ```bash
 conda activate cesal-cloud
-python run.py train os
-python run.py train hdfs
+python run.py retrain os hdfs --seed 42 \
+    --edge-python /opt/conda/envs/cesal-edge/bin/python
 ```
 
-Each `train` invocation runs a hyperparameter sweep over `(num_epochs, k, e_layer_num, batch_size)` and writes **81 BAT checkpoints** to `checkpoints/bat/<dataset>/`.
+The interpreter path above is for Docker; for a native installation, pass the Python path in your `cesal-edge` environment. Mount a separate writable volume at `/app/outputs/retraining` to retain Docker retraining artifacts.
+
+This trains all 81 BAT learners per dataset, exports their Q-BAT models, recalibrates cloud and selected edge thresholds, and runs detection. It writes a new directory under `outputs/retraining/` with configurations, checkpoints, thresholds, stage logs, and `status.json`. The original checkpoints and thresholds remain unchanged. The selected three edge architectures are retained from the inference configuration. New edge thresholds use the existing EM-GMM helper on bootstrapped training-window energies; the recorded calibration protocol is a new baseline, not a reconstruction of undocumented historical random states.
+
+Each learner receives a stable seed derived from the master seed, dataset, and hyperparameters. Python, NumPy and PyTorch are seeded before model initialization and data loading; deterministic kernels are required, cuDNN benchmarking and TF32 are disabled, and the workflow fixes CPU thread counts. Unsupported deterministic operations cause a failure rather than silently changing settings. Manifests record seeds, configurations, input/source hashes, model hashes, software versions and hardware. These controls target repeated runs in the same environment; identical weights across different hardware or software versions are not guaranteed.
+
+**This produces new models and newly measured scores.** It does not recover the paper's original unseeded training run. Use the published models for the existing paper results. The full workflow is a long-running experiment, especially HDFS training/validation and full edge inference; it is not the short readiness check.
+
+To run just the training stage and choose its destination:
+
+```bash
+conda activate cesal-cloud
+python run.py train os --seed 42 --output-dir checkpoints/new-baseline/bat/os
+python run.py train hdfs --seed 42 --output-dir checkpoints/new-baseline/bat/hdfs
+```
+
+Each `train` invocation runs a hyperparameter sweep over `(num_epochs, k, e_layer_num, batch_size)` and writes **81 BAT checkpoints** plus `training_manifest.json` to the chosen directory. Existing checkpoints are protected from overwrite. When running stages separately, set `model_save_path` and `threshold_output` in a separate training configuration to those new paths before conversion or evaluation. The complete `retrain` command prepares these configurations automatically.
 
 The run reports per-model and per-epoch progress with an estimate of the time left. A model that fails does not abort the sweep — it is reported and the run continues, and the closing summary states how many of the 81 were trained. If any learner fails, the command exits with a nonzero status after finishing the sweep; successfully trained checkpoints are kept.
 

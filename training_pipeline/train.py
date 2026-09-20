@@ -4,6 +4,7 @@ import os
 import sys
 import time
 from itertools import product
+from pathlib import Path
 
 from torch.backends import cudnn
 
@@ -12,6 +13,7 @@ from cesal_core.utils.config import load_config, setup_logging
 from cesal_core.utils.io import mkdir
 from cesal_core.utils.steps import StepReporter
 from training_pipeline.solver import Solver
+from cesal_core.utils.reproducibility import model_seed, seed_training, environment, sha256, write_json
 
 _ABOUT = """
 Train the BAT ensemble: a set of EM-AT base learners whose votes decide whether
@@ -26,7 +28,13 @@ reconstruct afterwards is treated as anomalous.
 
 
 def _run_one(config: argparse.Namespace) -> None:
-    cudnn.benchmark = True
+    if getattr(config, 'seed', None) is not None:
+        parameters = (config.num_epochs, config.k, config.e_layer_num, config.batch_size)
+        seed = model_seed(config.seed, config.dataset, parameters)
+        seed_training(seed)
+        logging.info('   Reproducible training seed: %d', seed)
+    else:
+        cudnn.benchmark = True
     mkdir(config.model_save_path)
     solver = Solver(vars(config))
     if config.mode == 'train':
@@ -43,9 +51,15 @@ def main() -> None:
         default='configs/training/os.yaml',
         help='Path to the training YAML config.',
     )
+    parser.add_argument('--seed', type=int, default=42,
+                        help='Master seed for deterministic per-learner training (default: 42).')
+    parser.add_argument('--output-dir', help='Separate directory for newly trained checkpoints.')
     args, _ = parser.parse_known_args()
 
     yaml_config = load_config(args.config)
+    yaml_config['seed'] = args.seed
+    if args.output_dir:
+        yaml_config['model_save_path'] = args.output_dir
     dataset = yaml_config.get('dataset', '')
 
     rep = StepReporter("train", dataset=dataset, steps=steps.TRAIN_STEPS, about=_ABOUT)
@@ -59,6 +73,21 @@ def main() -> None:
         combinations = list(product(*search_space))
         base_config = {k: v for k, v in yaml_config.items() if k not in search_keys}
         save_path = base_config.get('model_save_path', '')
+        if list(Path(save_path).glob('*.pth')):
+            raise FileExistsError(f'Checkpoints already exist in {save_path}. '
+                                  'Choose a new --output-dir; existing models are preserved.')
+        root = Path(__file__).resolve().parent.parent
+        source_files = [Path(__file__), Path(__file__).with_name('solver.py')]
+        source_files += list((root / 'cesal_core').rglob('*.py'))
+        source_files += sorted((root / 'configs/training').glob('*.yaml'))
+        splits = sorted(Path(base_config['data_path']).glob('*.txt')) if 'data_path' in base_config else []
+        seed_training(args.seed)
+        manifest = dict(master_seed=args.seed, config=yaml_config, environment=environment(),
+                        bootstrap='Existing fixed per-combination sampling seeds from configs/training; unchanged',
+                        inputs={str(p): sha256(p) for p in splits},
+                        source_sha256={str(p.relative_to(root)): sha256(p) for p in source_files},
+                        learners={}, status='running')
+        write_json(Path(save_path) / 'training_manifest.json', manifest)
 
         for key in search_keys:
             st.detail(key, ", ".join(str(v) for v in yaml_config[key]))
@@ -92,16 +121,22 @@ def main() -> None:
                 _run_one(config)
                 took = time.time() - t0
                 trained += 1
+                checkpoint = Path(save_path) / f'{dataset}_{name}_checkpoint.pth'
+                manifest['learners'][name] = dict(seed=model_seed(args.seed, dataset, values),
+                    status='complete', sha256=sha256(checkpoint) if checkpoint.exists() else None)
                 if took > slowest[1]:
                     slowest = (name, took)
                 logging.info("   %7s  %-22s trained in %s",
                              f"{i + 1}/{len(combinations)}", name,
                              steps.fmt_secs(took))
             except Exception as exc:  # one bad learner must not abort the sweep
+                logging.debug('Learner training failure', exc_info=True)
                 failed += 1
+                manifest['learners'][name] = dict(status='failed', error=str(exc))
                 st.warn(f"{name} ({i + 1}/{len(combinations)}) failed to "
                         f"train — {exc}")
             st.tick("learners")
+            write_json(Path(save_path) / 'training_manifest.json', manifest)
 
         on_disk = 0
         if save_path and os.path.isdir(save_path):
@@ -120,6 +155,8 @@ def main() -> None:
             st.fail(f"Training is incomplete: {failed} of {len(combinations)} learners failed. "
                     "Successfully trained checkpoints have been kept.")
 
+    manifest['status'] = 'complete' if trained and not failed else 'failed'
+    write_json(Path(save_path) / 'training_manifest.json', manifest)
     rep.finish(outputs=save_path)
     sys.exit(0 if trained and not failed else 1)
 

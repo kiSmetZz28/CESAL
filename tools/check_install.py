@@ -7,6 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 GROUPS = {
+    'Seeded training and separate baseline outputs': ('test_reproducible_training',),
     'ExecuTorch runtime setup and reuse': ('test_executorch_setup',),
     'Checkpoint download and archive integrity': ('test_checkpoint_downloads',),
     'Detection energy and voting': ('test_energy', 'test_voting', 'test_predict'),
