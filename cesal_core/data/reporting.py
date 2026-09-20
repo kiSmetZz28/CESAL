@@ -52,7 +52,7 @@ def report_preprocessing(dataset, paths, event_counts, context_length, mode):
     total = sum(event_counts)
     runtime_detail = _diagnostic_detail if dataset == 'Openstack' else st.detail
     sequence_unit = 'sessions' if dataset == 'HDFS' else 'sequence groups'
-    st.detail('preprocessing 1/5', 'source-log reference and parsing (already prepared, not rerun)')
+    st.detail('preprocessing 1/3', 'source-log reference and parsing (already prepared, not rerun)')
     st.detail('dataset reference', f'{name}, paper Section 4.1')
     st.detail('paper source logs', f'{paper_total:,} messages (paper reference, not a raw-file recount)')
     if dataset == 'Openstack':
@@ -61,7 +61,7 @@ def report_preprocessing(dataset, paths, event_counts, context_length, mode):
         st.detail('paper abnormal messages', f'{paper_abnormal:,} messages')
         st.detail('runtime accounting', 'source counts above are paper references; actual matrix sizes and row counts are recorded in the diagnostic log')
     st.detail('log parsing', 'message templates -> event IDs; this run reads the bundled parsed files')
-    st.detail('preprocessing 2/5', 'log sequence generator output: one event-ID sequence per nonempty line')
+    st.detail('preprocessing 2/3', 'log sequence generator output: one event-ID sequence per nonempty line')
     for label, path, n_sessions, n_events in zip(
         ('train (normal)', 'test (normal)', 'test (abnormal)'), paths, sessions, event_counts,
     ):
@@ -88,7 +88,7 @@ def report_preprocessing(dataset, paths, event_counts, context_length, mode):
         if total != paper_total:
             st.detail('source-count difference', 'cause not established by bundled files; inputs are used as supplied, without count correction')
 
-    st.detail('preprocessing 3/5', 'sliding context sequence generator: expand each sequence into one row per event')
+    st.detail('preprocessing 3/3', 'sliding context sequence generator: expand each sequence into one row per event')
     runtime_detail('sequence -> context rows', f'{sum(sessions):,} {sequence_unit} -> {total:,} rows x {context_length} features; no input events removed')
     st.detail('event-ID encoding', 'IDs mapped within each input file; reserved NO_EVENT supplies missing history')
     st.detail('context construction', f'1 row/event; {context_length} preceding events within its source sequence')
@@ -98,21 +98,20 @@ def report_preprocessing(dataset, paths, event_counts, context_length, mode):
     runtime_detail('abnormal context matrix', f'[{abnormal:,}, {context_length}] -> {abnormal:,} abnormal labels')
     runtime_detail('test concatenation', f'{normal:,} normal + {abnormal:,} abnormal = {normal + abnormal:,} context rows')
     runtime_detail('test context matrix', f'[{normal + abnormal:,}, {context_length}]; labels 0=normal, 1=abnormal')
-    st.detail('preprocessing 4/5', 'standardization: change feature values, preserve row counts and labels')
-    runtime_detail('standardization', f'fit {context_length} feature means/stds on {train:,} training rows only')
-    runtime_detail('scaled matrix sizes', f'train [{train:,}, {context_length}] -> [{train:,}, {context_length}]; test [{normal + abnormal:,}, {context_length}] -> [{normal + abnormal:,}, {context_length}]')
-    st.detail('test standardization', 'reuse training means/stds; row counts and labels unchanged')
+    _diagnostic_detail('model input standardization', 'change feature values, preserve row counts and labels')
+    _diagnostic_detail('standardization', f'fit {context_length} feature means/stds on {train:,} training rows only')
+    _diagnostic_detail('scaled matrix sizes', f'train [{train:,}, {context_length}] -> [{train:,}, {context_length}]; test [{normal + abnormal:,}, {context_length}] -> [{normal + abnormal:,}, {context_length}]')
+    _diagnostic_detail('test standardization', 'reuse training means/stds; row counts and labels unchanged')
     if mode == 'train':
-        runtime_detail('training bootstrap', f'{train:,} rows -> {train:,} sampled rows, with replacement')
+        _diagnostic_detail('training bootstrap', f'{train:,} rows -> {train:,} sampled rows, with replacement')
 
 
 def report_windows(ds, batch_size, dataset=None):
-    """Describe the exact stride, coverage and batch shape used by this loader."""
+    """Record model-window and batch accounting in diagnostic logs only."""
     st = steps.current()
     if st.state == 'inactive':
         return
 
-    runtime_detail = _diagnostic_detail if dataset == 'Openstack' else st.detail
     mode = ds.mode
     rows = ds.train if mode == 'train' else ds.val if mode == 'val' else ds.test
     stride = ds.step if mode in ('train', 'val', 'test') else ds.win_size
@@ -122,18 +121,18 @@ def report_windows(ds, batch_size, dataset=None):
     covered = ds.win_size + (windows - 1) * min(stride, ds.win_size) if windows else 0
     gaps = max(0, windows - 1) * max(0, stride - ds.win_size)
 
-    st.detail('preprocessing 5/5', 'model-window generator and batching (complete windows only)')
-    runtime_detail(f'{mode} row -> window count', f'{n_rows:,} context rows -> {windows:,} windows; each has {ds.win_size} events x {features} features')
-    st.detail(f'{mode} windows', f'{windows:,} x [{ds.win_size}, {features}]; stride {stride}')
-    runtime_detail(f'{mode} event coverage', f'{covered:,} / {n_rows:,} rows; {n_rows - last_end:,} unused tail rows')
+    _diagnostic_detail('model windowing and batching', 'model-window generator and batching (complete windows only)')
+    _diagnostic_detail(f'{mode} row -> window count', f'{n_rows:,} context rows -> {windows:,} windows; each has {ds.win_size} events x {features} features')
+    _diagnostic_detail(f'{mode} windows', f'{windows:,} x [{ds.win_size}, {features}]; stride {stride}')
+    _diagnostic_detail(f'{mode} event coverage', f'{covered:,} / {n_rows:,} rows; {n_rows - last_end:,} unused tail rows')
     if gaps:
-        runtime_detail(f'{mode} stride gaps', f'{gaps:,} rows between windows are unused')
+        _diagnostic_detail(f'{mode} stride gaps', f'{gaps:,} rows between windows are unused')
     if windows and stride < ds.win_size:
-        runtime_detail(f'{mode} overlap', f'{windows * ds.win_size - covered:,} repeated row appearances')
-    st.detail('window construction', 'slice concatenated context rows, possibly across sequence boundaries; no window padding')
-    runtime_detail(f'{mode} count balance', f'{n_rows:,} rows = {covered:,} covered + {n_rows - last_end:,} unused tail + {gaps:,} stride gaps')
+        _diagnostic_detail(f'{mode} overlap', f'{windows * ds.win_size - covered:,} repeated row appearances')
+    _diagnostic_detail('window construction', 'slice concatenated context rows, possibly across sequence boundaries; no window padding')
+    _diagnostic_detail(f'{mode} count balance', f'{n_rows:,} rows = {covered:,} covered + {n_rows - last_end:,} unused tail + {gaps:,} stride gaps')
     if batch_size is not None:
         batches = (windows + batch_size - 1) // batch_size
         last_batch = windows - (batches - 1) * batch_size if batches else 0
-        st.detail(f'{mode} loader batches', f'{batches:,}; up to {batch_size} windows/batch; last batch {last_batch}')
-        st.detail(f'{mode} tensor layout', f'[batch, {ds.win_size}, {features}], float32')
+        _diagnostic_detail(f'{mode} loader batches', f'{batches:,}; up to {batch_size} windows/batch; last batch {last_batch}')
+        _diagnostic_detail(f'{mode} tensor layout', f'[batch, {ds.win_size}, {features}], float32')
