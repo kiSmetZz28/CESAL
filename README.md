@@ -96,17 +96,16 @@ docker run -it --gpus all --name cesal-v1.3 \
 The shell opens in `/app` with `cesal-edge` active. No environment activation is needed before the first command below; detection starts its cloud subprocess automatically. Inside the container:
 
 ```bash
-python run.py download os                    # or train them yourself — see Step 2
-python run.py all os                         # OpenStack detection
+python run.py all os                         # asks whether to train or download, then runs detection
 conda activate cesal-cloud
 python run.py classify qwen2.5-14b-instruct  # separate HDFS classification experiment
 ```
 
+To decide up front instead of being asked, run `python run.py download os`, or the training commands from [Step 2](#step-2--obtain-the-bat-and-q-bat-models), before `all os`. The image carries both environments, so training works inside the container exactly as it does natively.
+
 `all os` finishes after detection; classification runs only when you invoke the separate command. Checkpoints and LLM weights are not in the image. `all` never fetches models on your behalf: if none are present it describes both routes — train or download — and asks which you want, then carries on with the rest of the pipeline. Without a terminal (a Docker build, CI, `nohup`) there is nobody to ask, so it prints the commands for both and stops with exit status 2 rather than hanging. The first `classify` run fetches the LLM weights. The two named volumes retain these downloads. `docker start -ai cesal-v1.3` returns to the same container later, and `docker cp cesal-v1.3:/app/outputs ./outputs` copies results out. For the gated Llama and Gemma backbones, add `-e HF_TOKEN=<your token>` to `docker run`.
 
-**CPU-only option.** For software checks or the small detection experiment, omit `--gpus all` from `docker run`, then use `python run.py check` or `python run.py smoke os`. The small experiment requires checkpoints; run `python run.py download os` first if they are missing. Full detection and classification timings assume GPU acceleration.
-
-To build the image instead of pulling it, run `docker build -t cesal .` from the repository root (about 10 minutes, mostly package downloads).
+**CPU-only option.** For software checks or the small detection experiment, omit `--gpus all` from `docker run`, then use `python run.py check` or `python run.py smoke os`. The small experiment requires checkpoints; run `python run.py download os` first if they are missing. Training is impractical without the GPU, so downloading is the route to take here. Full detection and classification timings assume GPU acceleration.
 
 ### Run with a native installation
 
@@ -115,13 +114,12 @@ Use this route if you prefer to run directly on your Linux host. Install once fr
 ```bash
 ./install.sh
 conda activate cesal-edge
-python run.py download os                    # or train them yourself — see Step 2
-python run.py all os
+python run.py all os                         # asks whether to train or download, then runs detection
 conda activate cesal-cloud
 python run.py classify qwen2.5-14b-instruct
 ```
 
-The installer creates both environments and installs the ExecuTorch runtime. See [Step 1](#step-1--set-up-environments) for the manual installation commands.
+The installer creates both environments, installs the ExecuTorch runtime, and ends by offering the same train-or-download choice. See [Step 1](#step-1--set-up-environments) for the manual installation commands.
 
 For either setup route, `all os` runs OpenStack detection using whichever models are already in `checkpoints/`, whether you trained or downloaded them; if none are there it offers both routes first. [Step 2](#step-2--obtain-the-bat-and-q-bat-models) covers the two routes. The separate classification command uses the bundled HDFS test sequences and references; it does not classify the OpenStack detection output.
 
@@ -158,23 +156,21 @@ Training is the expensive stage, so the checkpoints behind the paper's numbers a
 
 **Time.** The full-run figures below are approximate timings for an **i7-14700 workstation with NVIDIA RTX 2000 Ada, 32 GB RAM and Ubuntu 24.04.2**; HDFS end-to-end detection is an extrapolation from per-window timings. The edge stage runs three ExecuTorch learners on CPU; the full cloud and LLM timings assume GPU acceleration. The small real experiment was observed at about 80 seconds on CPU, excluding setup and downloads. The paper's machines are listed under [Hardware setup](#hardware-setup-section-41).
 
-| Stage                                 | Command           | OpenStack |         HDFS |
-| ------------------------------------- | ----------------- | --------: | -----------: |
-| Core software checks                  | `run.py check`    |   seconds |      seconds |
-| Small real experiment (after setup)   | `run.py smoke os` |  ~1–2 min |          n/a |
-| **Detection, end to end**             | `run.py infer`    |  **~3 h** | **~15 days** |
-| Cloud-only ensemble scoring           | `run.py eval`     |    ~8 min |     ~6.5–9 h |
-| Incident classification, one backbone | `run.py classify` |       n/a |    ~1 h 51 m |
-| **Train the BAT ensemble (81 models)** | `run.py train`   | **~24 min** | **many hours** |
-| Quantize and export Q-BAT (81 models) | `run.py convert`  |   ~34 min |   many hours |
-
-The OpenStack training and conversion figures are measured on the workstation above: 24 m 02 s and 24 m 24 s for two independent 81-learner runs, and 34 m 07 s to quantize and export all 81. Calibrating the thresholds and scoring the full BAT vote adds about 8 minutes. **The HDFS figures are not yet measured on this workstation.** HDFS uses a smaller window (50 rather than 100) over a much larger split, so both stages take substantially longer than OpenStack; train it once and read the actual time from `training_manifest.json` rather than relying on an estimate here.
+| Stage                                  | Command           |   OpenStack |           HDFS |
+| -------------------------------------- | ----------------- | ----------: | -------------: |
+| Core software checks                   | `run.py check`    |     seconds |        seconds |
+| Small real experiment (after setup)    | `run.py smoke os` |    ~1–2 min |            n/a |
+| **Detection, end to end**              | `run.py infer`    |    **~3 h** |   **~15 days** |
+| Cloud-only ensemble scoring            | `run.py eval`     |      ~8 min |       ~6.5–9 h |
+| Incident classification, one backbone  | `run.py classify` |         n/a |      ~1 h 51 m |
+| **Train the BAT ensemble (81 models)** | `run.py train`    | **~24 min** | **many hours** |
+| Quantize and export Q-BAT (81 models)  | `run.py convert`  |     ~34 min |     many hours |
 
 #### Why HDFS detection takes days
 
 HDFS detection is fully supported, but its much larger test split and smaller model windows produce about 140 times as many windows as OpenStack. Each of the three Q-BAT learners scans every window using ExecuTorch on CPU. The learners run in parallel, with the slowest learner determining the edge-stage completion time.
 
-The approximately 15-day HDFS estimate in the timing summary is extrapolated from per-window measurements on the documented workstation, rather than a completed full run. Runtime depends on the hardware and grows with the number of test windows.
+The approximately 15-day HDFS figure in the timing summary is extrapolated from per-window measurements on the documented workstation. Runtime depends on the hardware and grows with the number of test windows.
 
 For practical artifact evaluation, use OpenStack detection and standalone HDFS incident classification. OpenStack exercises the detection pipeline in about three hours, while HDFS classification uses the bundled classification test set independently and takes approximately 1 hour 51 minutes for one backbone. Classification does not require the long HDFS detection scan.
 
@@ -233,7 +229,7 @@ conda env list   # should list both 'cesal-edge' and 'cesal-cloud'
 
 ### Step 2 — Obtain the BAT and Q-BAT models
 
-Both routes put the models in the same place — `checkpoints/bat/<dataset>` and `checkpoints/qbat/<dataset>` — so every later step is identical whichever you choose.
+Both routes put the models in the same place — `checkpoints/bat/<dataset>` and `checkpoints/qbat/<dataset>` — so every later step is identical whichever you choose. `run.py all` offers the same choice when no models are present, and never downloads on your behalf.
 
 **Either train them yourself** — training is seeded end to end, so a run is reproducible from the seed and configuration alone:
 

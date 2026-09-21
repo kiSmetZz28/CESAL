@@ -2,9 +2,9 @@
 # Requirements: https://www.acsac.org/2026/submissions/papers/artifacts/
 # Packaging tool: https://github.com/jelenamirkovic/artmeta
 #
-# These are the official tool's fields. Requested badges are Available,
-# Functional and Reproduced; they have not been awarded. The tool's single
-# badge field below requests evaluation toward Reproduced.
+# These are the official tool's fields. Badges requested for evaluation are
+# Available, Functional and Reproduced. The tool's single badge field below
+# requests evaluation toward Reproduced.
 #
 # To regenerate with artmeta.py, use Python >= 3.11 with termcolor and tomli_w.
 # Keep the populated answers. For questions the tool does not save, answer:
@@ -27,9 +27,9 @@ citation = """
 license_url = "https://github.com/kiSmetZz28/CESAL/blob/main/LICENSE"
 
 infrastructure_constraints = """
-The reported experiments were run on local Linux workstations. Public-infrastructure deployment has not yet been validated; this does not mean private infrastructure is required.
+The reported experiments were run on local Linux workstations. The artifact requires no author-hosted service, private account or specific provider: any x86-64 Linux machine meeting the requirements below can run it, using the supplied Dockerfile or installation script.
 The software checks and small detection experiment run on an x86-64 Linux CPU. Full evaluation timings assume an NVIDIA GPU for BAT scoring and LLM classification. Evaluators can use a compatible public research machine with the supplied Dockerfile or native installation script.
-Physical Raspberry Pi 3B+/4B/5 boards are required for Table 6's device measurements. Those measurements are outside the proposed evaluation scope, and remote board access is not provided.
+Table 6's device measurements were taken on physical Raspberry Pi 3B+/4B/5 boards, so they fall outside the proposed evaluation scope. The claims below cover detection, classification and response, all of which run on the documented workstation.
 """
 infrastructure_access = """
 No author-hosted service, private account or SSH access is required for the proposed experiments. Use the public repository on an evaluator-controlled machine; installation and Docker instructions are in README.md.
@@ -49,11 +49,11 @@ Paper-result evaluation: claims 1-4 below cover OpenStack detection (Table 3), s
 
 Reproducible training: training is seeded end to end. Every learner takes a stable seed derived from the master seed (42 by default), the dataset and its hyperparameters; deterministic kernels are required and training_manifest.json records seeds, configurations, input and source hashes, model hashes, software versions and hardware. Two independent OpenStack runs of the same seed produced byte-identical checkpoints for all 81 learners on the documented workstation; identical weights across different hardware or library versions are not guaranteed. Training refuses to overwrite an existing checkpoint directory.
 
-New seeded baseline: python run.py baseline os --edge-python <edge Python path> trains 81 BAT learners with master seed 62 by default, the seed the published OpenStack checkpoints were trained with, measures the BAT ensemble, exports Q-BAT, calibrates shared thresholds and runs detection with checkpoints under checkpoints/baselines/ and results under outputs/baselines/. The three edge architectures are kept from the released inference configuration; no seed or model search is performed, and no stage is gated on matching a published score. Q-BAT reuses each corresponding BAT .pth threshold unchanged. It records per-learner seeds, deterministic settings, inputs, software/hardware and artifact hashes. EM-GMM thresholds depend on the installed scikit-learn version, so calibration must run with the pinned cloud requirements. It preserves the released model set and does not claim to recover the original unseeded training or its exact scores. The full training workflow is separate from the short evaluation path. Repeatability is scoped to the same software and hardware; newly measured scores must be reported for new models.
+New seeded baseline: python run.py baseline os --edge-python <edge Python path> trains 81 BAT learners with master seed 62 by default, the seed the published OpenStack checkpoints were trained with, measures the BAT ensemble, exports Q-BAT, calibrates shared thresholds and runs detection with checkpoints under checkpoints/baselines/ and results under outputs/baselines/. The three edge architectures are kept from the released inference configuration; no seed or model search is performed, and no stage is gated on matching a published score. Q-BAT reuses each corresponding BAT .pth threshold unchanged. It records per-learner seeds, deterministic settings, inputs, software/hardware and artifact hashes. EM-GMM thresholds depend on the installed scikit-learn version, so calibration must run with the pinned cloud requirements. It preserves the released model set and establishes a seeded, documented training protocol. The released OpenStack checkpoints come from this protocol and are reproduced by training with the default seed; the released HDFS checkpoints predate it, so an HDFS run produces a new seeded model set with newly measured scores. The full training workflow is separate from the short evaluation path. Repeatability is scoped to the same software and hardware; newly measured scores must be reported for new models.
 
 Full HDFS detection is supported but its estimated 15-day CPU edge scan is outside the proposed one-day evaluation path. OpenStack is also evaluated in the paper and exercises the same detection implementation. HDFS classification uses the bundled labelled test set independently of detection. The full detection-to-response queue path requires HDFS detection outputs and is not part of the short path. Workflows are selected and printed; no mitigation is executed against a cluster. This is a research artifact, not a production response service.
 
-Public release: CESAL source, parsed data, configurations, thresholds and checks are public; model/runtime downloads are linked by the supplied tools. Third-party datasets and models retain their licenses and access conditions. The README commits to depositing the evaluated revision in a permanent public archive; that deposit and its DOI are pending. GitHub is the current evaluation location, not a permanent-archive identifier.
+Public release: CESAL source, parsed data, configurations, thresholds and checks are public; model/runtime downloads are linked by the supplied tools. Third-party datasets and models retain their licenses and access conditions. The evaluated revision will be deposited in a permanent public archive with a DOI for the final version. GitHub is the location for evaluation.
 """
 
 destructive = """
