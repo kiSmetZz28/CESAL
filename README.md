@@ -492,12 +492,12 @@ The data-processing overview follows three stages: parsing raw messages, groupin
 2. **Log sequence generator → bundled sequence lines.** The paper describes HDFS grouping by identifiers such as block IDs and OpenStack partitioning by fixed windows. The runtime reads the already prepared files in [`data/`](data/): each nonempty line contains a sequence of event IDs. HDFS log-sequence counts are compared with Section 4.1. OpenStack log-message counts use the paper's source references; the runtime separately reports loaded sequence groups and generated context rows.
 3. **Sliding context sequence generator → one context row per event.** [`preprocessor.py`](cesal_core/data/preprocessor.py) maps event IDs within each input file and represents each event by its preceding `data_seq_len=10` events in the same source sequence. Missing history uses `NO_EVENT`; this adds feature padding, not extra events. A sequence containing `L` events produces `L` rows of 10 features. The log shows each split's matrix shape, then the concatenation of normal and abnormal test rows with labels 0 and 1.
 
-**Dataset statistics.** Total source log-message counts follow paper Section 4.1; training and testing columns count **log sequences** in the bundled files. For HDFS a log sequence is one block ID's events; for OpenStack it is one bundled sequence group.
+**Dataset statistics.** Total source log-message counts follow paper Section 4.1; training and testing columns count **log sequences** in the bundled files.
 
-| Dataset   | Total source log messages | Normal training | Normal testing | Abnormal testing |
-| --------- | ------------------------: | --------------: | -------------: | ---------------: |
-| HDFS      |                11,175,629 |           4,855 |        553,366 |           16,838 |
-| OpenStack |                   207,820 |             386 |          1,248 |              138 |
+| Dataset   | Total source log messages | Normal training Log Sequence | Normal testing Log Sequence | Abnormal testing Log Sequence |
+| --------- | ------------------------: | ---------------------------: | --------------------------: | ----------------------------: |
+| HDFS      |                11,175,629 |                        4,855 |                     553,366 |                        16,838 |
+| OpenStack |                   207,820 |                          386 |                       1,248 |                           138 |
 
 ### Provenance and ethics
 
