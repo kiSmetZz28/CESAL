@@ -66,7 +66,8 @@ def stages_for(dataset, out, models, config, args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('datasets', nargs='*', metavar='DATASET', help='os (default) or hdfs.')
-    parser.add_argument('--seed', type=int, default=42, help='Master seed (default: 42).')
+    parser.add_argument('--seed', type=int, default=62,
+                        help='Master seed (default: 62, matching the published checkpoints).')
     parser.add_argument('--output-dir', help='Directory for configs, thresholds, results and logs.')
     parser.add_argument('--models-dir', help='Directory for the new checkpoints.')
     parser.add_argument('--cloud-python', default=os.environ.get('CESAL_CLOUD_PYTHON', sys.executable))

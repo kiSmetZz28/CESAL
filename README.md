@@ -81,16 +81,16 @@ Choose one setup route: the [Docker image](#run-in-docker-no-environment-setup),
 
 ### Run in Docker (no environment setup)
 
-The published `v1.2` image contains both environments from [Step 1](#step-1--set-up-environments), the ExecuTorch runtime, classification dependencies, and the `check` and `smoke` commands. Skip Step 1 when using this image. Local source changes require rebuilding the [Dockerfile](Dockerfile) to include them in a container.
+The published `v1.3` image contains both environments from [Step 1](#step-1--set-up-environments), the ExecuTorch runtime, classification dependencies, and the `check` and `smoke` commands. Skip Step 1 when using this image. Local source changes require rebuilding the [Dockerfile](Dockerfile) to include them in a container.
 
 **Host requirements.** The commands below use x86-64 Linux, Docker, an NVIDIA GPU and driver, and the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html). The `--gpus all` flag makes the GPU available inside the container for BAT verification and LLM classification.
 
 ```bash
-docker pull ghcr.io/kismetzz28/cesal:v1.2        # ~10 GB
-docker run -it --gpus all --name cesal-v1.2 \
+docker pull ghcr.io/kismetzz28/cesal:v1.3        # ~10 GB
+docker run -it --gpus all --name cesal-v1.3 \
     -v cesal-checkpoints:/app/checkpoints \
     -v cesal-hf:/root/.cache/huggingface \
-    ghcr.io/kismetzz28/cesal:v1.2
+    ghcr.io/kismetzz28/cesal:v1.3
 ```
 
 The shell opens in `/app` with `cesal-edge` active. No environment activation is needed before the first command below; detection starts its cloud subprocess automatically. Inside the container:
@@ -102,7 +102,7 @@ conda activate cesal-cloud
 python run.py classify qwen2.5-14b-instruct  # separate HDFS classification experiment
 ```
 
-`all os` finishes after detection; classification runs only when you invoke the separate command. Checkpoints and LLM weights are not in the image. `all` never fetches models on your behalf: if none are present it describes both routes — train or download — and asks which you want, then carries on with the rest of the pipeline. Without a terminal (a Docker build, CI, `nohup`) there is nobody to ask, so it prints the commands for both and stops with exit status 2 rather than hanging. The first `classify` run fetches the LLM weights. The two named volumes retain these downloads. `docker start -ai cesal-v1.2` returns to the same container later, and `docker cp cesal-v1.2:/app/outputs ./outputs` copies results out. For the gated Llama and Gemma backbones, add `-e HF_TOKEN=<your token>` to `docker run`.
+`all os` finishes after detection; classification runs only when you invoke the separate command. Checkpoints and LLM weights are not in the image. `all` never fetches models on your behalf: if none are present it describes both routes — train or download — and asks which you want, then carries on with the rest of the pipeline. Without a terminal (a Docker build, CI, `nohup`) there is nobody to ask, so it prints the commands for both and stops with exit status 2 rather than hanging. The first `classify` run fetches the LLM weights. The two named volumes retain these downloads. `docker start -ai cesal-v1.3` returns to the same container later, and `docker cp cesal-v1.3:/app/outputs ./outputs` copies results out. For the gated Llama and Gemma backbones, add `-e HF_TOKEN=<your token>` to `docker run`.
 
 **CPU-only option.** For software checks or the small detection experiment, omit `--gpus all` from `docker run`, then use `python run.py check` or `python run.py smoke os`. The small experiment requires checkpoints; run `python run.py download os` first if they are missing. Full detection and classification timings assume GPU acceleration.
 
@@ -247,7 +247,7 @@ python run.py convert os              # quantize → .pte in checkpoints/qbat/os
 
 The `eval` step matters: thresholds are calibrated from the models' own energies, so newly trained weights need their own thresholds. It rewrites the 81 cloud thresholds and the three derived edge values together. Skipping it leaves `infer` scoring your models against the published models' thresholds, which fails quietly rather than loudly.
 
-Every learner gets a stable seed derived from the master seed (42 by default), the dataset and its hyperparameters; deterministic kernels are required and `training_manifest.json` records the seeds, configurations, input and source hashes, model hashes, software versions and hardware. On the documented workstation two independent OpenStack runs of seed 62 produced **byte-identical checkpoints for all 81 learners**. Identical weights across different hardware or library versions are not guaranteed. Existing checkpoints are never silently replaced, so training refuses to run over a previous download. Swap `os` for `hdfs` to train the other dataset; see [Requirements](#requirements) for how long each takes.
+Every learner gets a stable seed derived from the master seed (**62** by default, the seed the published OpenStack checkpoints were trained with, so training reproduces them without extra flags), the dataset and its hyperparameters; deterministic kernels are required and `training_manifest.json` records the seeds, configurations, input and source hashes, model hashes, software versions and hardware. On the documented workstation two independent OpenStack runs of the same seed produced **byte-identical checkpoints for all 81 learners**. Identical weights across different hardware or library versions are not guaranteed. Existing checkpoints are never silently replaced, so training refuses to run over a previous download. Swap `os` for `hdfs` to train the other dataset; see [Requirements](#requirements) for how long each takes.
 
 **Or download the published checkpoints** — the exact models the paper's numbers were measured on, and the faster route if you only want to reproduce the reported scores:
 

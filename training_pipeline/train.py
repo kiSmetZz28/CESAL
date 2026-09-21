@@ -51,8 +51,9 @@ def main() -> None:
         default='configs/training/os.yaml',
         help='Path to the training YAML config.',
     )
-    parser.add_argument('--seed', type=int, default=42,
-                        help='Master seed for deterministic per-learner training (default: 42).')
+    parser.add_argument('--seed', type=int, default=62,
+                        help='Master seed for deterministic per-learner training (default: 62, '
+                             'the seed the published OpenStack checkpoints were trained with).')
     parser.add_argument('--output-dir', help='Separate directory for newly trained checkpoints.')
     args, _ = parser.parse_known_args()
 
