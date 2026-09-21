@@ -129,8 +129,6 @@ Steps 1–4 below explain setup, checkpoints, detection, and classification/resp
 
 ### Pipeline overview
 
-Step 2 produces the models; Steps 3 and 4 run them:
-
 ```
    ┌─────────────────── Step 2 ───────────────────┐
    │                  ┌──▶ all 81 ─────────▶ BAT  │     Step 3            Step 4
@@ -139,10 +137,8 @@ Step 2 produces the models; Steps 3 and 4 run them:
    │                       + export to    (edge)  │  detection ──▶ classification ──▶ response
    │                       ExecuTorch             │
    └──────────────────────────────────────────────┘
-       or: download the published checkpoints the paper was measured on
+       or: download the published checkpoints
 ```
-
-Training is the expensive stage, so the checkpoints behind the paper's numbers are published as well — **to reproduce Table 3, download them**; to rebuild the system from scratch, train and quantize instead. Everything from Step 3 on is the same either way.
 
 ### Requirements
 
@@ -183,8 +179,6 @@ For practical artifact evaluation, use OpenStack detection and standalone HDFS i
 ```
 
 That creates both Conda environments, installs their pinned requirements, installs CESAL into each, fetches the ExecuTorch 0.5.0 runtime, and finishes with the core software checks. Existing environments are reused on reinstallation, and packages may be updated. Skip installation when using a prepared [Docker image](#run-in-docker-no-environment-setup).
-
-The rest of this section is what the script does, step by step, if you would rather run it by hand or need to change something.
 
 CESAL uses **two Conda environments**, one for each inference tier:
 
@@ -285,15 +279,11 @@ It takes approximately 1–2 minutes on the documented setup, using 1,000 OpenSt
 
 Once these checks succeed, proceed directly to normal inference or evaluation.
 `install.sh` already runs `python run.py check`, so a successful installation
-counts as that check; you do not need to repeat it manually. Repeat the software
-checks after changing code, updating dependencies, rebuilding the environment,
-or when troubleshooting. Repeat the small experiment if you change its models,
-data or inference configuration, or need to verify model execution again.
-Normal `infer`, `eval`, and `all` commands do not run either check automatically.
+counts as that check; you do not need to repeat it manually. Repeat the software checks after changing code, updating dependencies, rebuilding the environment, or when troubleshooting. Repeat the small experiment if you change its models, data or inference configuration, or need to verify model execution again.
 
 ### Step 3 — Run the detection pipeline
 
-**This is the evaluation path.** Thresholds for both datasets are bundled, so inference runs immediately:
+**This is the evaluation path.**
 
 ```bash
 conda activate cesal-edge
@@ -314,7 +304,7 @@ Runs in `cesal-cloud` and needs a CUDA GPU. Llama-3.1-8B and gemma-2-9b are gate
 
 **On a 16 GB GPU**, especially one that also drives a display, Qwen2.5-14B-Instruct is partly offloaded to CPU RAM and can run out of GPU memory on its first sequence. Run `export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` before `run.py classify` or `run.py respond`; the Docker image sets it already.
 
-**Classification (Table 7)** — label each abnormal sequence as one of the 10 known HDFS anomaly types or `Other anomaly type`:
+**Classification** — label each abnormal sequence as one of the 10 known HDFS anomaly types or `Other anomaly type`:
 
 ```bash
 conda activate cesal-cloud
@@ -322,9 +312,7 @@ python run.py classify                          # all four backbones in configs/
 python run.py classify qwen2.5-14b-instruct     # CESAL's default backbone only
 ```
 
-Classification evaluates 4,124 bundled HDFS sequences using 703 references. Results are saved under `outputs/hdfs/llm/`; `model_summary.csv` contains the Table 7 macro scores as fractions (multiply by 100 for percentages). Per-backbone settings are in `configs/llm/hdfs.yaml`.
-
-Results are saved when each backbone finishes. Running one backbone at a time can help with interruptions. Each invocation replaces the combined summary tables with that run's backbones and retains separate result files for other backbones.
+Classification evaluates 4,124 bundled HDFS sequences using 703 references. Results are saved under `outputs/hdfs/llm/`; `model_summary.csv` contains the Table 7 macro scores. Per-backbone settings are in `configs/llm/hdfs.yaml`. Results are saved when each backbone finishes. Running one backbone at a time can help with interruptions. Each invocation replaces the combined summary tables with that run's backbones and retains separate result files for other backbones.
 
 **Response (Table 1)** — connect detection to the module: queue every detected log sequence, classify it, and assign its workflow:
 
@@ -344,10 +332,6 @@ Response results are saved under `outputs/hdfs/llm/queues/`.
 </p>
 
 **How it works.** Detected sequences are buffered in edge-side `Q_E` or cloud-side `Q_C` queues for later classification. Each sequence is matched against reference sequences. Open-set retrieval rules either assign a label directly or pass the retrieved evidence and candidate labels to the LLM; label parsing and decision rules produce the final classification. The unknown category is `Other anomaly type`, mapped to the **Unknown Anomaly Types** workflow. [workflows.py](incident_response/workflows.py) defines the Table 1 response plans and marks actions as eligible for automation, requiring approval, or requiring human investigation. The artifact selects and reports these plans; it does not execute actions or send approval requests.
-
-> **Implementation note.** The paper describes the knowledge base as indexed in a vector database; this implementation retrieves lexically (TF-IDF plus token and bigram overlap) in [classifier.py](incident_response/classifier.py), so no embedding model or vector store is required.
-
-The LAD test data has no block IDs or timestamps, so records are keyed by log-sequence index. Its HDFS log sequences use a different log-key extraction from loghub's `Event_traces.csv`. In queue evaluation, log sequences without an exact match to a labelled reference are excluded from classification scoring; the run reports the matched evaluation set. Standalone Table 7 evaluation uses the bundled labelled 4,124-sequence test set directly.
 
 ### Optional — the web dashboard
 
