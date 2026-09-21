@@ -17,7 +17,7 @@ OS_N_NORMAL_EVENTS       = 136_913  # npy entries from test_normal
 OS_N_ABNORMAL_EVENTS     = 18_387   # npy entries from test_abnormal
 OS_N_TEST_NORMAL_LINES   = 137_074  # raw log lines in test_normal block (DB count)
 OS_N_TEST_ABNORMAL_LINES = 18_434   # raw log lines in test_abnormal block (DB count)
-# Legacy session-level constants kept for reference
+# Legacy sequence-level constants kept for reference
 OS_N_NORMAL_SESSIONS   = 1_248
 OS_N_ABNORMAL_SESSIONS = 138
 OS_AVG_NORMAL_EVENTS   = OS_N_NORMAL_EVENTS   // OS_N_NORMAL_SESSIONS
@@ -208,11 +208,11 @@ async def query_windows(
 
 # ── OS Pipeline view ──────────────────────────────────────────────────────────
 
-# Approximate raw log lines per session for each OS source file
+# Approximate raw log lines per log sequence for each OS source file
 # Computed from: file_line_count / session_count
-# normal1.log: 52312 lines / 386 sessions ≈ 136
-# normal2.log: 137074 lines / 1248 sessions ≈ 110
-# abnormal.log: 18434 lines / 138 sessions ≈ 134
+# normal1.log: 52312 lines / 386 log sequences ≈ 136
+# normal2.log: 137074 lines / 1248 log sequences ≈ 110
+# abnormal.log: 18434 lines / 138 log sequences ≈ 134
 OS_RAW_PER_SESSION = {
     "train_normal":  136,
     "test_normal":   110,
@@ -223,12 +223,12 @@ OS_RAW_PER_SESSION = {
 def _sync_get_os_session(session_idx: int, split: str) -> dict:
     """
     Return the processed window and corresponding raw log lines for one
-    OpenStack session.
+    OpenStack log sequence.
 
     Raw log mapping strategy:
       Each source file is stored in raw_logs with a consistent block_id tag.
       Lines are ordered by global line_number within each block_id group.
-      Session i within that group starts at approximately OFFSET = i * lines_per.
+      Log sequence i within that group starts at approximately OFFSET = i * lines_per.
       We use LIMIT/OFFSET rather than line_number ranges to avoid global-offset
       confusion (test_normal lines start at global line 52312, not 0).
     """
@@ -453,7 +453,7 @@ def _sync_query_pipeline_raw(
 
         # ── Padding-zone SQL expression ────────────────────────────────────────
         # Returns 1 when an entry is in the first _CTX (=10) positions of its
-        # sub-split file, meaning it sits at a session start and always has
+        # sub-split file, meaning it sits at a log sequence start and always has
         # NO_EVENT padding in its forward sequence.  Used as secondary sort so
         # these entries are pushed to the back of every tier while all other
         # interesting-case ordering is preserved.
@@ -557,7 +557,7 @@ def _sync_query_pipeline_raw(
                     "rows": [dict(r) for r in rows]}
 
         # ── Standard path: train, filtered/search views, and test-anomaly ─────
-        # Add _pad as secondary sort for test views so first-session padding
+        # Add _pad as secondary sort for test views so first-sequence padding
         # entries are pushed to the back without changing the primary tier order.
         if split == "test" and not label:
             # test-all without interesting_lines: anomaly last, padding back

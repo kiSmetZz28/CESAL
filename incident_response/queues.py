@@ -1,14 +1,14 @@
 """Build CESAL's anomaly queues from the HDFS collaborative LAD outputs (paper Sec. 3.1).
 
-A test session (one line of the LAD test files) is detected as abnormal when CESAL's final
+A test log sequence (one line of the LAD test files) is detected as abnormal when CESAL's final
 prediction — edge Q-BAT, with routed events replaced by cloud BAT —
-marks any of its events anomalous. Each detected session becomes an incident record:
+marks any of its events anomalous. Each detected log sequence becomes an incident record:
 
   Q_C  queue_cloud.csv   at least one anomalous event was verified by cloud-side BAT
   Q_E  queue_edge.csv    every anomalous event was decided locally by edge-side Q-BAT
 
-Records hold the session's template-event sequence and detection metadata. Block IDs and
-timestamps are not part of the LAD test data. `ground_truth` (1 = session from the abnormal
+Records hold the sequence's template events and detection metadata. Block IDs and
+timestamps are not part of the LAD test data. `ground_truth` (1 = log sequence from the abnormal
 test file) is kept for evaluation only.
 
 Usage (from project root):
@@ -36,7 +36,7 @@ from cesal_core.utils.steps import StepReporter
 _ABOUT = """
 Turn raw detections into incidents, classify each one, and select a response.
 
-Flagged sessions are filed into two queues: Q_E for what the edge tier decided
+Flagged log sequences are filed into two queues: Q_E for what the edge tier decided
 alone, Q_C for what the cloud tier confirmed. Each queued sequence is then
 matched against a library of known incident types; anything matching none of
 them is kept as unknown and referred to an analyst. Known types map to a
@@ -50,7 +50,7 @@ QUEUE_FILES = {"edge": "queue_edge.csv", "cloud": "queue_cloud.csv"}
 
 
 def load_sessions(data_path: str) -> Tuple[List[List[str]], np.ndarray]:
-    """Event-ID sequences of all test sessions and their session-level ground truth."""
+    """Event-ID sequences of all test log sequences and their sequence-level ground truth."""
     sequences, labels = [], []
     for fname, label in TEST_FILES:
         with open(os.path.join(data_path, fname)) as f:
@@ -131,13 +131,13 @@ def main() -> None:
         sequences, ground_truth = load_sessions(data_path)
         edge, hybrid, routed = final_predictions(out_dir)
         energy = np.load(os.path.join(out_dir, "energy_matrix.npy"), mmap_mode="r")
-        st.detail("sessions in the test set", len(sequences))
+        st.detail("log sequences in the test set", len(sequences))
         st.detail("events scored", f"{len(hybrid):,} of {sum(map(len, sequences)):,}")
         # routed counts every event sent to the cloud, not just the flagged ones.
         st.detail("events flagged", f"{int(hybrid.sum()):,}")
         st.detail("events re-verified in cloud", int(routed.sum()))
 
-        st.phase("queueing each detected session by originating tier")
+        st.phase("queueing each detected log sequence by originating tier")
         records = build_queues(sequences, ground_truth, edge, hybrid, routed, energy)
         os.makedirs(cfg["queue_dir"], exist_ok=True)
         counts = {}
@@ -156,7 +156,7 @@ def main() -> None:
         unscored = (starts >= len(hybrid)) & (ground_truth == 1)
         missed = int((ground_truth == 1).sum() - unscored.sum() - records["ground_truth"].sum())
         if missed or int(unscored.sum()):
-            st.warn(f"{missed} abnormal sessions were not detected, and "
+            st.warn(f"{missed} abnormal log sequences were not detected, and "
                     f"{int(unscored.sum())} fell past the last full window and were never scored.")
 
         st.outcome(**{

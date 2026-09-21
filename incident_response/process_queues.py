@@ -8,7 +8,7 @@ as soon as it finishes, so an interrupted run resumes where it stopped.
 Outputs in <queue_dir>/:
   classified_<model>.csv    one row per unique sequence: label, decision source, retrieval evidence, raw LLM output
   incidents_<model>.csv     one row per queued incident: queue, detection metadata, label, selected workflow
-  evaluation_<model>.csv    per-class metrics on detected abnormal sessions whose anomaly type is known
+  evaluation_<model>.csv    per-class metrics on detected abnormal log sequences whose anomaly type is known
 
 Usage (from project root):
   python -m incident_response.process_queues --config configs/llm/hdfs.yaml
@@ -111,7 +111,7 @@ def attach_workflows(incidents: pd.DataFrame) -> pd.DataFrame:
 
 
 def evaluate_incidents(incidents: pd.DataFrame, cfg, model_name: str, out_path: str) -> None:
-    """Score detected abnormal sessions whose anomaly type is known from the open-set test set."""
+    """Score detected abnormal log sequences whose anomaly type is known from the open-set test set."""
     test = pd.read_csv(cfg["test_csv"])
     seq_to_label = dict(zip(test[cfg["text_col"]].map(normalize_sequence),
                             test[cfg["label_col"]].map(normalize_open_set_test_label)))
@@ -120,35 +120,35 @@ def evaluate_incidents(incidents: pd.DataFrame, cfg, model_name: str, out_path: 
     abnormal["true_label"] = abnormal["template_sequence"].map(seq_to_label)
     typed = abnormal[abnormal["true_label"].notna()]
 
-    # Sessions whose true type is unknown cannot be scored; say so rather than
+    # Log sequences whose true type is unknown cannot be scored; say so rather than
     # quietly reporting a number computed over a subset.
-    step.detail("detected abnormal sessions", len(abnormal))
+    step.detail("detected abnormal log sequences", len(abnormal))
     step.detail("with ground-truth labels",
                 f"{len(typed):,} "
                 f"({100 * len(typed) / max(len(abnormal), 1):.1f}%)")
     if len(typed) < len(abnormal):
-        step.note("Sessions whose true incident type is unknown cannot be "
+        step.note("Log sequences whose true incident type is unknown cannot be "
                   "scored and are excluded from the figures below.")
 
     results = {}
     if len(typed):
         metrics = compute_metrics(typed, model_name)
         pd.DataFrame(metrics["per_class"]).to_csv(out_path, index=False)
-        logging.debug("Typed abnormal sessions — accuracy %.4f | macro P %.4f | macro R %.4f | macro F1 %.4f\n%s",
+        logging.debug("Typed abnormal log sequences — accuracy %.4f | macro P %.4f | macro R %.4f | macro F1 %.4f\n%s",
                      metrics["accuracy"], metrics["macro_precision"], metrics["macro_recall"],
                      metrics["macro_f1"], metrics["report"])
         if run is not None:
             run.metric(model_name.split("/")[-1],
                        metrics["accuracy"] * 100, metrics["macro_precision"] * 100,
                        metrics["macro_recall"] * 100, metrics["macro_f1"] * 100)
-        results["type identified correctly"] = f"{metrics['accuracy'] * 100:.2f}% of scorable sessions"
+        results["type identified correctly"] = f"{metrics['accuracy'] * 100:.2f}% of scorable log sequences"
 
     fp = incidents[incidents["ground_truth"] == 0]
     if len(fp):
         pct_other = 100 * (fp["pred_label"] == OTHER_LABEL).mean()
         logging.debug("False positives labelled a known type: %s",
                       fp.loc[fp["pred_label"].isin(KNOWN_LABELS), "pred_label"].value_counts().to_dict())
-        results["false alarms"] = f"{len(fp):,} normal sessions"
+        results["false alarms"] = f"{len(fp):,} normal log sequences"
         results["of those, kept as other"] = f"{pct_other:.1f}%"
     step.outcome(**results)
 

@@ -173,7 +173,7 @@ select:focus{outline:none;border-color:var(--blue);}
 .exec-cloud{font-size:10px;color:var(--amber);}
 .exec-check{font-size:12px;}
 
-/* Session detail panel */
+/* Log sequence detail panel */
 .pl-detail{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-top:12px;}
 .pl-detail-title{font-size:13px;font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:8px;}
 .detail-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin-bottom:14px;}
@@ -648,7 +648,7 @@ select:focus{outline:none;border-color:var(--blue);}
   <strong>Note on this demo deployment.</strong>
   This deployment is a workflow preview. The fallback demo runner uses BAT
   checkpoints as an edge proxy in the same environment as the cloud stage.
-  Single-session predictions also use a BAT edge proxy. Use the README's CLI
+  Single-sequence predictions also use a BAT edge proxy. Use the README's CLI
   evaluation path to measure the quantized Q-BAT and collaborative detection
   results. Physical edge resource measurements require the paper's devices.
 </div>
@@ -879,7 +879,7 @@ select:focus{outline:none;border-color:var(--blue);}
       <div class="pb-arrow">›</div>
       <div class="pb-stage" id="pb-sessions" onclick="showTab('pipeline',document.querySelector('.tab[data-tab=pipeline]'))">
         <span class="pb-ico">🗂️</span>
-        <span class="pb-title">Sessions</span>
+        <span class="pb-title">Log sequences</span>
         <span class="pb-sub">event sequences — input to the AI</span>
       </div>
       <div class="pb-arrow">›</div>
@@ -1040,10 +1040,10 @@ select:focus{outline:none;border-color:var(--blue);}
           <div id="rppResult" style="padding:10px 14px 12px"></div>
         </div>
 
-        <!-- Session detail (hidden — sliding context windows shown inline in the sessions column) -->
+        <!-- Log sequence detail (hidden — sliding context windows shown inline in the log sequences column) -->
         <div class="pl-detail" id="plDetail" style="display:none !important">
           <div class="pl-detail-title">
-            <span id="plDetailTitle">Session</span>
+            <span id="plDetailTitle">Log sequence</span>
             <span id="plDetailLbl" style="padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700"></span>
           </div>
           <div class="detail-grid" id="plDetailMeta"></div>
@@ -1069,7 +1069,7 @@ select:focus{outline:none;border-color:var(--blue);}
               </span>
             </div>
             <div style="font-size:10px;color:var(--muted);margin-bottom:5px;line-height:1.5">
-              The preprocessor applies a sliding context window of length 10 over each session.
+              The preprocessor applies a sliding context window of length 10 over each log sequence.
               For each event, the model sees the 10 preceding event IDs as context (filled with NO_EVENT=−1337 when no preceding event exists).
               These rows are fed row-by-row into the AI model (windows of 100 events at a time).
             </div>
@@ -1141,7 +1141,7 @@ select:focus{outline:none;border-color:var(--blue);}
           <div class="log-tbl-wrap" style="max-height:420px">
             <table class="log-tbl">
               <thead><tr>
-                <th>Session</th><th>Queue</th><th>Truth</th><th>Events</th>
+                <th>Log sequence</th><th>Queue</th><th>Truth</th><th>Events</th>
                 <th>Predicted type</th><th>Response</th>
               </tr></thead>
               <tbody id="irRows"></tbody>
@@ -2205,7 +2205,7 @@ function scaledCtxTable(matrix) {
   return rows ? `<table class="mini-ctx">${rows}</table>` : '<span style="color:var(--muted);font-size:9px">Scaler not ready</span>';
 }
 
-/* Return <tr> rows for one session's raw-ID sliding context window matrix (no table wrapper). */
+/* Return <tr> rows for one sequence's raw-ID sliding context window matrix (no table wrapper). */
 function miniCtxRows(contentStr) {
   const events = (contentStr || '').trim().split(/\s+/).filter(Boolean);
   let html = '';
@@ -2220,7 +2220,7 @@ function miniCtxRows(contentStr) {
   return html;
 }
 
-/* Return <tr> rows for one session's scaled sliding context window matrix (no table wrapper). */
+/* Return <tr> rows for one sequence's scaled sliding context window matrix (no table wrapper). */
 function scaledCtxRows(matrix) {
   if (!matrix || !matrix.length) return '';
   let html = '';
@@ -2376,7 +2376,7 @@ async function plLoadRaw(page) {
   } catch(e){body.innerHTML=`<div style="color:var(--red);padding:12px;font-size:11px">Error: ${esc(e.message)}</div>`;}
 }
 
-/* Sessions column — scaled matrix table (one page of sessions concatenated) */
+/* Log sequences column — scaled matrix table (one page of log sequences concatenated) */
 async function plLoadSessions(page) {
   PL.sessPage = Math.max(0, page);
   const url = `/api/pipeline/sessions?dataset=${S.dataset}&split=${PL.split}&page=${PL.sessPage}&per_page=${PL.sessPerPage}&scaled=true`;
@@ -2509,7 +2509,7 @@ async function selectRawLog(el) {
   if (!S.running) {
     _setStgStage('stg-edge', 'active');
     setFriendlyStatus('⚡', 'Edge scan', 'Scaling events and scoring with Q-BAT edge models.');
-    document.getElementById('opLine').textContent = 'Edge scan: scaling events and scoring session…';
+    document.getElementById('opLine').textContent = 'Edge scan: scaling events and scoring log sequence…';
   }
   result.innerHTML = _predPipeHtml('edge') +
     '<div style="color:var(--muted);font-size:11px;text-align:center">Edge scanning…</div>';
@@ -2532,7 +2532,7 @@ async function selectRawLog(el) {
   _setPbStage('pb-routing', 'done'); _setPbStage('pb-cloud', 'active');
   if (!S.running) {
     _setStgStage('stg-routing', 'done'); _setStgStage('stg-cloud', 'active');
-    setFriendlyStatus('☁️', 'Cloud analysis', 'BAT ensemble running deep re-analysis on the session.');
+    setFriendlyStatus('☁️', 'Cloud analysis', 'BAT ensemble running deep re-analysis on the log sequence.');
     document.getElementById('opLine').textContent = 'Cloud: running BAT ensemble models…';
   }
   result.innerHTML = _predPipeHtml('cloud') +
@@ -3029,7 +3029,7 @@ async function irOpenDetail(sessionId) {
     if (nEsc)  wfBits.push(`${nEsc} escalation`);
 
     el.innerHTML = `
-      <div class="card-title">Incident — session ${inc.session_id}</div>
+      <div class="card-title">Incident — log sequence ${inc.session_id}</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start">
         <div>
           <table class="tbl">
@@ -3116,13 +3116,13 @@ const TOUR_STEPS = [
     desc: 'Click <strong style="color:#16a34a">▶ Start Full Test Set Analysis</strong> to run the test set through the pipeline and see aggregate metrics (accuracy, precision, recall, F1). Leave <strong>Also classify each incident and choose its response</strong> ticked and the same click continues into incident response — eight steps in total, Edge through Workflow.',
     target: '#runBtn', pad: 8, pos: 'right' },
   { title: '③ Watch the Pipeline Tab',
-    desc: 'Switch here to see raw log messages, parsed sessions, and live stage-by-stage progress.',
+    desc: 'Switch here to see raw log messages, parsed log sequences, and live stage-by-stage progress.',
     target: '.tab[data-tab="pipeline"]', pad: 6, pos: 'bottom' },
   { title: '④ Explore Results',
     desc: 'The <strong>Results</strong> tab shows the Anomaly Timeline — ground truth, Edge predictions, and final Edge + Cloud collaborative predictions side by side.',
     target: '.tab[data-tab="results"]', pad: 6, pos: 'bottom' },
   { title: '⑤ Incident Response',
-    desc: 'Detection only says <em>something is wrong</em>. This tab goes further: every detected session is queued, a <strong>RAG-enhanced LLM</strong> names the incident type — or marks it <strong>unknown</strong> when no known type fits — and each known type selects a <strong>predefined response workflow</strong>. Low-impact steps can run automatically; high-impact ones need an administrator\'s approval, and unknown incidents are held for a human.',
+    desc: 'Detection only says <em>something is wrong</em>. This tab goes further: every detected log sequence is queued, a <strong>RAG-enhanced LLM</strong> names the incident type — or marks it <strong>unknown</strong> when no known type fits — and each known type selects a <strong>predefined response workflow</strong>. Low-impact steps can run automatically; high-impact ones need an administrator\'s approval, and unknown incidents are held for a human.',
     target: '.tab[data-tab="incidents"]', pad: 6, pos: 'bottom' },
   { title: '⑥ Predict a Single Sliding Context Window',
     desc: 'Click <strong>any raw log row</strong> like this one to score it through the full Edge → Routing → Cloud pipeline. The model does <strong>not</strong> look at the single line alone — it uses that line\'s <strong>forward sequence</strong> (the 10 preceding events that form its sliding context window) for evaluation. The 10-event context and the final verdict appear inline below the row.',

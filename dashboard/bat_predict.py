@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""BAT ensemble prediction for one pre-scaled session window.
+"""BAT ensemble prediction for one pre-scaled log sequence window.
 
 Called by dashboard/app.py via CLOUD_PYTHON (the cesal-cloud environment):
 
@@ -33,7 +33,7 @@ import yaml
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Single-session BAT prediction.")
+    parser = argparse.ArgumentParser(description="Single-sequence BAT prediction.")
     parser.add_argument("--input",      required=True,
                         help="Path to .npy file: scaled [n_events, input_c] float32 array")
     parser.add_argument("--config",     required=True,

@@ -165,7 +165,7 @@ def _build_interesting_lines(dataset: str) -> None:
     result = list(dict.fromkeys(result))
 
     # Push entries whose forward sequence contains NO_EVENT padding (fewer than
-    # _CTX_LEN preceding entries in the same session) to the back while
+    # _CTX_LEN preceding entries in the same log sequence) to the back while
     # preserving the relative interesting-case order within each group.
     #
     # Strategy differs by dataset because of how line_numbers are assigned:
@@ -295,7 +295,7 @@ def _sync_fit_scaler(dataset: str) -> None:
 
 
 def _scale_content(dataset: str, content: str) -> Optional[list]:
-    """Scale one session/window's event sequence → list of float rows."""
+    """Scale one log sequence or window's events → list of float rows."""
     st = _scalers.get(dataset)
     if not st or not st.get("ready") or not content.strip():
         return None
@@ -337,7 +337,7 @@ class RunRequest(BaseModel):
     with_response: bool = False
 
 
-# ── Single-session prediction ─────────────────────────────────────────────────
+# ── Single-sequence prediction ────────────────────────────────────────────────────
 # Edge: first 3 BAT combos (e3_k1_l3_b32/64/96) act as the Q-BAT proxy.
 # Cloud: all 81 BAT combos — full ensemble, matches the batch pipeline.
 _N_EDGE_MODELS  = 3
@@ -480,7 +480,7 @@ def _run_bat_subprocess(
 
 
 def _lookup_pipeline_result(dataset: str, session_idx: int) -> Optional[dict]:
-    """Return single-session results from the last full pipeline run's .npy files.
+    """Return single-sequence results from the last full pipeline run's .npy files.
 
     Returns None if pipeline outputs don't exist (fall back to fresh prediction).
     """
@@ -622,7 +622,7 @@ def _lookup_pipeline_result(dataset: str, session_idx: int) -> Optional[dict]:
 
 
 def _fresh_predict(dataset: str, content: str) -> dict:
-    """Score one session through the full three-stage pipeline.
+    """Score one log sequence through the full three-stage pipeline.
 
     Uses in-RAM model cache when available (loaded at startup) so inference
     takes ~2-3s instead of 78s.  Falls back to subprocess on first call if
@@ -647,7 +647,7 @@ def _fresh_predict(dataset: str, content: str) -> dict:
         st = _scalers.get(dataset)
         if not st or not st.get("ready"):
             return {"error": "Scaler not ready — wait a moment after dashboard startup"}
-        return {"error": "Session has no parseable events"}
+        return {"error": "Log sequence has no parseable events"}
 
     arr      = np.array(scaled, dtype=np.float32)
     n_events = len(arr)
@@ -722,9 +722,9 @@ def _fresh_predict(dataset: str, content: str) -> dict:
 
 
 def _find_window_for_raw(dataset: str, split: str, line_number: int, block_id: str) -> Optional[int]:
-    """Approximate: map a raw log line_number to the txt-file session index that contains it.
+    """Approximate: map a raw log line_number to the txt-file sequence index that contains it.
 
-    The mapping is an estimate based on average raw-log lines per session.
+    The mapping is an estimate based on average raw-log lines per log sequence.
     For HDFS the block_id gives an exact match.
     """
     import sqlite3
@@ -772,9 +772,9 @@ async def predict_from_raw(
     line_number: int = 0,
     block_id:    str = "",
 ):
-    """Find the session that contains a raw log line and predict its label.
+    """Find the log sequence that contains a raw log line and predict its label.
 
-    The session is looked up by mapping the raw log line_number to the
+    The log sequence is looked up by mapping the raw log line_number to the
     corresponding entry in the source txt file, then scored with the
     cloud BAT ensemble exactly as predict_single does.
     """
@@ -785,16 +785,16 @@ async def predict_from_raw(
         _find_window_for_raw, dataset, split, line_number, block_id
     )
     if window_idx is None:
-        return {"error": "Could not determine the session for this log line. "
+        return {"error": "Could not determine the log sequence for this log line. "
                          "Check that the database is fully ingested."}
 
     paths     = _TXT_PATHS.get(dataset, {}).get(split, [])
     all_lines = await asyncio.to_thread(_read_txt_lines, paths)
     if not all_lines:
-        return {"error": "No session data found. Check that the dataset is fully ingested."}
+        return {"error": "No log sequence data found. Check that the dataset is fully ingested."}
 
     # For HDFS and OS the window_idx is a raw per-line npy index —
-    # don't clamp against the txt-file session count.
+    # don't clamp against the txt-file sequence count.
     if dataset not in ("hdfs", "os") and window_idx >= len(all_lines):
         window_idx = len(all_lines) - 1
 
@@ -848,7 +848,7 @@ async def predict_single(
     split:        str = "test",
     window_index: int = 0,
 ):
-    """Predict normal/anomaly for one session."""
+    """Predict normal/anomaly for one log sequence."""
     if window_index < 0:
         raise HTTPException(400, "window_index must be >= 0")
 
@@ -867,7 +867,7 @@ async def predict_single(
     result["source"]       = "live"
     result["window_index"] = window_index
 
-    # Ground truth from DB (label of this specific session; None if not ingested yet).
+    # Ground truth from DB (label of this specific log sequence; None if not ingested yet).
     try:
         db_win = await _db.get_window_detail(dataset, split, window_index)
         result["ground_truth"] = db_win.get("label") if db_win else None
@@ -903,7 +903,7 @@ async def _startup():
                 logging.debug("Could not pre-build line ordering for %s: %s", _ds, exc)
     asyncio.create_task(_warm_interesting())
 
-    # Fit StandardScaler for all datasets (needed for single-session prediction)
+    # Fit StandardScaler for all datasets (needed for single-sequence prediction)
     for _ds in ("os", "hdfs"):
         asyncio.create_task(asyncio.to_thread(_sync_fit_scaler, _ds))
     # Preload BAT models into RAM only when no separate cloud env is available
@@ -1754,7 +1754,7 @@ async def api_context_window(
         with _sqlite3.connect(db_path, timeout=30) as c:
             c.row_factory = _sqlite3.Row
             # For HDFS, block_id is the block identifier (e.g. blk_-XXX) so this
-            # naturally scopes context to the same session.
+            # naturally scopes context to the same log sequence.
             # For OpenStack, block_id is the split name (e.g. test_normal)
             # so this scopes context to the same split file, which approximates
             # the time-window sequence boundary for consecutive entries.
@@ -1876,7 +1876,7 @@ async def api_os_sessions(
 async def api_os_session(session_idx: int, split: str = "test"):
     data = await _db.get_os_session(session_idx, split)
     if not data:
-        raise HTTPException(404, "Session not found")
+        raise HTTPException(404, "Log sequence not found")
     return data
 
 
@@ -1929,7 +1929,7 @@ async def api_os_results():
             arr = np.load(str(fp))
             result[key] = arr.tolist()
 
-    # Per-session summary for the pipeline table
+    # Per-sequence summary for the pipeline table
     gt  = result.get("ground_truth", [])
     ep  = result.get("edge_preds",   [])
     hp  = result.get("hybrid_preds", [])

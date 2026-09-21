@@ -7,7 +7,7 @@ Usage
   python run.py all      [DATASET]          # download → detect → HDFS queued response
   python run.py download [DATASET] [TYPE]
   python run.py train    [DATASET]
-  python run.py retrain  [os hdfs] [--seed 42] [--edge-python PATH]
+  python run.py baseline [os hdfs] [--edge-python PATH]
   python run.py eval     [DATASET] [VOTING]
   python run.py convert  [DATASET]
   python run.py infer    [DATASET] [RATIO]
@@ -90,13 +90,15 @@ def main() -> None:
             sys.exit(0 if ok else 1)
         sys.exit(0)
 
-    elif command == "retrain":
-        _run_module('tools.retrain', *argv[1:])
-
     elif command == "train":
         dataset = argv[1] if len(argv) > 1 else "os"
         print(f"[run] Training BAT ensemble — dataset: {dataset}")
         _run_module("training_pipeline.train", "--config", f"configs/training/{dataset}.yaml", *argv[2:])
+
+    elif command == "baseline":
+        # A complete seeded run — train, evaluate BAT, quantize, calibrate, detect —
+        # kept apart from the standard checkpoint and output directories.
+        _run_module("training_pipeline.workflow", *argv[1:])
 
     elif command == "eval":
         dataset = argv[1] if len(argv) > 1 else "os"
@@ -107,6 +109,14 @@ def main() -> None:
         _run_module("training_pipeline.evaluate",
                     "--config", f"configs/training/{dataset}.yaml",
                     "--voting", voting)
+        # Scoring rewrites every cloud threshold, which fixes the three edge
+        # values too: a .pte reuses its .pth threshold unchanged. Re-derive them
+        # so edge inference cannot run against thresholds from older weights.
+        print(f"[run] Re-deriving Q-BAT edge thresholds from the cloud thresholds — dataset: {dataset}")
+        _run_module("tools.calibrate_edge",
+                    "--training-config", f"configs/training/{dataset}.yaml",
+                    "--inference-config", f"configs/inference/{dataset}.yaml",
+                    "--force")
 
     elif command == "convert":
         dataset = argv[1] if len(argv) > 1 else "os"

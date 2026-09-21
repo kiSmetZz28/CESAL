@@ -11,11 +11,11 @@ from cesal_core.utils import steps
 # different stages. OpenStack message counts use the paper references;
 # generated context rows and windows are counted from the actual inputs.
 _PAPER = {
-    'HDFS': (11_175_629, 4_855, 16_838, 'sessions'),
+    'HDFS': (11_175_629, 4_855, 16_838, 'log sequences'),
     'Openstack': (207_820, 52_312, 18_434, 'log messages'),
 }
 # Counted in the original HDFS_v1/anomaly_label.csv: 558,223 normal + 16,838
-# abnormal sessions. This is a source-dataset reference, not a paper claim or
+# abnormal log sequences. This is a source-dataset reference, not a paper claim or
 # a runtime dependency on the optional raw-log files.
 _HDFS_SOURCE_SESSIONS = 575_061
 
@@ -41,17 +41,17 @@ def report_preprocessing(dataset, paths, event_counts, context_length, mode):
     if st.state == 'inactive':
         return
 
-    sessions = []
+    sequence_counts = []
     for path in paths:
         stat = os.stat(path)
-        sessions.append(_session_count(os.path.abspath(path), stat.st_mtime_ns, stat.st_size))
+        sequence_counts.append(_session_count(os.path.abspath(path), stat.st_mtime_ns, stat.st_size))
 
     name = 'OpenStack' if dataset == 'Openstack' else dataset
     paper_total, paper_train, paper_abnormal, reference_unit = _PAPER[dataset]
     train, normal, abnormal = event_counts
     total = sum(event_counts)
     runtime_detail = _diagnostic_detail if dataset == 'Openstack' else st.detail
-    sequence_unit = 'sessions' if dataset == 'HDFS' else 'sequence groups'
+    sequence_unit = 'log sequences' if dataset == 'HDFS' else 'sequence groups'
     st.detail('preprocessing 1/3', 'source-log reference and parsing (already prepared, not rerun)')
     st.detail('dataset reference', f'{name}, paper Section 4.1')
     st.detail('paper source logs', f'{paper_total:,} messages (paper reference, not a raw-file recount)')
@@ -63,33 +63,33 @@ def report_preprocessing(dataset, paths, event_counts, context_length, mode):
     st.detail('log parsing', 'message templates -> event IDs; this run reads the bundled parsed files')
     st.detail('preprocessing 2/3', 'log sequence generator output: one event-ID sequence per nonempty line')
     for label, path, n_sessions, n_events in zip(
-        ('train (normal)', 'test (normal)', 'test (abnormal)'), paths, sessions, event_counts,
+        ('train (normal)', 'test (normal)', 'test (abnormal)'), paths, sequence_counts, event_counts,
     ):
         if dataset == 'Openstack':
             st.detail(label, f'{os.path.basename(path)}: {n_sessions:,} {sequence_unit}')
         else:
             st.detail(label, f'{os.path.basename(path)}: {n_sessions:,} {sequence_unit} contain {n_events:,} event IDs')
     if dataset == 'Openstack':
-        st.detail('bundled sequences', f'{sum(sessions):,} sequence groups')
+        st.detail('bundled sequences', f'{sum(sequence_counts):,} sequence groups')
     else:
-        st.detail('bundled parsed total', f'{sum(sessions):,} {sequence_unit} / {total:,} event IDs')
+        st.detail('bundled parsed total', f'{sum(sequence_counts):,} {sequence_unit} / {total:,} event IDs')
         st.detail('counting units', 'one event-ID occurrence represents one parsed log message; a sequence contains multiple events')
         st.detail('parsed vs paper total', f'{total:,} parsed / {paper_total:,} paper messages; difference {total - paper_total:+,}')
         for label, reference, count in (
-            ('training count vs paper', paper_train, sessions[0]),
-            ('abnormal count vs paper', paper_abnormal, sessions[2]),
+            ('training count vs paper', paper_train, sequence_counts[0]),
+            ('abnormal count vs paper', paper_abnormal, sequence_counts[2]),
         ):
             comparison = 'MATCH' if count == reference else f'MISMATCH: difference {count - reference:+,}'
             st.detail(label, f'{count:,} loaded / {reference:,} paper {reference_unit} ({comparison})')
-        st.detail('paper count check', 'compare HDFS training/abnormal sessions; Section 4.1 does not give a total session count')
-        source_difference = sum(sessions) - _HDFS_SOURCE_SESSIONS
+        st.detail('paper count check', 'compare HDFS training/abnormal log sequences; Section 4.1 does not give a total sequence count')
+        source_difference = sum(sequence_counts) - _HDFS_SOURCE_SESSIONS
         comparison = 'MATCH' if source_difference == 0 else f'MISMATCH: difference {source_difference:+,}'
-        st.detail('HDFS source sessions', f'{sum(sessions):,} bundled / {_HDFS_SOURCE_SESSIONS:,} original anomaly_label.csv sessions ({comparison})')
+        st.detail('HDFS source log sequences', f'{sum(sequence_counts):,} bundled / {_HDFS_SOURCE_SESSIONS:,} original anomaly_label.csv log sequences ({comparison})')
         if total != paper_total:
             st.detail('source-count difference', 'cause not established by bundled files; inputs are used as supplied, without count correction')
 
     st.detail('preprocessing 3/3', 'sliding context sequence generator: expand each sequence into one row per event')
-    runtime_detail('sequence -> context rows', f'{sum(sessions):,} {sequence_unit} -> {total:,} rows x {context_length} features; no input events removed')
+    runtime_detail('sequence -> context rows', f'{sum(sequence_counts):,} {sequence_unit} -> {total:,} rows x {context_length} features; no input events removed')
     st.detail('event-ID encoding', 'IDs mapped within each input file; reserved NO_EVENT supplies missing history')
     st.detail('context construction', f'1 row/event; {context_length} preceding events within its source sequence')
     st.detail('short sequence history', 'NO_EVENT padding keeps every event; no rows removed')

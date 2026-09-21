@@ -139,13 +139,13 @@ def ingest_hdfs_windows(cb: Optional[Callable] = None) -> None:
 def ingest_hdfs_raw(cb: Optional[Callable] = None) -> None:
     """Ingest HDFS raw logs from the pre-split files in LOG_ROOT.
 
-    Files (one-to-one with the processed txt-file sessions):
+    Files (one-to-one with the processed txt-file log sequences):
       train.log         → line_numbers 0..N_TRAIN-1,               label=None
       test_normal.log   → line_numbers N_TRAIN..,                  label=None
       test_abnormal.log → line_numbers N_TRAIN+N_TEST_NORMAL..,    label='1'
 
     Each line is stored with its extracted block ID so that
-    _find_window_for_raw can map any raw line to its session.
+    _find_window_for_raw can map any raw line to its log sequence.
     """
     if _already_done("hdfs_raw_v2", "SELECT COUNT(*) FROM raw_logs WHERE dataset='hdfs'"):
         cb and cb("HDFS raw logs already in DB — skipping."); return
@@ -316,12 +316,12 @@ def _make_log_line(seed: int, level: str, component: str, template: str,
 def _ingest_os_synthetic_raw(cb: Optional[Callable] = None) -> None:
     """Generate realistic OpenStack log messages when source .log files are absent.
 
-    Produces one log row per event in each processed session, using realistic
+    Produces one log row per event in each processed log sequence, using realistic
     Nova / Keystone message templates so the Raw Log Lines panel shows actual
     log-style content instead of event IDs.
 
     Detection marker: timestamp is a real datetime string (NOT NULL), so the
-    _find_window_for_raw mapping still uses the lines-per-session estimates.
+    _find_window_for_raw mapping still uses the lines-per-sequence estimates.
     """
     data_dir = Path(__file__).parent.parent / "data" / "OpenStack"
     if not data_dir.exists():
@@ -461,7 +461,7 @@ def ingest_os_windows(cb: Optional[Callable] = None) -> None:
     """
     Import processed OpenStack sequences from data/OpenStack/*.txt into windows.
 
-    Each line in the txt file = one session (sequence of event template IDs).
+    Each line in the txt file = one log sequence (sequence of event template IDs).
     - train.txt          → split='train', label=0,  window_index 0..N-1
     - test_normal.txt    → split='test',  label=0,  window_index 0..M-1
     - test_abnormal.txt  → split='test',  label=1,  window_index M..M+K-1
@@ -517,7 +517,7 @@ def ingest_os_windows(cb: Optional[Callable] = None) -> None:
         _insert_windows(rows)
     n = len(rows)
     _set_status("os_windows", f"done:{n}")
-    cb and cb(f"OpenStack windows done ({n:,} sessions).")
+    cb and cb(f"OpenStack windows done ({n:,} log sequences).")
 
 
 # ── Full pipeline ─────────────────────────────────────────────────────────────

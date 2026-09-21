@@ -199,6 +199,10 @@ class Solver:
             os.makedirs(path)
         early_stopping = EarlyStopping(patience=3, verbose=True, dataset_name=self.dataset)
         train_steps = len(self.train_loader)
+        logging.info(
+            '   Training windows: %s windows; %s batches per epoch',
+            f'{len(self.train_loader.dataset):,}', f'{train_steps:,}',
+        )
 
         for epoch in range(self.num_epochs):
             iter_count = 0

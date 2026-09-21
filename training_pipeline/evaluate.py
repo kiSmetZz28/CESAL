@@ -1,6 +1,7 @@
 import argparse
 import logging
 from itertools import product
+from pathlib import Path
 
 import numpy as np
 from torch.backends import cudnn
@@ -12,17 +13,16 @@ from cesal_core.utils.metrics import evaluate
 from cesal_core.utils.steps import StepReporter
 from cesal_core.utils.voting import ensemble_method
 from training_pipeline.solver import Solver
-from cesal_core.utils.reproducibility import model_seed, seed_training
+from cesal_core.utils.reproducibility import environment, model_seed, seed_training, sha256, write_json
 
 
 _ABOUT = """
 Measure the detection performance of the trained BAT ensemble, per learner and
 as a whole.
 
-Every learner is first scored on the test logs on its own. Learners are then
-accumulated into the ensemble one at a time, weakest first, so the gain from
-ensembling — and the point at which further members stop contributing — is
-visible directly.
+Every learner is scored on the test logs to calibrate its threshold, then all
+of them vote. Only the ensemble result is reported: it is what the paper
+claims, and per-learner figures are inflated by point adjustment.
 """
 
 
@@ -45,6 +45,7 @@ def run_bat_ensemble(
     config_path: str,
     voting_method: str = 'majority',
     log_intermediate: bool = True,
+    model_f1: dict = None,
 ) -> tuple:
     """Run the full BAT ensemble and return (predictions, ground_truth).
 
@@ -58,6 +59,8 @@ def run_bat_ensemble(
         every rule and returns a dict mapping method -> predictions.
     log_intermediate : bool
         Log per-model and incremental ensemble metrics if True.
+    model_f1 : dict, optional
+        Collect each full-precision learner's measured F1 by checkpoint model name.
     """
     yaml_config = load_config(config_path)
 
@@ -86,6 +89,8 @@ def run_bat_ensemble(
             st.progress_note(name)
 
             pred, gt, f_score = _single_model_pred(config)
+            if model_f1 is not None:
+                model_f1[f'{dataset}_{name}'] = float(f_score)
 
             if ground_truth is None:
                 ground_truth = gt
@@ -95,24 +100,13 @@ def run_bat_ensemble(
             model_records.append((f_score, values, pred.reshape(-1, 1)))
             st.tick("learners")
 
-        # Rank low → high; the ensemble below is built in this order.
-        model_records.sort(key=lambda x: x[0])
-        for rank, (f_score, values, _) in enumerate(model_records, start=1):
-            params = dict(zip(search_keys, values))
-            logging.debug("  Rank %3d  e=%s k=%s l=%s b=%s  F1=%.4f", rank,
-                          params['num_epochs'], params['k'], params['e_layer_num'],
-                          params['batch_size'], f_score)
-
-        f1s = [r[0] for r in model_records]   # already percentages
-        best_params = dict(zip(search_keys, model_records[-1][1]))
+        # Per-learner F1 is recorded in bat_evaluation.json (the Q-BAT candidate
+        # filter needs it) but not reported: after point adjustment a learner
+        # that catches a single event in an anomaly segment scores like a
+        # near-perfect detector, so only the ensemble figure is meaningful.
         n_thresh = st._counters.get("thresholds written", {}).get("done", 0)
         st.outcome(**{
             "learners scored": len(model_records),
-            "weakest learner F1": f"{f1s[0]:.2f}",
-            "median learner F1": f"{f1s[len(f1s) // 2]:.2f}",
-            "best learner F1": (f"{f1s[-1]:.2f} (e{best_params['num_epochs']}"
-                              f"_k{best_params['k']}_l{best_params['e_layer_num']}"
-                              f"_b{best_params['batch_size']})"),
             "thresholds rewritten": n_thresh,
         })
         if n_thresh:
@@ -125,47 +119,27 @@ def run_bat_ensemble(
     # ── Step 2: combine them, adding one model at a time ──────────────────
     methods = ['majority', 'at least one', 'consensus'] if voting_method == 'all' else [voting_method]
     n = len(model_records)
-    # A handful of sizes tells the story; scoring all 81 × 3 and printing each
-    # would be 486 lines saying very little.
-    milestones = sorted({1, 5, 10, 20, 40, n} & set(range(1, n + 1)))
-    curve = {m: {} for m in methods}
+    scores = {}
     results = {}
 
     with rep.step("ensemble") as st:
-        st.detail("ensemble order", "weakest learner first")
         st.detail("voting", ", ".join(methods))
-        st.expect("ensembles", n * len(methods))
-
-        for step in range(1, n + 1):
-            partial = np.concatenate([r[2] for r in model_records[:step]], axis=1)
-            for method in methods:
-                sc = evaluate(ground_truth, ensemble_method(method, partial),
-                              register=False, level=logging.DEBUG)
-                if step in milestones:
-                    curve[method][step] = sc.f_score
-                st.tick("ensembles")
-
-        st.phase("ensemble performance by size")
-        for method in methods:
-            pts = "  ".join(f"{k}:{v:.2f}" for k, v in sorted(curve[method].items()))
-            logging.info("%s%-14s F1 by ensemble size — %s",
-                         " " * steps.body_indent(), method, pts)
+        st.expect("ensembles", len(methods))
 
         st.phase(f"final vote across all {n} learners")
         all_preds = np.concatenate([r[2] for r in model_records], axis=1)
         for method in methods:
             final = ensemble_method(method, all_preds)
-            evaluate(ground_truth, final, prefix=method)
+            scores[method] = evaluate(ground_truth, final, prefix=method)
             results[method] = final
+            st.tick("ensembles")
 
-        best_method = max(methods, key=lambda m: curve[m].get(n, 0.0))
-        outcome = {"ensembles scored": n * len(methods)}
+        outcome = {"learners in the ensemble": n}
         if len(methods) > 1:
-            # Only meaningful when several rules were compared.
-            outcome["best voting method"] = (f"{best_method} "
-                                             f"(F1 {curve[best_method].get(n, 0.0):.2f})")
-        outcome["gain over best single learner"] = (
-            f"{curve[best_method].get(n, 0.0) - f1s[-1]:+.2f} F1")
+            best_method = max(methods, key=lambda m: scores[m].f_score)
+            outcome["best voting method"] = f"{best_method} (F1 {scores[best_method].f_score:.2f})"
+        else:
+            outcome["BAT F1"] = f"{scores[methods[0]].f_score:.2f}"
         st.outcome(**outcome)
 
     rep.finish(outputs=base_config.get('model_save_path', ''))
@@ -175,9 +149,26 @@ def run_bat_ensemble(
     return results[voting_method], ground_truth
 
 
-if __name__ == '__main__':
-    setup_logging('evaluate_bat')
+def report_path(config: dict) -> Path:
+    return Path(config['threshold_output']).parent / 'bat_evaluation.json'
 
+
+def signature(config_path: str) -> dict:
+    """Hash everything the measured scores depend on, for later provenance checks."""
+    config = load_config(config_path)
+    files = [Path(config_path), Path(config['threshold_output'])]
+    for e, k, depth, batch in product(*(config[key] for key in
+                                        ('num_epochs', 'k', 'e_layer_num', 'batch_size'))):
+        files.append(Path(config['model_save_path'])
+                     / f'{config["dataset"]}_e{e}_k{k}_l{depth}_b{batch}_checkpoint.pth')
+    files.extend(sorted(Path(config['data_path']).glob('*.txt')))
+    root = Path(__file__).resolve().parent.parent
+    files.extend([root / 'training_pipeline/solver.py', root / 'training_pipeline/evaluate.py',
+                  *sorted((root / 'cesal_core').rglob('*.py'))])
+    return {str(path.resolve()): sha256(path) for path in files}
+
+
+def main() -> int:
     parser = argparse.ArgumentParser(description="BAT ensemble evaluation.")
     parser.add_argument(
         '--config',
@@ -193,6 +184,33 @@ if __name__ == '__main__':
         help="Voting rule for the ensemble (default: majority, as in the paper; "
              "'all' also reports at-least-one and consensus).",
     )
+    parser.add_argument(
+        '--report',
+        action='store_true',
+        help='Also record measured scores, per-learner F1 and artifact hashes in '
+             'bat_evaluation.json beside the thresholds.',
+    )
     args, _ = parser.parse_known_args()
 
-    run_bat_ensemble(args.config, voting_method=args.voting, log_intermediate=True)
+    model_f1 = {} if args.report else None
+    predictions, labels = run_bat_ensemble(args.config, voting_method=args.voting,
+                                           log_intermediate=True, model_f1=model_f1)
+    if not args.report:
+        return 0
+    if args.voting == 'all':
+        predictions = predictions['majority']
+    measured = evaluate(labels, predictions, register=False, level=logging.DEBUG)
+    config = load_config(args.config)
+    write_json(report_path(config), dict(
+        seed=config.get('seed'), dataset=config['dataset'], voting=args.voting,
+        scores=dict(accuracy=measured.accuracy, precision=measured.precision,
+                    recall=measured.recall, f1=measured.f_score),
+        model_f1=model_f1, evaluation_data='Full bundled test set',
+        environment=environment(), artifact_sha256=signature(args.config)))
+    print(f'BAT evaluation report: {report_path(config)}', flush=True)
+    return 0
+
+
+if __name__ == '__main__':
+    setup_logging('evaluate_bat')
+    raise SystemExit(main())

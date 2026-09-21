@@ -29,6 +29,41 @@ from torchao.utils import unwrap_tensor_subclass
 # the way the other entry points do rather than relying on `pip install -e .`.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+
+def _ensure_flatc() -> None:
+    """Point ExecuTorch at its bundled flatc when it cannot find one itself.
+
+    ExecuTorch serializes .pte files by shelling out to flatc. It first looks
+    for a `flatbuffers-flatc` resource inside executorch.exir._serialize, then
+    falls back to $FLATC_EXECUTABLE or plain `flatc` on PATH. Several installs
+    ship neither the resource nor a flatc on PATH, yet do ship a working binary
+    at executorch/data/bin/flatc, and every export then fails with
+    "Failed to compile ... to ....pte". Wire that binary up rather than making
+    the caller export the variable. An existing FLATC_EXECUTABLE always wins.
+    """
+    import importlib.resources
+    import shutil
+
+    if os.environ.get('FLATC_EXECUTABLE'):
+        return
+    try:
+        with importlib.resources.path('executorch.exir._serialize', 'flatbuffers-flatc') as bundled:
+            if Path(bundled).exists():
+                return
+    except (FileNotFoundError, ModuleNotFoundError, TypeError):
+        pass
+    if shutil.which('flatc'):
+        return
+    import executorch
+    # executorch is a namespace package, so __file__ is None; use __path__.
+    for root in getattr(executorch, '__path__', []):
+        candidate = Path(root).resolve() / 'data' / 'bin' / 'flatc'
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            os.environ['FLATC_EXECUTABLE'] = str(candidate)
+            logging.debug('Using ExecuTorch bundled flatc at %s', candidate)
+            return
+
+
 from cesal_core.models.EMAT import EMAT
 from cesal_core.utils import steps
 from cesal_core.utils.energy import my_kl_loss
@@ -151,6 +186,7 @@ def _mb(path: str) -> float:
 
 
 def main() -> None:
+    _ensure_flatc()
     parser = argparse.ArgumentParser(
         description="Convert EMAT .pth checkpoints to ExecuTorch .pte files."
     )

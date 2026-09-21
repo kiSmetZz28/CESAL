@@ -126,7 +126,7 @@ CLASSIFY_STEPS: List[Tuple[str, str, str]] = [
 # `run.py respond` — detections → queues → classification → response workflows.
 RESPOND_STEPS: List[Tuple[str, str, str]] = [
     ("queue",    "Fill the anomaly queues Q_E / Q_C",
-     "Flagged sessions are queued by the tier that detected them — edge (Q_E) or\n"
+     "Flagged log sequences are queued by the tier that detected them — edge (Q_E) or\n"
      "cloud (Q_C)."),
     ("classify", "Open-set classification of each incident",
      "Each queued sequence is assigned a known incident type, or marked as an\n"
@@ -135,7 +135,7 @@ RESPOND_STEPS: List[Tuple[str, str, str]] = [
      "Known types map to their predefined response workflow; unknown types are\n"
      "assigned a human-investigation workflow. No response actions are executed."),
     ("score",    "Score the classification",
-     "Score the assigned types against ground truth for the labelled sessions."),
+     "Score the assigned types against ground truth for the labelled log sequences."),
 ]
 
 # ── Layout ───────────────────────────────────────────────────────────────────
