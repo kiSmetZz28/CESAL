@@ -357,8 +357,6 @@ The terminal commands are the paper-result evaluation path. The optional browser
 
 ## Advanced Options
 
-Detail on training, quantization, ensemble scoring and routing-ratio experiments.
-
 ### Quantize and export Q-BAT (edge models)
 
 ```bash
@@ -367,7 +365,7 @@ python run.py convert os
 python run.py convert hdfs
 ```
 
-Quantizes the trained EM-AT checkpoints and exports each as an ExecuTorch program under `checkpoints/qbat/{dataset}/`. The command converts every grid point, so you can pick which learners to deploy; the `edge_models` list in `configs/inference/<dataset>.yaml` names the **3** that make up Q-BAT. Skip this if you already downloaded Q-BAT checkpoints via `python run.py download <dataset> qbat`.
+Quantizes the trained EM-AT checkpoints and exports each as an ExecuTorch program under `checkpoints/qbat/{dataset}/`. The command converts every grid point, so you can pick which learners to deploy; the `edge_models` list in `configs/inference/<dataset>.yaml` names the **3** that make up Q-BAT.
 
 Conversion reports the size each model drops to and the total before and after, so the benefit of quantization is visible rather than implied. Missing or failed requested learners make the command exit with a nonzero status after processing the available models; successful exports are kept.
 
@@ -375,22 +373,12 @@ Conversion reports the size each model drops to and the total before and after, 
 
 ```bash
 conda activate cesal-cloud
-python run.py eval os            # per-model scores, then incremental majority-vote ensemble
+python run.py eval os            # calibrate all 81 thresholds, then score the majority vote
 ```
 
-Scores every checkpoint to calibrate its threshold, then reports the **one** figure that matters: the full 81-learner vote. The ensemble uses **majority voting**, as in the paper; this is where the **cloud-only** row of Table 3 comes from.
-
-Per-learner F1 is written to `bat_evaluation.json` for provenance but is deliberately not reported: the ensemble vote is the paper's claim, and a single learner's score says little about it.
-
-When reproducing all three OpenStack rows of Table 3, run `infer os` before `eval os` so detection uses the bundled thresholds.
-
-> **Note.** `eval` recalibrates every model's EM-GMM threshold and **overwrites the bundled `outputs/<dataset>/thresholds_cloud.yaml` in place**, then re-derives `thresholds_edge.yaml` from it, which changes what later `infer` runs do. The step says so as it happens. Back both files up first if you want to keep the shipped thresholds. Because this recalibrates, its results depend on the installed scikit-learn version, so run it in `cesal-cloud` with the pinned requirements.
+BAT is the cloud detector: **81 EM-AT learners**, each trained on its own bootstrap sample across the grid of epochs, loss weight `k`, encoder depth and batch size. Scoring runs each learner over the test windows, fits its **EM-GMM threshold** to that learner's own energy distribution, and turns the energies into per-learner predictions. Those predictions are then combined by **majority vote** — a window is anomalous when more than half the learners say so.
 
 ## Results
-
-Numbers from the paper (Section 4), which also reports baselines, the BAT ensemble-size analysis, routing ablations, and edge resource measurements on Raspberry Pi 3B+, 4B, and 5.
-
-For full evaluations with the published checkpoints, the proposed reproduction tolerances are ±0.1 percentage points in detection F1 and ±1 percentage point in classification macro-F1. Model and kernel versions can affect classification scores. These tolerances do not apply to the small readiness experiment.
 
 ### Hardware setup (Section 4.1)
 
@@ -427,16 +415,12 @@ HDFS:
 
 ### Open-set incident classification on HDFS (Table 7, macro average)
 
-The paper and terminal show macro-averaged percentages. `model_summary.csv` stores fractions from 0 to 1; multiply its P/R/F1 columns by 100 to compare with this table.
-
 | LLM backbone             | Precision | Recall |    F1 |
 | ------------------------ | --------: | -----: | ----: |
 | Llama-3.1-8B-Instruct    |     77.36 |  91.53 | 81.19 |
 | Gemma-2-9B-IT            |     78.21 |  91.21 | 81.71 |
 | Qwen2.5-7B-Instruct      |     78.05 |  91.23 | 81.52 |
 | **Qwen2.5-14B-Instruct** |     79.71 |  92.07 | 83.03 |
-
-Per-class values are in [outputs/hdfs/llm/table7_reference_metrics.csv](outputs/hdfs/llm/table7_reference_metrics.csv).
 
 ---
 
@@ -543,4 +527,4 @@ The entire artifact is public and stays public. This repository holds all of the
 
 **No part of the artifact is withheld.** There are no proprietary components, no private datasets and no code held back from release. Both log datasets are public benchmarks redistributed by [loghub](https://github.com/logpai/loghub); the LLM backbones are public Hugging Face models, two of which (Llama-3.1-8B-Instruct and Gemma-2-9B-IT) require accepting the publisher's license before download.
 
-Following artifact evaluation, the evaluated revision will be deposited in a permanent public archive and the citation updated with its identifier. Until that deposit exists, this repository is the canonical location and no DOI has been minted for it.
+Following artifact evaluation, the evaluated revision will be deposited in a permanent public archive with a DOI, and the citation updated with that identifier. This repository is the canonical location for evaluation.
