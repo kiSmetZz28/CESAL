@@ -143,3 +143,47 @@ def test_published_manifests_have_all_81_configurations():
             f'{prefix}_e{e}_k{k}_l{l}_b{b}_checkpoint.pth'
             for e, k, l, b in product((3, 6, 10), k_values, (3, 6, 8), (32, 64, 96))}
         assert len(spec['sha256']) == 64
+
+
+def test_generated_manifest_satisfies_the_downloader(tmp_path, monkeypatch):
+    """The generator must produce entries the real download path accepts."""
+    import json, zipfile, sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from tools import make_bat_manifest as gen
+
+    monkeypatch.setattr(gen, 'EXPECTED_MODELS', 3)
+    archive = tmp_path / 'ensemble_os.zip'
+    payload = {f'Openstack_m{i}_checkpoint.pth': bytes([i]) * (100 + i) for i in range(3)}
+    with zipfile.ZipFile(archive, 'w') as z:
+        for name, blob in payload.items():
+            z.writestr(f'os/{name}', blob)        # models sit under a dataset folder
+        z.writestr('os/README.txt', b'ignored')   # non-.pth members are skipped
+
+    out = tmp_path / 'manifest.json'
+    monkeypatch.setattr('sys.argv', ['make', '--archive', f'os={archive}',
+                                     '--file-id', 'os=DRIVEID', '--output', str(out)])
+    assert gen.main() == 0
+    spec = json.loads(out.read_text())['os']
+    assert spec['file_id'] == 'DRIVEID' and spec['filename'] == 'ensemble_os.zip'
+    assert set(spec['models']) == set(payload)            # keyed by basename, no 'os/' prefix
+    assert spec['bytes'] == archive.stat().st_size
+    for name, blob in payload.items():
+        assert spec['models'][name]['bytes'] == len(blob)
+
+    # The downloader's own verification must accept what was written.
+    download._verify_file(archive, spec)
+    with pytest.raises(ValueError, match='Checksum mismatch'):
+        download._verify_file(archive, dict(spec, sha256='0' * 64))
+
+
+def test_manifest_generator_rejects_a_wrong_model_count(tmp_path, monkeypatch):
+    import zipfile, sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from tools import make_bat_manifest as gen
+    archive = tmp_path / 'ensemble_os.zip'
+    with zipfile.ZipFile(archive, 'w') as z:
+        z.writestr('os/only_one_checkpoint.pth', b'x')
+    with pytest.raises(SystemExit, match='expected 81 models'):
+        gen.describe(archive, 'ID')

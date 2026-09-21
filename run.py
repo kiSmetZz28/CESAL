@@ -180,13 +180,57 @@ def main() -> None:
             # file is already on disk.
             print("[run] 1/3  Checkpoints and edge runtime — already present, skipping")
         else:
-            print("[run] 1/3  Checkpoints and edge runtime")
-            rc = _run_keep_going(str(_ROOT / "tools" / "download_checkpoints.py"),
-                                 "--dataset", dataset)
-            if rc != 0:
-                sys.exit(rc)
-            if not setup_executorch():
-                sys.exit(1)
+            # Obtaining the detectors is the evaluator's choice — training them is
+            # a reproduction step in its own right — so ask rather than silently
+            # downloading. Without a terminal (Docker build, CI, nohup) there is
+            # nobody to ask, so print both routes and stop instead of hanging.
+            print(f"[run] 1/3  No detectors found for '{dataset}'. Choose how to obtain them:\n")
+            print(f"  (a) Train them yourself — seeded, reproducible from the seed and config.")
+            print(f"      81 BAT learners, their thresholds, then the quantized Q-BAT exports.")
+            print(f"      OpenStack takes about an hour; HDFS considerably longer.\n")
+            print(f"  (b) Download the published checkpoints the paper's numbers were measured")
+            print(f"      on, with matching thresholds. About 3.2 GB per dataset.\n")
+            choice = ""
+            if sys.stdin.isatty():
+                try:
+                    choice = input("Choose [a/b, or Enter to stop]: ").strip().lower()
+                except EOFError:
+                    choice = ""
+                print()
+            if choice not in ("a", "b"):
+                print(f"Nothing obtained. Run one of:")
+                print(f"    conda activate cesal-cloud && python run.py train {dataset} && python run.py eval {dataset}")
+                print(f"    conda activate cesal-edge  && python run.py convert {dataset}")
+                print(f"  or")
+                print(f"    python run.py download {dataset}")
+                print(f"\nThen re-run: python run.py all {dataset}")
+                sys.exit(2)
+            if choice == "a":
+                # Training and calibration need torch/sklearn from the cloud
+                # environment; conversion and everything after run here.
+                from cesal_inference_pipeline.run import _detect_cloud_python
+                cloud_py = _detect_cloud_python()
+                for stage in ("train", "eval"):
+                    print(f"[run] 1/3  {stage} — dataset: {dataset}  ({cloud_py})")
+                    rc = subprocess.run([cloud_py, str(_ROOT / "run.py"), stage, dataset],
+                                        cwd=str(_ROOT)).returncode
+                    if rc != 0:
+                        sys.exit(rc)
+                if not setup_executorch():
+                    sys.exit(1)
+                print(f"[run] 1/3  convert — dataset: {dataset}")
+                rc = _run_keep_going(str(_ROOT / "quantization" / "qbat_export.py"),
+                                     "--config", f"configs/training/{dataset}.yaml", "--all")
+                if rc != 0:
+                    sys.exit(rc)
+            else:
+                print("[run] 1/3  Checkpoints and edge runtime")
+                rc = _run_keep_going(str(_ROOT / "tools" / "download_checkpoints.py"),
+                                     "--dataset", dataset)
+                if rc != 0:
+                    sys.exit(rc)
+                if not setup_executorch():
+                    sys.exit(1)
 
         print("\n[run] 2/3  Detection")
         rc = _run_keep_going("-m", "cesal_inference_pipeline.run",

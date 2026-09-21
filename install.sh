@@ -66,9 +66,26 @@ Environment setup and core software checks completed:
     conda activate $EDGE_ENV     # edge tier: detection, conversion, dashboard
     conda activate $CLOUD_ENV    # cloud tier: BAT ensemble, LLM classification
 
-Next:
+Next, obtain the detectors. Choose one:
+
+  (a) Train them yourself — seeded, so the run is reproducible from the seed
+      and configuration alone (OpenStack: about 1 hour for all three steps):
+
+        conda activate $CLOUD_ENV
+        python run.py train os       # 81 BAT learners -> checkpoints/bat/os
+        python run.py eval os        # calibrate thresholds for those models
+        conda activate $EDGE_ENV
+        python run.py convert os     # quantize -> .pte in checkpoints/qbat/os
+
+  (b) Download the published checkpoints the paper's numbers were measured on,
+      which ship with matching thresholds (about 3.2 GB per dataset):
+
+        conda activate $EDGE_ENV
+        python run.py download os
+
+Then, either way:
+
     conda activate $EDGE_ENV
-    python run.py download os    # fetch the published checkpoints
     python run.py smoke os       # verify real edge-to-cloud detection on a small input
     python run.py infer os       # Table 3 OpenStack Edge and CESAL rows (~3 h 20 m)
 MSG

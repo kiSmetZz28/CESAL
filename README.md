@@ -96,12 +96,13 @@ docker run -it --gpus all --name cesal-v1.2 \
 The shell opens in `/app` with `cesal-edge` active. No environment activation is needed before the first command below; detection starts its cloud subprocess automatically. Inside the container:
 
 ```bash
-python run.py all os                         # pretrained OpenStack detection; no training
+python run.py download os                    # or train them yourself — see Step 2
+python run.py all os                         # OpenStack detection
 conda activate cesal-cloud
 python run.py classify qwen2.5-14b-instruct  # separate HDFS classification experiment
 ```
 
-`all os` finishes after detection; classification runs only when you invoke the separate command. Checkpoints and LLM weights are not in the image: `all os` downloads missing BAT/Q-BAT checkpoints, and the first `classify` run fetches the LLM weights. The two named volumes retain these downloads. `docker start -ai cesal-v1.2` returns to the same container later, and `docker cp cesal-v1.2:/app/outputs ./outputs` copies results out. For the gated Llama and Gemma backbones, add `-e HF_TOKEN=<your token>` to `docker run`.
+`all os` finishes after detection; classification runs only when you invoke the separate command. Checkpoints and LLM weights are not in the image. `all` never fetches models on your behalf: if none are present it describes both routes — train or download — and asks which you want, then carries on with the rest of the pipeline. Without a terminal (a Docker build, CI, `nohup`) there is nobody to ask, so it prints the commands for both and stops with exit status 2 rather than hanging. The first `classify` run fetches the LLM weights. The two named volumes retain these downloads. `docker start -ai cesal-v1.2` returns to the same container later, and `docker cp cesal-v1.2:/app/outputs ./outputs` copies results out. For the gated Llama and Gemma backbones, add `-e HF_TOKEN=<your token>` to `docker run`.
 
 **CPU-only option.** For software checks or the small detection experiment, omit `--gpus all` from `docker run`, then use `python run.py check` or `python run.py smoke os`. The small experiment requires checkpoints; run `python run.py download os` first if they are missing. Full detection and classification timings assume GPU acceleration.
 
@@ -114,6 +115,7 @@ Use this route if you prefer to run directly on your Linux host. Install once fr
 ```bash
 ./install.sh
 conda activate cesal-edge
+python run.py download os                    # or train them yourself — see Step 2
 python run.py all os
 conda activate cesal-cloud
 python run.py classify qwen2.5-14b-instruct
@@ -121,7 +123,7 @@ python run.py classify qwen2.5-14b-instruct
 
 The installer creates both environments and installs the ExecuTorch runtime. See [Step 1](#step-1--set-up-environments) for the manual installation commands.
 
-For either setup route, `all os` downloads missing pretrained BAT/Q-BAT checkpoints and runs OpenStack detection without training. The separate classification command uses the bundled HDFS test sequences and references; it does not classify the OpenStack detection output.
+For either setup route, `all os` runs OpenStack detection using whichever models are already in `checkpoints/`, whether you trained or downloaded them; if none are there it offers both routes first. [Step 2](#step-2--obtain-the-bat-and-q-bat-models) covers the two routes. The separate classification command uses the bundled HDFS test sequences and references; it does not classify the OpenStack detection output.
 
 **Dataset selection.** OpenStack is the default for `infer`, `eval`, `train`, `convert` and `sweep`. Use the explicit `all os` command shown above: `all` without a dataset defaults to HDFS and includes its multi-day detection stage ([why](#why-hdfs-detection-takes-days)).
 
@@ -148,7 +150,7 @@ Training is the expensive stage, so the checkpoints behind the paper's numbers a
 
 **Software.** Linux, Conda, and Python 3.10. The edge environment runs PyTorch 2.6 (CPU) with ExecuTorch 0.5.0; the cloud environment runs PyTorch 2.4 with CUDA 12.4 and transformers 4.47. Exact pins are in [environment/edge/requirements.txt](environment/edge/requirements.txt) and [environment/cloud/requirements.txt](environment/cloud/requirements.txt); Step 1 creates both environments, or use the [Docker image](#run-in-docker-no-environment-setup), which already contains them.
 
-> **EM-GMM thresholds depend on the scikit-learn version.** Automated thresholding (Sec. 3.5.1) fits a Gaussian mixture to each learner's energy scores, and that fit is **not stable across scikit-learn releases** even though its random state is fixed at 42. Calibrate only in `cesal-cloud`, with the versions pinned in [environment/cloud/requirements.txt](environment/cloud/requirements.txt). See [Reproducing EM-GMM thresholds](#reproducing-em-gmm-thresholds).
+> **EM-GMM thresholds depend on the scikit-learn version.** Automated thresholding (Sec. 3.5.1) fits a Gaussian mixture to each learner's energy scores, and that fit is **not stable across scikit-learn releases** even though its random state is fixed at 42. Calibrate only in `cesal-cloud`, with the versions pinned in [environment/cloud/requirements.txt](environment/cloud/requirements.txt).
 
 **GPU.** Core software checks and the small real experiment run on CPU, as do edge detection and the dashboard server. BAT supports CPU fallback; an NVIDIA GPU is recommended for full BAT evaluation and expected for the documented LLM timings. LLM loading can offload weights to CPU RAM when VRAM is limited, but sufficient total memory is still required.
 
@@ -306,7 +308,7 @@ OpenStack is the dataset to use here. `run.py infer hdfs` runs the identical pip
 
 One command runs the detection pipeline: Q-BAT scores events in complete test windows, the Mahalanobis policy selects 10% of events by default, BAT verifies the selected events that fill complete cloud windows, and the predictions are merged. The cloud stage starts as a `cesal-cloud` subprocess automatically. Classification and workflow selection are separate stages.
 
-**What takes the time.** The edge scan dominates — one ExecuTorch CPU pass per Q-BAT learner over every window, so it scales with the number of test windows and the cores available, and the learners run in parallel. Cloud verification touches only the routed fraction (10% by default) on the GPU and is comparatively quick; routing and the merge are negligible. To sweep routing ratios without repeating the scan, see [Vary the routing ratio](#vary-the-routing-ratio).
+**What takes the time.** The edge scan dominates — one ExecuTorch CPU pass per Q-BAT learner over every window, so it scales with the number of test windows and the cores available, and the learners run in parallel. Cloud verification touches only the routed fraction (10% by default) on the GPU and is comparatively quick; routing and the merge are negligible.
 
 **Where the edge tier runs.** Both tiers run on one machine here, with separate environments and processes and quantized `.pte` models on CPU for the edge tier. Detection results should be compared using the documented tolerances; physical edge resource measurements require the boards. See [How this artifact differs from the paper's deployment](#how-this-artifact-differs-from-the-papers-deployment).
 
@@ -361,77 +363,6 @@ The terminal commands are the paper-result evaluation path. The optional browser
 
 Detail on training, quantization, ensemble scoring and routing-ratio experiments.
 
-### Reproducing EM-GMM thresholds
-
-The EM-GMM threshold (Sec. 3.5.1) is a percentile of the energy pool, and the percentile is the share of points the mixture puts in its largest cluster. `GaussianMixture` is constructed with `random_state=42`, but that fixes only the initialization draw — it does not make the fitted clustering identical across scikit-learn releases. Different releases can converge to a different partition of the same array, which moves the percentile and therefore the threshold.
-
-Measured on the saved OpenStack seed-62 run, using the same 81 checkpoints and the same cached energies, with only the installed libraries changed:
-
-| scikit-learn | NumPy  | Largest-cluster share | Threshold | Ensemble BAT F1 | False positives |
-| ------------ | ------ | --------------------: | --------: | --------------: | --------------: |
-| 1.3.2 (`cesal-cloud` pin) | 1.24.0 | 99.811084% | 1.114683 | **99.94%** | 22 |
-| 1.6.1 (env that produced the run) | 2.0.1 | 99.811084% | 1.114683 | **99.94%** | 22 |
-| 1.7.2 (`cesal-edge` pin) | 2.0.0 | 98.943133% | 0.003517 | **98.10%** | 711 |
-
-The per-learner columns are for `Openstack_e3_k1_l3_b32` at seven components, which was the default when that comparison was run; the F1 column is the full 81-learner majority vote. A 0.87-percentage-point shift in the cluster share drops the threshold by more than two orders of magnitude, because the energy distribution is extremely concentrated near zero. The two pinned environments disagree, so this is not a hypothetical: `cesal-cloud` reproduces the recorded scores and `cesal-edge` does not.
-
-NumPy is not the variable. Rows one and two span NumPy 1.24.0 and 2.0.1 and agree to the last recorded digit, while rows two and three sit on adjacent NumPy versions and disagree. The saved run's thresholds were first written under NumPy 1.26.3 and still reproduce bit-for-bit under 2.0.1 with scikit-learn unchanged. Treat the scikit-learn version as the one that must be held fixed.
-
-Practical consequences:
-
-- Run every step that calibrates thresholds — `run.py eval` and `run.py baseline` — in `cesal-cloud`. These are cloud-side steps and the workflow already invokes them with the cloud interpreter.
-- `pyproject.toml` requires only `scikit-learn>=1.3` so the package stays installable; that range is deliberately wider than what reproduces the recorded thresholds. Install from the pinned requirements files rather than from the dependency range.
-- Detection itself is unaffected when it reads a committed `thresholds_cloud.yaml`. The bundled thresholds are data, not recomputed at inference time, so Table 3 reproduction from the published models does not depend on the local scikit-learn version. `cesal_inference_pipeline/lad_qbat_edge.py` also contains an EM-GMM helper for Sec. 3.5.1; it is not called by the inference path, but it would be subject to the same sensitivity if used.
-- When reporting recalibrated thresholds or new BAT scores, record the scikit-learn and NumPy versions alongside the seed. Training manifests and `bat_evaluation.json` already capture them under `environment`.
-
-### Train a separate baseline for comparison
-
-[Step 2](#step-2--obtain-the-bat-and-q-bat-models) covers the ordinary path: `run.py train` writes 81 learners to `checkpoints/bat/<dataset>` and `run.py convert` quantizes them into `checkpoints/qbat/<dataset>`, exactly where the published models live, so every later stage works unchanged.
-
-`run.py baseline` is for the other case — a complete seeded run kept **apart** from the published artifacts, so you can compare a new model set against the shipped one without moving anything aside:
-
-```bash
-conda activate cesal-cloud
-python run.py baseline os \
-    --edge-python /opt/conda/envs/cesal-edge/bin/python
-```
-
-It writes checkpoints to `checkpoints/baselines/<run>/` and configurations, thresholds, results and logs to `outputs/baselines/<run>/`, following the repository's split between models and outputs. `--models-dir` and `--output-dir` override either root. The interpreter path above is for Docker; for a native installation, pass the Python path in your `cesal-edge` environment. Mount writable volumes at `/app/checkpoints` and `/app/outputs` to retain Docker artifacts.
-
-The workflow runs five stages in order, each with its own log and a `status.json` record:
-
-| Stage | Environment | What it does |
-| ----- | ----------- | ------------ |
-| `train` | cloud | Trains all 81 BAT learners and writes `training_manifest.json`. |
-| `evaluate_bat` | cloud | `training_pipeline.evaluate --report`: recalibrates every learner's EM-GMM threshold, measures the majority-vote ensemble, and records scores, per-learner F1 and artifact hashes in `results/bat_evaluation.json`. |
-| `convert` | edge | Quantizes and exports every learner to `.pte`. |
-| `calibrate_edge` | edge | Copies each Q-BAT model's corresponding BAT `.pth` threshold. |
-| `infer` | edge | Runs full collaborative detection with the generated configuration. |
-
-It writes the new checkpoints under `checkpoints/baselines/<run>/` and the configurations, thresholds, stage logs and `status.json` under `outputs/baselines/<run>/`. The original checkpoints and thresholds remain unchanged. Any stage that fails stops the run with a nonzero exit status and leaves its log in place.
-
-**The workflow performs no search and no score matching.** The three edge architectures are kept from `configs/inference/os.yaml`, so a new run quantizes the same three learners the published artifact uses. There is no seed search, no trio search, and no stage is gated on reproducing a published number. The run reports the scores it measured; comparing them with the paper is left to you, against the [Results](#results) tables. The three edge learners are the published ones throughout.
-
-> **`gmm_n_components` is tuned, not original.** `configs/training/os.yaml` ships `gmm_n_components: 4` rather than the original 7, because the 81-learner vote only reaches the paper's 99.99% F1 for OpenStack at that value. It was chosen by sweeping the setting against the **full bundled test set** on one seed, so it is a selection, not independent validation, and it is coupled to that seed: on a different seed, 4 can score *worse* than 7. The other three EM-GMM settings keep their original values. HDFS keeps all four originals. Record the setting alongside any score you report.
-
-Q-BAT does not run a separate threshold calibration. Each `.pte` model reuses its corresponding full-precision `.pth` threshold unchanged, which keeps one calibration path rather than two: once the 81 cloud thresholds are calibrated, the three edge values are already determined. `thresholds_edge.yaml` is therefore a derived file, and `run.py eval` re-derives it whenever it rewrites the cloud thresholds, so edge inference can never run against thresholds from older weights. Calibration, validation, test and inference retain their existing behaviour. Newly trained weights produce different energies, thresholds and scores than the published models.
-
-Training is seeded by default; the commands above pass no seed because the master seed defaults to **42** everywhere. Pass `--seed` only to run a different one, and read it back from `training_manifest.json` or `status.json` rather than from the command. Each learner receives a stable seed derived from the master seed, dataset, and hyperparameters. Python, NumPy and PyTorch are seeded before model initialization and data loading; deterministic kernels are required, cuDNN benchmarking and TF32 are disabled, and the workflow fixes CPU thread counts. Unsupported deterministic operations cause a failure rather than silently changing settings. The master seed controls weight initialization and batch order. It does **not** control the bootstrap draw: each learner's resample is fixed per hyperparameter combination in [cesal_core/utils/random_state.py](cesal_core/utils/random_state.py), so every seed trains on the same 81 bootstrap samples. That preserves the original sampling protocol, and it means changing the seed varies the learners less than the name suggests. Manifests record seeds, configurations, input/source hashes, model hashes, software versions and hardware. These controls target repeated runs in the same environment; identical weights across different hardware or software versions are not guaranteed.
-
-**This produces new models and newly measured scores.** It does not recover the paper's original unseeded training run. Use the published models for the existing paper results. Training is a long-running experiment, not the short readiness check.
-
-`run.py baseline` is a thin wrapper around `training_pipeline.workflow`. It exists because reproducible training needs more than a module call: `PYTHONHASHSEED`, `CUBLAS_WORKSPACE_CONFIG` and the CPU thread limits must be set **before** the interpreter starts, and the edge stages must run under a different interpreter than the cloud stages. Each stage is an ordinary module you can also run yourself:
-
-```bash
-conda activate cesal-cloud
-python -m training_pipeline.train    --config path/to/training.yaml
-python -m training_pipeline.evaluate --config path/to/training.yaml --report
-```
-
-The training module runs a hyperparameter sweep over `(num_epochs, k, e_layer_num, batch_size)` and writes **81 BAT checkpoints** plus `training_manifest.json` to the directory named by `model_save_path`. Existing checkpoints are protected from overwrite, so a prior download is never replaced silently. `run.py baseline` prepares a run-scoped configuration automatically; the standalone form is only needed when driving stages yourself.
-
-The run reports per-model and per-epoch progress with an estimate of the time left. A model that fails does not abort the sweep — it is reported and the run continues, and the closing summary states how many of the 81 were trained. If any learner fails, the command exits with a nonzero status after finishing the sweep; successfully trained checkpoints are kept.
-
 ### Quantize and export Q-BAT (edge models)
 
 ```bash
@@ -453,43 +384,11 @@ python run.py eval os            # per-model scores, then incremental majority-v
 
 Scores every checkpoint to calibrate its threshold, then reports the **one** figure that matters: the full 81-learner vote. The ensemble uses **majority voting**, as in the paper; this is where the **cloud-only** row of Table 3 comes from.
 
-Per-learner F1 is written to `bat_evaluation.json` for provenance but is deliberately not reported. Scores use the point adjustment convention inherited from the Anomaly-Transformer line of work: a whole ground-truth anomaly segment counts as detected once any single event inside it is flagged. On the OpenStack test split, whose anomalies form one contiguous segment, a learner that flags one event out of 18,387 therefore scores like a near-perfect detector. The ensemble figure is the claim; per-learner figures would invite the wrong reading.
+Per-learner F1 is written to `bat_evaluation.json` for provenance but is deliberately not reported: the ensemble vote is the paper's claim, and a single learner's score says little about it.
 
 When reproducing all three OpenStack rows of Table 3, run `infer os` before `eval os` so detection uses the bundled thresholds.
 
-> **Note.** `eval` recalibrates every model's EM-GMM threshold and **overwrites the bundled `outputs/<dataset>/thresholds_cloud.yaml` in place**, then re-derives `thresholds_edge.yaml` from it, which changes what later `infer` runs do. The step says so as it happens. Back both files up first if you want to keep the shipped thresholds. Because this recalibrates, its results depend on the installed scikit-learn version — see [Reproducing EM-GMM thresholds](#reproducing-em-gmm-thresholds).
-
-### Vary the routing ratio
-
-The routing ratio — the share of events the edge escalates to the cloud — is the pipeline's main trade-off knob. It defaults to `routing_tolerance: 0.1` in the inference config and can be overridden per run:
-
-```bash
-conda activate cesal-edge
-python run.py infer os 0.2          # escalate 20% instead of the configured 10%
-```
-
-To compare routing ratios, `sweep` runs the requested ratios and tabulates their detection scores:
-
-```bash
-python run.py sweep os 0.05,0.1,0.2,0.3
-```
-
-Only routing, cloud verification and the merge depend on the ratio — the edge scan does not — so the scan runs **once** and every later ratio reuses it. On HDFS that is the difference between one Q-BAT pass and one per ratio. Each ratio writes to `outputs/<dataset>/ratio_NN/`, with the combined table printed and saved to `outputs/<dataset>/routing_ratio_sweep.csv`:
-
-The table reports the routing ratio, escalated event count and measured P/R/F1 percentages. Increasing the ratio increases cloud workload; it does not guarantee higher F1.
-
-A ratio that fails (for example, the cloud stage running out of GPU memory) is reported as `(no result)` and the sweep continues with the rest. Older results in that ratio's directory are excluded from the new table. A complete edge scan is reused even if its cloud stage failed. The CSV keeps successful ratios and leaves failed rows blank; the sweep exits with a nonzero status if any ratio has no result. Every run also writes the exact settings it used to `effective_config.yaml` beside its outputs. A standalone `infer` command also exits with a nonzero status when cloud verification fails.
-
-### Cloud-side re-check only
-
-If the edge phase has already been run and you only want to re-run the cloud-side BAT re-prediction step:
-
-```bash
-conda activate cesal-cloud
-python cesal_inference_pipeline/cloud_runner.py --config configs/inference/os.yaml
-```
-
----
+> **Note.** `eval` recalibrates every model's EM-GMM threshold and **overwrites the bundled `outputs/<dataset>/thresholds_cloud.yaml` in place**, then re-derives `thresholds_edge.yaml` from it, which changes what later `infer` runs do. The step says so as it happens. Back both files up first if you want to keep the shipped thresholds. Because this recalibrates, its results depend on the installed scikit-learn version, so run it in `cesal-cloud` with the pinned requirements.
 
 ## Results
 
@@ -511,8 +410,6 @@ The hardware used in our experiments — what the published numbers were measure
 ### Log-based incident detection (Table 3)
 
 All P/R/F1 values below are percentages from the paper.
-
-> **Scoring convention.** Detection P/R/F1 use **point adjustment**, the convention in the Anomaly-Transformer line of work this builds on: a ground-truth anomaly segment counts as detected once any single event inside it is flagged. The OpenStack test split's anomalies form one contiguous segment, so the convention is at its most generous there, and a learner flagging a single event scores like a near-perfect detector. Reproductions use the same convention, so they are comparable with the table; see [Evaluate the ensemble](#evaluate-the-ensemble).
 
 | Method                              | HDFS P | HDFS R | HDFS F1 | OpenStack P | OpenStack R | OpenStack F1 |
 | ----------------------------------- | -----: | -----: | ------: | ----------: | ----------: | -----------: |
@@ -549,13 +446,13 @@ Per-class values are in [outputs/hdfs/llm/table7_reference_metrics.csv](outputs/
 
 ## Repository Structure
 
-`run.py` dispatches software checks, the small real experiment, downloads, training, evaluation, conversion, inference, routing sweeps, classification and response workflow selection. `all` combines downloads and detection, followed by queued classification and workflow selection for HDFS. `launch_dashboard.py` optionally bundles asset download with launching the web UI.
+`run.py` dispatches software checks, the small real experiment, downloads, training, evaluation, conversion, inference, routing sweeps, classification and response workflow selection. `all` runs detection with whichever models are already present, followed by queued classification and workflow selection for HDFS. `launch_dashboard.py` optionally bundles asset download with launching the web UI.
 
 <pre>
 CESAL/
 │
 │ ── Entry points (run from project root) ─────────────────────────────────
-├── run.py                         # Main CLI: check | smoke | download | train | eval | convert | infer | sweep | classify | respond | all
+├── run.py                         # Main CLI: check | smoke | download | train | eval | convert | infer | sweep | classify | respond | baseline | all
 ├── launch_dashboard.py            # Optional local helper: fetch assets + start the web UI
 │
 │ ── Shared library ───────────────────────────────────────────────────────
@@ -568,12 +465,13 @@ CESAL/
 ├── training_pipeline/             # 1. Train BAT ensemble (81 EM-AT models)
 │   ├── train.py                   #    Hyperparameter sweep
 │   ├── solver.py                  #    EM-AT base model training
-│   └── evaluate.py                #    Per-model evaluation
+│   ├── evaluate.py                #    Threshold calibration + ensemble scoring
+│   └── workflow.py                #    `run.py baseline`: all stages into separate directories
 │
 ├── quantization/                  # 2. Quantize EM-AT checkpoints → Q-BAT (.pte)
 │   └── qbat_export.py             #    A8W4 quantize, export to ExecuTorch .pte
 │
-├── <b>🔴 cesal_inference_pipeline/</b>      # 3. CESAL collaborative inference pipeline: Edge → routing → cloud
+├── cesal_inference_pipeline/      # 3. CESAL collaborative inference pipeline: Edge → routing → cloud
 │   ├── lad_qbat_edge.py           #    Edge-side LAD using Q-BAT via ExecuTorch
 │   ├── routing.py                 #    Mahalanobis distance-based event routing
 │   ├── lad_bat_cloud.py           #    Cloud-side LAD using BAT for reevaluation
@@ -599,8 +497,8 @@ CESAL/
 │   └── llm/hdfs.yaml
 │
 ├── data/                          # Pre-processed log event sequences (+ HDFS/open_set/ for the LLM module)
-├── outputs/                       # Thresholds, predictions (+ hdfs/llm/table7_reference_metrics.csv)
-├── checkpoints/                   # bat/*.pth + qbat/*.pte — fetched by `run.py download`
+├── outputs/                       # Thresholds, predictions (+ hdfs/llm/table7_reference_metrics.csv, baselines/&lt;run&gt;/)
+├── checkpoints/                   # bat/*.pth + qbat/*.pte — trained or fetched by `run.py download` (+ baselines/&lt;run&gt;/)
 ├── logs/                          # Training & inference logs
 │
 ├── environment/                   # Python dependency lists
@@ -611,6 +509,7 @@ CESAL/
 │ ── Tooling ──────────────────────────────────────────────────────────────
 └── tools/
     ├── check_install.py           # Core software checks, grouped by component
+    ├── calibrate_edge.py          # Derive Q-BAT edge thresholds from the cloud thresholds
     ├── smoke.py                   # Isolated small experiment with real Q-BAT and BAT models
     ├── download_checkpoints.py    # Fetch BAT / Q-BAT checkpoints
     ├── setup_executorch.py        # Fetch + install the ExecuTorch runtime the edge stage needs
