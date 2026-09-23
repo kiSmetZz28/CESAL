@@ -157,7 +157,7 @@ Steps 1–4 below explain setup, checkpoints, detection, and classification/resp
 | Core software checks                   | `run.py check`    |     seconds |        seconds |
 | Small real experiment (after setup)    | `run.py smoke os` |    ~1–2 min |            n/a |
 | **Detection, end to end**              | `run.py infer`    |    **~3 h** |   **~15 days** |
-| Cloud-only ensemble scoring            | `run.py eval`     |      ~8 min |     ~9 h 19 m |
+| Cloud-only ensemble scoring            | `run.py eval`     |      ~8 min |      ~9 h 19 m |
 | Incident classification, one backbone  | `run.py classify` |         n/a |      ~1 h 51 m |
 | **Train the BAT ensemble (81 models)** | `run.py train`    | **~24 min** | **~11 h 43 m** |
 | Quantize and export Q-BAT (81 models)  | `run.py convert`  |     ~34 min |        ~33 min |
@@ -236,8 +236,6 @@ python run.py convert os              # quantize → .pte in checkpoints/qbat/os
 ```
 
 The `eval` step matters: thresholds are calibrated from the models' own energies, so newly trained weights need their own thresholds. It rewrites the 81 cloud thresholds and the three derived edge values together. Skipping it leaves `infer` scoring your models against the published models' thresholds, which fails quietly rather than loudly.
-
-Every learner gets a stable seed derived from the master seed (**62** by default, the seed the published OpenStack and HDFS checkpoints were trained with, so training reproduces them without extra flags), the dataset and its hyperparameters; deterministic kernels are required and `training_manifest.json` records the seeds, configurations, input and source hashes, model hashes, software versions and hardware. On the documented workstation two independent OpenStack runs of the same seed produced **byte-identical checkpoints for all 81 learners**. Identical weights across different hardware or library versions are not guaranteed. Existing checkpoints are never silently replaced, so training refuses to run over a previous download. Swap `os` for `hdfs` to train the other dataset; see [Requirements](#requirements) for how long each takes.
 
 **Or download the published checkpoints** — the exact models the paper's numbers were measured on, and the faster route if you only want to reproduce the reported scores:
 
