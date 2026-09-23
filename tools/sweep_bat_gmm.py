@@ -33,7 +33,7 @@ def displays_as_99_99(value):
 CALIBRATION = 'calibration_energy'
 CALIBRATIONS = ('train+thre', 'train')
 
-GRIDS = ('single', 'components', 'full')
+GRIDS = ('single', 'components', 'refine', 'full')
 
 
 def _one_at_a_time(baseline):
@@ -57,6 +57,22 @@ def _component_scan(baseline):
             yield f'gmm_n_components_{value}', dict(baseline, gmm_n_components=value)
 
 
+def _refine(baseline):
+    """Everything except the component count, which a `components` scan already covered.
+
+    gmm_max_iter is left out on purpose: the fits converge in a handful of
+    iterations, so raising the cap cannot change the result.
+    """
+    for key, values in (
+        ('gmm_covariance_type', ('tied', 'full')),
+        ('gmm_init_params', ('k-means++', 'kmeans', 'random_from_data')),
+        ('gmm_n_init', (1, 10, 20)),
+    ):
+        for value in values:
+            if value != baseline[key]:
+                yield f'{key}_{value}', dict(baseline, **{key: value})
+
+
 def _full_product(baseline):
     """Every combination of the parameters that can change the fitted clustering."""
     axes = (('gmm_n_components', tuple(range(3, 12))),
@@ -76,7 +92,8 @@ def settings_grid(config, calibrations=CALIBRATIONS[:1], grid='single'):
         raise ValueError(f'Unknown grid: {grid}')
     if not calibrations or any(item not in CALIBRATIONS for item in calibrations):
         raise ValueError(f'Unknown calibration energy: {calibrations}')
-    expand = dict(single=_one_at_a_time, components=_component_scan, full=_full_product)[grid]
+    expand = dict(single=_one_at_a_time, components=_component_scan,
+                  refine=_refine, full=_full_product)[grid]
     candidates = []
     for calibration in dict.fromkeys(calibrations):
         baseline = {key: config[key] for key in KEYS}

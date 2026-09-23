@@ -150,17 +150,17 @@ Steps 1–4 below explain setup, checkpoints, detection, and classification/resp
 
 **Disk.** Cached BAT ZIP files require approximately **3.5 GB per dataset**, in addition to the extracted files. Detection (Steps 1-3) needs about **12 GB** — BAT checkpoints ~3.5 GB per dataset, the ExecuTorch runtime and build tree ~3.1 GB, prediction outputs ~1.2 GB per dataset, everything else under 250 MB. Step 4 is dominated by the LLM weights, pulled from Hugging Face on first use into `~/.cache/huggingface/hub`: **~28 GB** for the default Qwen2.5-14B-Instruct, or **~76 GB** for all four LLM backbones.
 
-**Time.** The full-run figures below are approximate timings for an **i7-14700 workstation with NVIDIA RTX 2000 Ada, 32 GB RAM and Ubuntu 24.04.2**; HDFS end-to-end detection is an extrapolation from per-window timings. The edge stage runs three ExecuTorch learners on CPU; the full cloud and LLM timings assume GPU acceleration. The small real experiment was observed at about 80 seconds on CPU, excluding setup and downloads. The paper's machines are listed under [Hardware setup](#hardware-setup-section-41).
+**Time.** The full-run figures below are approximate timings for an **i7-14700 workstation with NVIDIA RTX 2000 Ada, 32 GB RAM and Ubuntu 24.04.2**. The edge stage runs three ExecuTorch learners on CPU; the full cloud and LLM timings assume GPU acceleration. The small real experiment was observed at about 80 seconds on CPU, excluding setup and downloads. The paper's machines are listed under [Hardware setup](#hardware-setup-section-41).
 
 | Stage                                  | Command           |   OpenStack |           HDFS |
 | -------------------------------------- | ----------------- | ----------: | -------------: |
 | Core software checks                   | `run.py check`    |     seconds |        seconds |
 | Small real experiment (after setup)    | `run.py smoke os` |    ~1–2 min |            n/a |
 | **Detection, end to end**              | `run.py infer`    |    **~3 h** |   **~15 days** |
-| Cloud-only ensemble scoring            | `run.py eval`     |      ~8 min |       ~6.5–9 h |
+| Cloud-only ensemble scoring            | `run.py eval`     |      ~8 min |     ~9 h 19 m |
 | Incident classification, one backbone  | `run.py classify` |         n/a |      ~1 h 51 m |
-| **Train the BAT ensemble (81 models)** | `run.py train`    | **~24 min** | **many hours** |
-| Quantize and export Q-BAT (81 models)  | `run.py convert`  |     ~34 min |     many hours |
+| **Train the BAT ensemble (81 models)** | `run.py train`    | **~24 min** | **~11 h 43 m** |
+| Quantize and export Q-BAT (81 models)  | `run.py convert`  |     ~34 min |        ~33 min |
 
 #### Why HDFS detection takes days
 
@@ -237,7 +237,7 @@ python run.py convert os              # quantize → .pte in checkpoints/qbat/os
 
 The `eval` step matters: thresholds are calibrated from the models' own energies, so newly trained weights need their own thresholds. It rewrites the 81 cloud thresholds and the three derived edge values together. Skipping it leaves `infer` scoring your models against the published models' thresholds, which fails quietly rather than loudly.
 
-Every learner gets a stable seed derived from the master seed (**62** by default, the seed the published OpenStack checkpoints were trained with, so training reproduces them without extra flags), the dataset and its hyperparameters; deterministic kernels are required and `training_manifest.json` records the seeds, configurations, input and source hashes, model hashes, software versions and hardware. On the documented workstation two independent OpenStack runs of the same seed produced **byte-identical checkpoints for all 81 learners**. Identical weights across different hardware or library versions are not guaranteed. Existing checkpoints are never silently replaced, so training refuses to run over a previous download. Swap `os` for `hdfs` to train the other dataset; see [Requirements](#requirements) for how long each takes.
+Every learner gets a stable seed derived from the master seed (**62** by default, the seed the published OpenStack and HDFS checkpoints were trained with, so training reproduces them without extra flags), the dataset and its hyperparameters; deterministic kernels are required and `training_manifest.json` records the seeds, configurations, input and source hashes, model hashes, software versions and hardware. On the documented workstation two independent OpenStack runs of the same seed produced **byte-identical checkpoints for all 81 learners**. Identical weights across different hardware or library versions are not guaranteed. Existing checkpoints are never silently replaced, so training refuses to run over a previous download. Swap `os` for `hdfs` to train the other dataset; see [Requirements](#requirements) for how long each takes.
 
 **Or download the published checkpoints** — the exact models the paper's numbers were measured on, and the faster route if you only want to reproduce the reported scores:
 

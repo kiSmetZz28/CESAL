@@ -200,7 +200,10 @@ def main() -> None:
                         help="Directory to write .pte files (default: checkpoints/qbat/<dataset>).")
     parser.add_argument("--all", action="store_true",
                         help="Convert every combination in the hyperparameter sweep.")
-    parser.add_argument('--seed', type=int, default=42)
+    parser.add_argument('--seed', type=int, default=62,
+                        help='Master seed recorded in the .pte sidecar, matching the seed '
+                             'the checkpoints were trained with (default: 62). Export is '
+                             'seed-independent, so this affects provenance only.')
     args = parser.parse_args()
 
     cfg      = load_config(args.config)

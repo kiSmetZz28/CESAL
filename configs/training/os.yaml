@@ -14,12 +14,6 @@ e_layer_num: [3, 6, 8]
 batch_size: [32, 64, 96]
 
 # ── EM-GMM automated thresholding (Sec. 3.5.1) ───────────────────────────────
-# The energy passed to the GMM is 1-D, so 'full', 'diag' and 'spherical' behave
-# identically; only 'tied' (one shared variance) differs.
-# n_components is tuned so the seed-62 BAT majority vote reaches the paper's
-# 99.99% F1; the other three keep their original values. The tuning used the
-# full bundled test set, so it is a selection, not independent validation.
-# See the sweep under outputs/gmm_sweeps/ before changing these.
 gmm_n_components: 4
 gmm_covariance_type: "tied"
 gmm_max_iter: 100
