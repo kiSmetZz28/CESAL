@@ -327,6 +327,8 @@ python -m incident_response.workflows --results outputs/hdfs/llm/results_Qwen_Qw
 
 Response results are saved under `outputs/hdfs/llm/queues/`.
 
+**Workflows are selected and printed, not executed.** Every step in Table 1 acts on a live Hadoop cluster through its administrative interfaces, such as collecting NameNode logs, running `fsck`, refreshing metadata views, and triggering re-replication. The high-impact ones, including metadata modification, permanent block cleanup and service restart, are gated behind administrator approval in the paper's own design. This artifact ships no cluster and no credentials, so there is nothing to act on, and running destructive steps is not something an evaluation should do. What Table 1 claims, and what these commands reproduce, is the mapping from a predicted anomaly type to its predefined workflow; the step text is printed word for word so it can be checked against the paper, with approval-gated steps marked.
+
 **`run.py respond` needs the HDFS detection outputs**, which come from `run.py infer hdfs`, the ~15-day scan, so it cannot start from a fresh checkout within an evaluation window. The workflow mapping itself needs no detection run and no GPU: `workflows --results` on the output of `run.py classify`, as above, assigns every classified sequence its Table 1 workflow in seconds.
 
 <p align="center">

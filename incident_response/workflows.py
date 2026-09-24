@@ -147,6 +147,15 @@ def format_workflow(workflow: Workflow) -> str:
     return "\n".join(lines)
 
 
+# Printed after every selection so the boundary is visible without reading the README.
+_EXECUTION_NOTE = (
+    "\nSelection only: nothing above is executed. Table 1's steps act on a live Hadoop cluster\n"
+    "through its administrative interfaces, and the approval-gated ones are destructive, so no\n"
+    "cluster is contacted and no credentials are used. The step text is printed word for word to\n"
+    "be checked against the paper; what is reproduced here is the anomaly type to workflow mapping."
+)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Select predefined response workflows for predicted anomaly types.")
     group = parser.add_mutually_exclusive_group(required=True)
@@ -156,6 +165,7 @@ def main() -> None:
 
     if args.label:
         print(format_workflow(select_workflow(args.label)))
+        print(_EXECUTION_NOTE)
         return
 
     import pandas as pd
@@ -165,6 +175,7 @@ def main() -> None:
     print(f"{'predicted label':<{width}}  {'sequences':>9}  workflow")
     for lab, n, wf in rows:
         print(f"{lab:<{width}}  {n:>9}  {wf}")
+    print(_EXECUTION_NOTE)
 
 
 if __name__ == "__main__":
