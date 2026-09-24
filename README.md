@@ -9,6 +9,8 @@
 ---
 
 > **Getting started with CESAL.** Use the [Docker image](#run-in-docker-no-environment-setup), which includes both Conda environments, and follow the [running instructions](#running-cesal) for OpenStack detection and HDFS incident classification. Together, these take approximately 5–6 hours after setup and downloads on the documented workstation.
+>
+> **Why this pairing.** Both datasets exercise the same detection implementation and both are evaluated in the paper, so detection defaults to OpenStack: the HDFS dataset is far larger, and its scan runs for [many days](#why-hdfs-detection-takes-days), well beyond the one-day evaluation path. Classification uses HDFS because only its abnormal sequences map to failure categories and the predefined response workflows, and it runs on the bundled test set without needing a detection run.
 
 ## How It Works
 
@@ -297,6 +299,8 @@ One command runs the detection pipeline: Q-BAT scores events in complete test wi
 **Where the edge tier runs.** Both tiers run on one machine here, with separate environments and processes and quantized `.pte` models on CPU for the edge tier. Detection results should be compared using the documented tolerances; physical edge resource measurements require the boards. See [How this artifact differs from the paper's deployment](#how-this-artifact-differs-from-the-papers-deployment).
 
 ### Step 4 — Incident classification and controlled response (HDFS)
+
+Open-set anomaly type classification uses a multi-class evaluation set built from abnormal HDFS log sequences. HDFS is used because its anomalous sequences can be associated with specific failure categories and further linked to the predefined response workflows. OpenStack is used only for binary LAD evaluation because its labels do not provide a reliable sequence-level correspondence between abnormal log sequences and specific anomaly types.
 
 Runs in `cesal-cloud` and needs a CUDA GPU. Llama-3.1-8B and gemma-2-9b are gated on Hugging Face — accept their licenses and run `hf auth login` first.
 
