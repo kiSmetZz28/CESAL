@@ -4,7 +4,7 @@ Usage
 -----
   python run.py check                      # software checks, grouped by component
   python run.py smoke    [os]              # small real edge-to-cloud experiment
-  python run.py all      [DATASET]          # download → detect → HDFS queued response
+  python run.py all      [DATASET]          # download → detect  (hdfs also classifies + responds)
   python run.py download [DATASET] [TYPE]
   python run.py train    [DATASET]
   python run.py baseline [os hdfs] [--edge-python PATH]
@@ -159,10 +159,11 @@ def main() -> None:
                     *(["--model", model] if model else []))
 
     elif command == "all":
-        # Fetch published checkpoints and run detection; for HDFS, also classify
-        # queued incidents and select workflows. Standalone Table 7 evaluation
+        # Fetch published checkpoints and run detection; defaults to OpenStack like the
+        # other commands. Pass 'hdfs' for the full pipeline, which also classifies
+        # queued incidents and selects workflows. Standalone Table 7 evaluation
         # and cloud-only Table 3 evaluation use the classify and eval commands.
-        dataset = argv[1] if len(argv) > 1 else "hdfs"
+        dataset = argv[1] if len(argv) > 1 else "os"
         print(f"[run] Full pipeline — dataset: {dataset}\n")
 
         sys.path.insert(0, str(_ROOT))

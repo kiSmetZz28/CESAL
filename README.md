@@ -10,7 +10,7 @@
 
 > **Getting started with CESAL.** Use the [Docker image](#run-in-docker-no-environment-setup), which includes both Conda environments, and follow the [running instructions](#running-cesal) for OpenStack detection and HDFS incident classification. Together, these take approximately 5–6 hours after setup and downloads on the documented workstation.
 >
-> **Why this pairing.** CESAL is evaluated on the **HDFS** and **OpenStack** public log datasets, both benchmarks distributed by [loghub](https://github.com/logpai/loghub) and bundled here as parsed event sequences under [`data/`](data/). Both exercise the same detection implementation and both are evaluated in the paper, so detection defaults to OpenStack: the HDFS dataset is far larger, and its scan runs for [many days](#why-hdfs-detection-takes-days), well beyond the one-day evaluation path. Classification uses HDFS because only its abnormal sequences map to failure categories and the predefined response workflows, and it runs on the bundled test set without needing a detection run.
+> **Why this pairing.** **HDFS** and **OpenStack** are public log benchmarks distributed by [loghub](https://github.com/logpai/loghub), bundled here as parsed event sequences under [`data/`](data/). Both exercise the same detection implementation and both are evaluated in the paper, so detection defaults to OpenStack: the HDFS dataset is far larger, and its scan runs for [many days](#why-hdfs-detection-takes-days), far beyond the few hours above. Classification uses HDFS because only its abnormal sequences map to failure categories and the predefined response workflows, and it runs on the bundled test set without needing a detection run.
 
 ## How It Works
 
@@ -125,9 +125,9 @@ The installer creates both environments, installs the ExecuTorch runtime, and en
 
 For either setup route, `all os` runs OpenStack detection using whichever models are already in `checkpoints/`, whether you trained or downloaded them; if none are there it offers both routes first. [Step 2](#step-2--obtain-the-bat-and-q-bat-models) covers the two routes. The separate classification command uses the bundled HDFS test sequences and references; it does not classify the OpenStack detection output.
 
-**Dataset selection.** OpenStack is the default for `infer`, `eval`, `train`, `convert` and `sweep`. Use the explicit `all os` command shown above: `all` without a dataset defaults to HDFS and includes its multi-day detection stage ([why](#why-hdfs-detection-takes-days)).
+**Dataset selection.** OpenStack is the default for every command, including `all`. Pass `hdfs` explicitly to run the complete pipeline through classification and response, which brings in its [multi-day detection stage](#why-hdfs-detection-takes-days).
 
-Steps 1–4 below explain setup, checkpoints, detection, and classification/response in detail. The optional dashboard provides another interface to these stages.
+Steps 1–4 below explain setup, checkpoints, detection, and classification/response in detail. The optional [web dashboard](#optional--the-web-dashboard) joins the same stages end to end, which is the clearest way to see the complete pipeline.
 
 ### Pipeline overview
 
@@ -239,7 +239,7 @@ python run.py convert os              # quantize → .pte in checkpoints/qbat/os
 
 The `eval` step matters: thresholds are calibrated from the models' own energies, so newly trained weights need their own thresholds. It rewrites the 81 cloud thresholds and the three derived edge values together. Skipping it leaves `infer` scoring your models against the published models' thresholds, which fails quietly rather than loudly.
 
-**Or download the published checkpoints** — the exact models the paper's numbers were measured on, and the faster route if you only want to reproduce the reported scores:
+**Or download the published checkpoints** — the models this artifact ships and reports its scores on, and the faster route if you only want to reproduce them:
 
 ```bash
 conda activate cesal-edge
@@ -339,7 +339,16 @@ Response results are saved under `outputs/hdfs/llm/queues/`.
 
 ### Optional — the web dashboard
 
-The terminal commands are the paper-result evaluation path. The optional browser UI demonstrates detection, classification and workflow selection: `python launch_dashboard.py` fetches missing dashboard assets and serves **http://localhost:8765**; `python dashboard/app.py` starts it directly without asset setup. The launcher provides `--status`, `--setup-only` and `--no-bat` flags. Batch controls can invoke the CLI stages, but the single-sequence preview uses BAT models as an edge proxy and a margin/disagreement routing rule. The fallback demo runner also uses BAT at the edge. These previews do not establish Q-BAT paper results. Set `EDGE_PYTHON` / `CLOUD_PYTHON` for dashboard subprocesses when using custom environments; the CLI cloud override is `CESAL_CLOUD_PYTHON`. The documented evaluation commands do not depend on the dashboard.
+The terminal commands in Steps 1–4 are the paper-result evaluation path, and none of them depend on the dashboard. The browser UI exists for a different purpose: seeing the proposed framework as a whole. The CLI reports one stage at a time, whereas the dashboard follows log sequences through edge detection, routing, cloud verification, open-set classification and workflow selection in one place, which is the clearest way to inspect the complete pipeline.
+
+**Launch.**
+
+```bash
+python launch_dashboard.py    # fetch missing assets, then serve http://localhost:8765
+python dashboard/app.py       # start directly, skipping asset setup
+```
+
+**End-to-end incident view (HDFS).** The incident pages present the per-sequence record that `run.py respond` produces. Each entry carries the tier that detected the sequence (`Q_E` or `Q_C`), the anomalous event counts behind that decision, the predicted anomaly type, and the selected Table 1 workflow with its approval and escalation steps, so one sequence can be followed from detection through to its response plan. Sequences labelled `Other anomaly type` appear under the human-investigation workflow. This view needs `run.py respond`, which in turn needs the HDFS detection outputs from the [multi-day scan](#why-hdfs-detection-takes-days); without them the page states what to run instead of showing results.
 
 ---
 

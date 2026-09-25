@@ -2760,8 +2760,9 @@ function irRenderSummary(d) {
 
   document.getElementById('irSummary').innerHTML = `
     <div class="kpi-row">
-      <div class="kpi c-blue">  <div class="kl">Queued incidents</div>  <div class="kv">${fmtNum(c.total)}</div>
-        <div class="ks">${fmtNum(c.edge)} edge · ${fmtNum(c.cloud)} cloud</div></div>
+      <div class="kpi c-blue" title="${c.cloud ? 'Q_E holds sequences the edge decided alone; Q_C holds those where cloud-side BAT confirmed an anomaly.' : 'Q_C is empty: the router escalates the sequences closest to the decision boundary, and cloud-side BAT cleared all of them, so no sequence was confirmed anomalous in the cloud. Confidently anomalous sequences stay at the edge, which is why Q_E holds them all.'}">
+        <div class="kl">Queued incidents</div>  <div class="kv">${fmtNum(c.total)}</div>
+        <div class="ks">${fmtNum(c.edge)} edge · ${fmtNum(c.cloud)} cloud${c.cloud ? '' : ' <span class="wf-ico" style="cursor:help" tabindex="0" aria-label="Why the cloud queue is empty">i</span>'}</div></div>
       <div class="kpi c-red">   <div class="kl">True anomalies</div>    <div class="kv">${fmtNum(c.abnormal)}</div>
         <div class="ks">${fmtNum(c.false_positive)} detector false positives</div></div>
       <div class="kpi c-amber"> <div class="kl">Human investigation</div><div class="kv">${fmtNum(c.human_investigation)}</div>
