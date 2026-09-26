@@ -839,6 +839,21 @@ async def predict_from_raw(
                          dataset, split, window_idx, exc)
             result["ground_truth"] = None
 
+    # A raw line belongs to a sequence, and it is the sequence that gets
+    # classified — so the line inherits its sequence's incident rather than
+    # getting one of its own. Present only when that sequence was detected as
+    # anomalous and therefore queued.
+    if split == "test":
+        try:
+            result["incident"] = await asyncio.to_thread(
+                lambda: _incident_for_session(
+                    dataset, _session_index_for_event(dataset, window_idx)))
+        except Exception as exc:
+            import logging as _log
+            _log.warning("predict_from_raw: incident lookup failed %s/%d: %s",
+                         dataset, window_idx, exc)
+            result["incident"] = None
+
     return result
 
 
@@ -997,6 +1012,11 @@ def _load_incidents(dataset: str) -> dict:
     data = {
         "available": True, "key": key, "model": model,
         "incidents": incidents, "classified": classified, "evaluation": evaluation,
+        # session_id is the index into the concatenated test sequences, which is
+        # the same index predict_from_raw resolves a raw log line to, so a clicked
+        # line can be joined straight to its incident.
+        "by_session": {r["session_id"]: r for r in incidents
+                       if isinstance(r.get("session_id"), int)},
         "files": {
             "incidents": str(inc_path.relative_to(ROOT)),
             "classified": str(cls_path.relative_to(ROOT)) if cls_path.is_file() else None,
@@ -1005,6 +1025,60 @@ def _load_incidents(dataset: str) -> dict:
     }
     _INCIDENT_CACHE[dataset] = data
     return data
+
+
+_SESSION_ENDS_CACHE: dict = {}
+
+
+def _session_index_for_event(dataset: str, event_index: int) -> int | None:
+    """Map a per-event index to the log sequence that contains it.
+
+    predict_from_raw resolves an HDFS raw line to a position in the flattened
+    event stream, whereas incidents are keyed by sequence. queues.py lays the
+    stream out as the concatenated test sequences, so the sequence is found by
+    bisecting their cumulative lengths.
+    """
+    if dataset != "hdfs" or event_index is None or event_index < 0:
+        return None
+    ends = _SESSION_ENDS_CACHE.get(dataset)
+    if ends is None:
+        paths = _TXT_PATHS.get(dataset, {}).get("test", [])
+        lines = _read_txt_lines(paths)
+        if not lines:
+            return None
+        import numpy as _np
+        ends = _np.cumsum([len(l.split()) for l in lines])
+        _SESSION_ENDS_CACHE[dataset] = ends
+    if event_index >= ends[-1]:
+        return None
+    return int(ends.searchsorted(event_index, side="right"))
+
+
+def _incident_for_session(dataset: str, session_id: int) -> dict | None:
+    """Classification and response for the sequence a raw log line belongs to.
+
+    Only sequences detection flagged are queued, so this returns None for a
+    sequence that was never detected as anomalous — there is nothing to show.
+    """
+    data = _load_incidents(dataset)
+    if not data.get("available"):
+        return None
+    if session_id is None:
+        return None
+    row = (data.get("by_session") or {}).get(int(session_id))
+    if row is None:
+        return None
+    return {
+        "session_id": row["session_id"],
+        "queue": row.get("queue"),
+        "pred_label": row.get("pred_label"),
+        "automated_response": row.get("automated_response"),
+        "approval_steps": row.get("approval_steps", 0),
+        "escalation_steps": row.get("escalation_steps", 0),
+        "n_anomalous_events": row.get("n_anomalous_events"),
+        "n_events": row.get("n_events"),
+        "workflow": _workflow_payload(row.get("pred_label", "")),
+    }
 
 
 def _workflow_payload(label: str) -> dict:
@@ -1022,6 +1096,69 @@ def _workflow_payload(label: str) -> dict:
         "steps": [{"action": s.action, "requires_approval": s.requires_approval,
                    "escalation": s.escalation} for s in wf.steps],
     }
+
+
+# Table 7, macro average for the default backbone (Qwen2.5-14B-Instruct). Shown
+# until a classification run of this artifact produces a measured value.
+_TABLE7_PAPER_MACRO_F1 = 0.8303
+
+
+def _table7_per_class(dataset: str) -> tuple[list, str]:
+    """Per-class Table 7 scores for the default backbone, measured if available.
+
+    Both files carry the same columns and cover the bundled classification test
+    set, which is the population Table 7 reports. The reference file ships with
+    the artifact; the long file is written by `run.py classify`.
+    """
+    base = ROOT / "outputs" / dataset / "llm"
+    for path, source in ((base / "per_class_metrics_long.csv", "measured"),
+                         (base / "table7_reference_metrics.csv", "paper")):
+        if not path.is_file():
+            continue
+        try:
+            with open(path, newline="", encoding="utf-8") as f:
+                rows = list(csv.DictReader(f))
+        except OSError:
+            continue
+        models = {r.get("model", "") for r in rows}
+        pick = next((m for m in sorted(models) if "14B" in m), next(iter(sorted(models)), ""))
+        # The reference file ends with a 'macro avg' row; it is the KPI above,
+        # not an anomaly type, so it must not render as one.
+        aggregates = {"macro avg", "weighted avg", "micro avg", "accuracy", "macro average"}
+        out = []
+        for r in rows:
+            if r.get("model") != pick or not r.get("f1"):
+                continue
+            if str(r.get("label", "")).strip().lower() in aggregates:
+                continue
+            try:
+                out.append({"label": r["label"], "precision": float(r["precision"]),
+                            "recall": float(r["recall"]), "f1": float(r["f1"]),
+                            "support": int(float(r.get("support") or 0))})
+            except (TypeError, ValueError):
+                continue
+        if out:
+            return out, source
+    return [], "paper"
+
+
+def _table7_macro_f1(dataset: str) -> tuple[float, str]:
+    """Macro-F1 for the default backbone: measured if a run wrote one, else the paper's.
+
+    model_summary.csv is written by `run.py classify` over the bundled
+    classification test set, which is the population Table 7 reports.
+    """
+    path = ROOT / "outputs" / dataset / "llm" / "model_summary.csv"
+    if path.is_file():
+        try:
+            with open(path, newline="", encoding="utf-8") as f:
+                rows = [r for r in csv.DictReader(f) if r.get("macro_f1")]
+            if rows:
+                best = next((r for r in rows if "14B" in r.get("model", "")), rows[0])
+                return float(best["macro_f1"]), "measured"
+        except (OSError, TypeError, ValueError):
+            pass
+    return _TABLE7_PAPER_MACRO_F1, "paper"
 
 
 @app.get("/api/incidents/summary")
@@ -1064,10 +1201,21 @@ async def incidents_summary(dataset: str = "hdfs"):
                          key=lambda x: (not x["automated_response"], -x["count"])),
         "unique_sequences": len(cls) or len({r["template_sequence"] for r in inc}),
         "llm_calls": sum(1 for r in cls.values() if r.get("raw_output")),
-        "evaluation": data["evaluation"],
+        # Table 7 population, so it lines up with the Macro-F1 above.
+        "evaluation": _table7_per_class(dataset)[0],
+        "evaluation_source": _table7_per_class(dataset)[1],
         "weighted_f1": (
             sum(e["f1"] * e["support"] for e in data["evaluation"])
             / sum(e["support"] for e in data["evaluation"])
+        ) if data["evaluation"] else None,
+        # The paper reports this module with macro averaging (Table 7), so show
+        # that rather than a weighted mean. macro_f1 comes from the Table 7
+        # summary the classify run writes; queue_macro_f1 is the same statistic
+        # over the detected incidents, which is a different population.
+        "macro_f1": _table7_macro_f1(dataset)[0],
+        "macro_f1_source": _table7_macro_f1(dataset)[1],
+        "queue_macro_f1": (
+            sum(e["f1"] for e in data["evaluation"]) / len(data["evaluation"])
         ) if data["evaluation"] else None,
     }
 
