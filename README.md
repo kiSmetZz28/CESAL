@@ -13,7 +13,7 @@
 > **Why this pairing.** **HDFS** and **OpenStack** are public log benchmarks distributed by [loghub](https://github.com/logpai/loghub), bundled here as parsed event sequences under [`data/`](data/). Both exercise the same detection implementation and both are evaluated in the paper, so detection defaults to OpenStack: the HDFS dataset is far larger, and its scan runs for [many days](#why-hdfs-detection-takes-days), far beyond the few hours above. Classification uses HDFS because only its abnormal sequences map to failure categories and the predefined response workflows, and it runs on the bundled test set without needing a detection run.
 
 > [!TIP]
-> **New in v1.1: to see the complete pipeline, use the dashboard.** Edge detection with Q-BAT, Mahalanobis routing, cloud verification with BAT, open-set classification of a detected sequence, and the predefined response workflow it selects are presented together for HDFS. The sections below describe these stages one at a time; [the web dashboard](#optional--the-web-dashboard) shows them working as a single flow.
+> **New in v1.1: to see the complete pipeline, use the dashboard.** Edge detection with Q-BAT, Mahalanobis routing, cloud verification with BAT, open-set classification of a detected sequence, and the predefined response workflow it selects are presented together for HDFS. The sections below describe these stages one at a time; [the web dashboard](#optional--the-web-dashboard) provides a demo to demonstrate the complete pipeline.
 
 ## How It Works
 
