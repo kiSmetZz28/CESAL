@@ -13,7 +13,7 @@
 > **Why this pairing.** **HDFS** and **OpenStack** are public log benchmarks distributed by [loghub](https://github.com/logpai/loghub), bundled here as parsed event sequences under [`data/`](data/). Both exercise the same detection implementation and both are evaluated in the paper, so detection is evaluated on OpenStack: the HDFS dataset is far larger, and its scan runs for [many days](#why-hdfs-detection-takes-days), far beyond the few hours above. Classification uses HDFS because only its abnormal sequences map to failure categories and the predefined response workflows, and it runs on the bundled test set without needing a detection run.
 
 > [!TIP]
-> **New in v1.1: a demonstration of the whole pipeline.** The commands in this README evaluate the HDFS and OpenStack datasets and report detection and classification performance (v1.0). The dashboard complements them: for HDFS it presents edge detection with Q-BAT, Mahalanobis routing, cloud verification with BAT, the open-set classification of a detected sequence, and the predefined response workflow that classification selects. The sections below describe these stages one at a time; [the web dashboard](#optional--the-web-dashboard) shows how each one feeds the next.
+> **New in v1.1 (2026-09-27): a demonstration of the whole pipeline.** The commands in this README evaluate the HDFS and OpenStack datasets and report detection and classification performance (v1.0). The dashboard complements them: for HDFS it presents edge detection with Q-BAT, Mahalanobis routing, cloud verification with BAT, the open-set classification of a detected sequence, and the predefined response workflow that classification selects. The sections below describe these stages one at a time; [the web dashboard](#optional--the-web-dashboard) shows how each one feeds the next.
 
 ## Artifact Evaluation (ACSAC 2026)
 
@@ -616,4 +616,4 @@ Reviewers received git tag **`v1.1`** and Docker image **`ghcr.io/kismetzz28/ces
 - 2026-10-05: added the [Artifact Evaluation](#artifact-evaluation-acsac-2026) section and this change log; aligned the OpenStack detection runtime with the submitted abstract (~3 h 20 m); replaced references to reproduction tolerances with references to the paper's results.
 - 2026-10-06: improved the README according to the artifact-evaluation documentation requirements and improved the documentation overall.
 
-**Earlier versions.** `v1.0` (2026-09-26): detection, classification and response evaluation. `v1.1` (2026-09-26): adds the web dashboard demonstration of the whole HDFS pipeline.
+**Earlier versions.** `v1.0` (2026-09-27): detection, classification and response evaluation. `v1.1` (2026-09-27): adds the web dashboard demonstration of the whole HDFS pipeline.
