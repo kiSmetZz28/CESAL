@@ -125,7 +125,7 @@ After abnormal sequences are detected, CESAL can optionally invoke a cloud-side 
 
 **In this artifact, both tiers run on a single machine.** A reviewer cannot be assumed to own a Raspberry Pi, and requiring one would make the artifact unrunnable for most people. The separation is nonetheless real rather than simulated:
 
-- two separate Conda environments, `cesal-edge` (CPU) and `cesal-cloud` (CPU or GPU for BAT);
+- two separate Conda environments, `cesal-edge` (CPU) and `cesal-cloud` (GPU required for BAT);
 - two separate processes — the edge stage spawns the cloud stage as a subprocess;
 - the edge stage loads quantized `.pte` models and executes them through ExecuTorch on CPU, using Python bindings or the C++ runner;
 - [cesal_inference_pipeline/run.py](cesal_inference_pipeline/run.py) never loads a full-precision BAT checkpoint inside the edge environment.
@@ -267,7 +267,7 @@ CESAL uses **two Conda environments**, one for each inference tier:
 | Environment   | Tier      | Stack                                       | What runs in it                                                                                                                                                                                                             |
 | ------------- | --------- | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `cesal-edge`  | **Edge**  | PyTorch 2.6 (CPU) + ExecuTorch 0.5          | Dashboard, Q-BAT edge inference (`.pte` via ExecuTorch), pipeline orchestration. CPU is sufficient.                                                                                                                         |
-| `cesal-cloud` | **Cloud** | PyTorch 2.4 + CUDA 12.4 + transformers 4.47 | BAT ensemble training (81 models), cloud re-check inference, and LLM-based incident classification and response (`incident_response/`). GPU strongly recommended; the inference pipeline launches this env as a subprocess. |
+| `cesal-cloud` | **Cloud** | PyTorch 2.4 + CUDA 12.4 + transformers 4.47 | BAT ensemble training (81 models), cloud re-check inference, and LLM-based incident classification and response (`incident_response/`). GPU required; the inference pipeline launches this env as a subprocess.      |
 
 **Why two?** Edge runs ExecuTorch (compact, CPU-only, `.pte` quantized models); cloud runs full-precision PyTorch with CUDA. Separating them keeps each install minimal and avoids version conflicts between the two.
 
@@ -614,5 +614,6 @@ Reviewers received git tag **`v1.1`** and Docker image **`ghcr.io/kismetzz28/ces
 
 - 2026-09-27 and 2026-09-29: reworded the "New in v1.1" note at the top of this README.
 - 2026-10-05: added the [Artifact Evaluation](#artifact-evaluation-acsac-2026) section and this change log; aligned the OpenStack detection runtime with the submitted abstract (~3 h 20 m); replaced references to reproduction tolerances with references to the paper's results.
+- 2026-10-06: improved the README according to the artifact-evaluation documentation requirements and improved the documentation overall.
 
 **Earlier versions.** `v1.0` (2026-09-26): detection, classification and response evaluation. `v1.1` (2026-09-26): adds the web dashboard demonstration of the whole HDFS pipeline.
