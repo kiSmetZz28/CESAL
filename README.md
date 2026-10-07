@@ -69,7 +69,7 @@ The four claims take about **5 h 20 m** in total on the tested workstation, excl
 
 **Badge mapping.**
 
-- **Available:** this public repository (MIT license), the public Docker image, and the checkpoints and ExecuTorch runtime, all downloadable without credentials. The evaluated revision will be archived with a DOI after evaluation.
+- **Available:** this public repository, the public Docker image, and the checkpoints and ExecuTorch runtime, all downloadable without credentials. Everything evaluated is public; nothing is withheld.
 - **Functional:** the minimal check (`check`, `smoke`, unit tests), C4, and optionally training.
 - **Reproduced:** C1, C2 and C3.
 
@@ -432,7 +432,7 @@ python run.py convert hdfs
 
 Quantizes the trained EM-AT checkpoints and exports each as an ExecuTorch program under `checkpoints/qbat/{dataset}/`. The command converts every grid point, so you can pick which learners to deploy; the `edge_models` list in `configs/inference/<dataset>.yaml` names the **3** that make up Q-BAT.
 
-Conversion reports the size each model drops to and the total before and after, so the benefit of quantization is visible rather than implied. Missing or failed requested learners make the command exit with a nonzero status after processing the available models; successful exports are kept.
+Conversion reports the size each model drops to and the total before and after. Missing or failed requested learners make the command exit with a nonzero status after processing the available models; successful exports are kept.
 
 ### Evaluate the ensemble
 
@@ -585,14 +585,6 @@ Data processing has three stages: parsing raw messages, grouping log events into
 CESAL is evaluated on the **HDFS** and **OpenStack** log datasets, both public benchmarks distributed by [loghub](https://github.com/logpai/loghub). The parsed event-sequence splits are bundled under [`data/`](data/), so detection needs no raw-log download. Checkpoints and the runtime are separate downloads.
 
 Both datasets contain only machine-generated operational telemetry — block identifiers, execution states and error traces. They include no personal data and no human-subject data, and no user study was conducted. CESAL itself is released under the [MIT license](LICENSE).
-
-### Public release statement
-
-The entire artifact is public and stays public. This repository holds all of the source code — data processing, the EM-AT base learner, BAT training, Q-BAT quantization and ExecuTorch export, the routing policy, the cloud-edge inference pipeline, the RAG-based classifier and the response workflows — under the [MIT license](LICENSE), together with the parsed dataset splits, the inference configs, the calibration thresholds and the unit test suite. The trained BAT and Q-BAT checkpoints behind the published numbers, and the ExecuTorch runtime the edge side needs, are hosted separately only because of file-size limits and are fetched by `run.py download` without credentials.
-
-**No part of the artifact is withheld.** There are no proprietary components, no private datasets and no code held back from release. Both log datasets are public benchmarks redistributed by [loghub](https://github.com/logpai/loghub); the LLM backbones are public Hugging Face models, two of which (Llama-3.1-8B-Instruct and Gemma-2-9B-IT) require accepting the publisher's license before download.
-
-Following artifact evaluation, the evaluated revision will be deposited in a permanent public archive with a DOI, and the citation updated with that identifier. This repository is the canonical location for evaluation.
 
 ## Change log
 
