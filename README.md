@@ -293,13 +293,7 @@ pip install -r environment/cloud/requirements.txt \
 pip install -e .
 ```
 
-> Edge and cloud install **different** requirements files and PyTorch builds (CPU vs CUDA), so they must be separate envs. The inference pipeline also relies on this split: edge orchestrates and spawns cloud inference as a subprocess pointed at the cloud env's interpreter.
-
-**Verify both environments exist:**
-
-```bash
-conda env list   # should list both 'cesal-edge' and 'cesal-cloud'
-```
+> Edge and cloud install different requirements files and PyTorch builds (CPU vs CUDA), so they must be separate envs. The inference pipeline also relies on this split: edge orchestrates and spawns cloud inference as a subprocess pointed at the cloud env's interpreter.
 
 ### Step 2 — Obtain the BAT and Q-BAT models
 
