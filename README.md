@@ -85,7 +85,7 @@ The paper-component-to-code mapping is in [Paper ↔ Code Mapping](#paper--code-
 ### Known limitations and reduced-scale alternatives
 
 - **HDFS detection takes about 15 days.** HDFS uses the identical code path, but its test split produces about 140 times as many windows as OpenStack for the CPU-bound edge scan. The detection claims are therefore evaluated on OpenStack, and HDFS classification (C3) runs on its bundled test set without a detection run. See [Why HDFS detection takes days](#why-hdfs-detection-takes-days).
-- **Edge resource measurements (Table 6) need physical Raspberry Pi 3B+/4B/5 boards** and are not reproduced here. Both tiers run on one machine, in separate environments and processes; see [How this artifact differs from the paper's deployment](#how-this-artifact-differs-from-the-papers-deployment).
+- **Edge resource measurements (Table 6) need physical Raspberry Pi 3B+/4B/5 boards** and are not reproduced here. The edge and cloud sides run on one machine, in separate environments and processes; see [How this artifact differs from the paper's deployment](#how-this-artifact-differs-from-the-papers-deployment).
 - **Response workflows are selected, not executed.** No Hadoop cluster or credentials are involved.
 - **Nondeterminism.** EM-GMM thresholds depend on the scikit-learn version, so calibrate only in the pinned `cesal-cloud` environment. LLM generation can vary with GPU model, driver and memory offloading. Runtimes depend on the hardware.
 - **Downloads.** Checkpoints are hosted on Google Drive, which can throttle requests; rerun the same command to resume. Raw log files are not needed for any claim.
@@ -115,15 +115,15 @@ After abnormal sequences are detected, CESAL can optionally invoke a cloud-side 
 
 **BAT — the cloud detector.** BAT ensembles **81** EM-AT learners trained on bootstrap samples drawn with replacement, across configurations of epochs, loss weight, encoder depth and batch size. Each learner has its own EM-GMM threshold; predictions are combined by majority vote.
 
-**Q-BAT — the edge detector.** For efficient edge-side inference, Q-BAT keeps **3** learners and quantizes them with TorchAO (8-bit activations, 4-bit weights), exporting each as an ExecuTorch program — ensemble robustness at a size a Raspberry Pi can run.
+**Q-BAT — the edge detector.** For efficient edge-side inference, Q-BAT keeps **3** learners and quantizes them with TorchAO (8-bit activations, 4-bit weights), exporting each as an ExecuTorch program small enough to run on a Raspberry Pi.
 
 **LLM classifier.** Qwen2.5-14B-Instruct is the paper's selected backbone. Each sequence is compared with retrieved reference sequences; open-set decision rules, with LLM generation when needed, then assign one of 10 known HDFS anomaly types or "unknown". `run.py classify` without a model argument evaluates all four configured backbones.
 
 ### How this artifact differs from the paper's deployment
 
-**In the paper, the edge tier runs on a physical Raspberry Pi.** Q-BAT is quantized and exported for edge deployment, and the routing policy selects data for cloud verification.
+**In the paper, the edge side runs on a physical Raspberry Pi.** Q-BAT is quantized and exported for edge deployment, and the routing policy selects data for cloud verification.
 
-**In this artifact, both tiers run on a single machine.** A reviewer cannot be assumed to own a Raspberry Pi, and requiring one would make the artifact unrunnable for most people. The separation is nonetheless real rather than simulated:
+**In this artifact, the edge and cloud sides run on a single machine.** A reviewer cannot be assumed to own a Raspberry Pi, and requiring one would make the artifact unrunnable for most people. The two sides are still kept separate:
 
 - two separate Conda environments, `cesal-edge` (CPU) and `cesal-cloud` (GPU required for BAT);
 - two separate processes — the edge stage spawns the cloud stage as a subprocess;
@@ -260,9 +260,9 @@ The approximately 15-day HDFS figure in the timing summary is extrapolated from 
 
 That creates both Conda environments, installs their pinned requirements, installs CESAL into each, fetches the ExecuTorch 0.5.0 runtime, and finishes with the core software checks. Rerunning it reuses existing environments but may update their packages. Skip installation when using a prepared [Docker image](#run-in-docker-no-environment-setup).
 
-CESAL uses **two Conda environments**, one for each inference tier:
+CESAL uses **two Conda environments**, one for the edge side and one for the cloud side:
 
-| Environment   | Tier      | Stack                                       | What runs in it                                                                                                                                                                                                 |
+| Environment   | Side      | Stack                                       | What runs in it                                                                                                                                                                                                 |
 | ------------- | --------- | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `cesal-edge`  | **Edge**  | PyTorch 2.6 (CPU) + ExecuTorch 0.5          | Dashboard, Q-BAT edge inference (`.pte` via ExecuTorch), pipeline orchestration. CPU is sufficient.                                                                                                             |
 | `cesal-cloud` | **Cloud** | PyTorch 2.4 + CUDA 12.4 + transformers 4.47 | BAT ensemble training (81 models), cloud re-check inference, and LLM-based incident classification and response (`incident_response/`). GPU required; the inference pipeline launches this env as a subprocess. |
@@ -328,7 +328,7 @@ python run.py download hdfs qbat      # HDFS quantized Q-BAT + ExecuTorch runtim
 
 BAT downloads use one ZIP per dataset (`ensemble_os.zip` or `ensemble_hdfs.zip`). The downloader verifies the archive and extracted models with SHA-256 checksums, then installs the 81 `.pth` files into the existing checkpoint directory. It reuses matching installed models and local archives under `checkpoints/bat/`; Q-BAT still downloads its three `.pte` files individually. Existing model files are never silently replaced.
 
-**What these models are.** Both tiers are ensembles of the same base learner, **EM-AT**, trained over a 3×3×3×3 grid. **BAT** (cloud) uses all 81 at full precision; **Q-BAT** (edge) keeps **3** of them, quantized to 8-bit activations / 4-bit weights and exported as ExecuTorch `.pte` programs — a separate, smaller ensemble from the same checkpoints, not a quantized copy of BAT.
+**What these models are.** Both detectors are ensembles of the same base learner, **EM-AT**, trained over a 3×3×3×3 grid. **BAT** (cloud) uses all 81 at full precision; **Q-BAT** (edge) keeps **3** of them, quantized to 8-bit activations / 4-bit weights and exported as ExecuTorch `.pte` programs — a separate, smaller ensemble from the same checkpoints, not a quantized copy of BAT.
 
 Whenever Q-BAT is in the download set, `run.py download` also installs the **ExecuTorch 0.5.0 runtime** and its bundled `torchao`, which `infer` and `convert` both need. Raw log files are _not_ fetched — only the optional dashboard needs those.
 
@@ -416,7 +416,7 @@ python launch_dashboard.py    # fetch missing assets, then serve http://localhos
 python dashboard/app.py       # start directly, skipping asset setup
 ```
 
-**End-to-end incident view (HDFS).** The incident pages present the per-sequence record that `run.py respond` produces. Each entry carries the tier that detected the sequence (`Q_E` or `Q_C`), the anomalous event counts behind that decision, the predicted anomaly type, and the selected Table 1 workflow with its approval and escalation steps, so one sequence can be followed from detection through to its response plan. Sequences labelled `Other anomaly type` appear under the human-investigation workflow. This view needs `run.py respond`, which in turn needs the HDFS detection outputs from the [multi-day scan](#why-hdfs-detection-takes-days); without them the page states what to run instead of showing results.
+**End-to-end incident view (HDFS).** The incident pages present the per-sequence record that `run.py respond` produces. Each entry carries the side (edge or cloud) that detected the sequence (`Q_E` or `Q_C`), the anomalous event counts behind that decision, the predicted anomaly type, and the selected Table 1 workflow with its approval and escalation steps, so one sequence can be followed from detection through to its response plan. Sequences labelled `Other anomaly type` appear under the human-investigation workflow. This view needs `run.py respond`, which in turn needs the HDFS detection outputs from the [multi-day scan](#why-hdfs-detection-takes-days); without them the page states what to run instead of showing results.
 
 ---
 
@@ -588,7 +588,7 @@ Both datasets contain only machine-generated operational telemetry — block ide
 
 ### Public release statement
 
-The entire artifact is public and stays public. This repository holds all of the source code — data processing, the EM-AT base learner, BAT training, Q-BAT quantization and ExecuTorch export, the routing policy, the cloud-edge inference pipeline, the RAG-based classifier and the response workflows — under the [MIT license](LICENSE), together with the parsed dataset splits, the inference configs, the calibration thresholds and the unit test suite. The trained BAT and Q-BAT checkpoints behind the published numbers, and the ExecuTorch runtime the edge tier needs, are hosted separately only because of file-size limits and are fetched by `run.py download` without credentials.
+The entire artifact is public and stays public. This repository holds all of the source code — data processing, the EM-AT base learner, BAT training, Q-BAT quantization and ExecuTorch export, the routing policy, the cloud-edge inference pipeline, the RAG-based classifier and the response workflows — under the [MIT license](LICENSE), together with the parsed dataset splits, the inference configs, the calibration thresholds and the unit test suite. The trained BAT and Q-BAT checkpoints behind the published numbers, and the ExecuTorch runtime the edge side needs, are hosted separately only because of file-size limits and are fetched by `run.py download` without credentials.
 
 **No part of the artifact is withheld.** There are no proprietary components, no private datasets and no code held back from release. Both log datasets are public benchmarks redistributed by [loghub](https://github.com/logpai/loghub); the LLM backbones are public Hugging Face models, two of which (Llama-3.1-8B-Instruct and Gemma-2-9B-IT) require accepting the publisher's license before download.
 
