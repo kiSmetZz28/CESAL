@@ -163,7 +163,7 @@ Choose one setup route: the [Docker image](#run-in-docker-no-environment-setup),
 
 The published `v1.3` image contains both environments from [Step 1](#step-1--set-up-environments), the ExecuTorch runtime, classification dependencies, and the `check` and `smoke` commands. Skip Step 1 when using this image. If you change the source code locally, rebuild the image from the [Dockerfile](Dockerfile) to include your changes.
 
-**Host requirements.** The commands below use x86-64 Linux, Docker, an NVIDIA GPU and driver, and the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html). The `--gpus all` flag makes the GPU available inside the container for BAT verification and LLM classification.
+**Host requirements.** In addition to the [requirements table](#requirements-at-a-glance), `--gpus all` needs the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) on the host.
 
 ```bash
 docker pull ghcr.io/kismetzz28/cesal:v1.3        # ~10 GB
@@ -226,7 +226,7 @@ Steps 1–4 below explain setup, checkpoints, detection, and classification/resp
 
 ### Requirements
 
-**Software.** Linux, Conda, and Python 3.10. The edge environment runs PyTorch 2.6 (CPU) with ExecuTorch 0.5.0; the cloud environment runs PyTorch 2.4 with CUDA 12.4 and transformers 4.47. Exact pins are in [environment/edge/requirements.txt](environment/edge/requirements.txt) and [environment/cloud/requirements.txt](environment/cloud/requirements.txt); Step 1 creates both environments, or use the [Docker image](#run-in-docker-no-environment-setup), which already contains them.
+**Software.** See the [requirements table](#requirements-at-a-glance). [Step 1](#step-1--set-up-environments) creates both environments; the [Docker image](#run-in-docker-no-environment-setup) already contains them.
 
 > **EM-GMM thresholds depend on the scikit-learn version.** Automated thresholding (Sec. 3.5.1) fits a Gaussian mixture to each learner's energy scores, and that fit is **not stable across scikit-learn releases** even though its random state is fixed at 42. Calibrate only in `cesal-cloud`, with the versions pinned in [environment/cloud/requirements.txt](environment/cloud/requirements.txt).
 
