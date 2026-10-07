@@ -252,8 +252,6 @@ HDFS detection is fully supported, but its much larger test split and smaller mo
 
 The approximately 15-day HDFS figure in the timing summary is extrapolated from per-window measurements on the documented workstation. Runtime depends on the hardware and grows with the number of test windows.
 
-For practical artifact evaluation, use OpenStack detection and standalone HDFS incident classification. OpenStack exercises the detection pipeline in about 3 hours 20 minutes, while HDFS classification uses the bundled classification test set independently and takes approximately 1 hour 51 minutes for one backbone. Classification does not require the long HDFS detection scan.
-
 ### Step 1 — Set up environments
 
 **One command does all of it:**
@@ -366,13 +364,9 @@ conda activate cesal-edge
 python run.py infer os                # edge scan → routing → cloud re-check → final prediction
 ```
 
-OpenStack is the dataset to use here. `run.py infer hdfs` runs the identical pipeline over a far larger test split, which takes about 15 days — see [Why HDFS detection takes days](#why-hdfs-detection-takes-days).
-
 One command runs the detection pipeline: Q-BAT scores events in complete test windows, the Mahalanobis policy selects 10% of events by default, BAT verifies the selected events that fill complete cloud windows, and the predictions are merged. The cloud stage starts as a `cesal-cloud` subprocess automatically. Classification and workflow selection are separate stages.
 
 **What takes the time.** The edge scan dominates — one ExecuTorch CPU pass per Q-BAT learner over every window, so it scales with the number of test windows and the cores available, and the learners run in parallel. Cloud verification touches only the routed fraction (10% by default) on the GPU and is comparatively quick; routing and the merge are negligible.
-
-**Where the edge tier runs.** Both tiers run on one machine here, with separate environments and processes and quantized `.pte` models on CPU for the edge tier. Detection results should be compared with the [paper's results](#results); physical edge resource measurements require the boards. See [How this artifact differs from the paper's deployment](#how-this-artifact-differs-from-the-papers-deployment).
 
 ### Step 4 — Incident classification and controlled response (HDFS)
 
