@@ -10,10 +10,10 @@
 
 > **Getting started with CESAL.** Artifact reviewers should start with the [Artifact Evaluation](#artifact-evaluation-acsac-2026) section below: it lists the requirements, a minimal check, and the commands for each claim. The full evaluation takes about 5 h 20 m after setup and downloads on the documented workstation.
 >
-> **Why this pairing.** **HDFS** and **OpenStack** are public log benchmarks distributed by [loghub](https://github.com/logpai/loghub), bundled here as parsed event sequences under [`data/`](data/). Both exercise the same detection implementation and both are evaluated in the paper, so detection is evaluated on OpenStack: the HDFS dataset is far larger, and its scan runs for [many days](#why-hdfs-detection-takes-days), far beyond the few hours above. Classification uses HDFS because only its abnormal sequences map to failure categories and the predefined response workflows, and it runs on the bundled test set without needing a detection run.
+> **Why two datasets.** **HDFS** and **OpenStack** are public log benchmarks distributed by [loghub](https://github.com/logpai/loghub), bundled here as parsed event sequences under [`data/`](data/). The paper evaluates both, and both run through the same detection code. Here, detection is evaluated on OpenStack, because the HDFS detection scan takes [about 15 days](#why-hdfs-detection-takes-days). Classification uses HDFS, because only its abnormal sequences map to specific failure categories and response workflows; it runs on the bundled test set and does not need a detection run.
 
 > [!TIP]
-> **New in v1.1 (2026-09-27): a demonstration of the whole pipeline.** The commands in this README evaluate the HDFS and OpenStack datasets and report detection and classification performance (v1.0). The dashboard complements them: for HDFS it presents edge detection with Q-BAT, Mahalanobis routing, cloud verification with BAT, the open-set classification of a detected sequence, and the predefined response workflow that classification selects. The sections below describe these stages one at a time; [the web dashboard](#optional--the-web-dashboard) shows how each one feeds the next.
+> **New in v1.1 (2026-09-27): a demonstration of the whole pipeline.** The commands in this README, available since v1.0, measure detection and classification performance on HDFS and OpenStack. The web dashboard complements them: for HDFS, it follows a detected sequence through edge detection with Q-BAT, Mahalanobis routing, cloud verification with BAT, open-set classification, and the response workflow that the classification selects. The sections below describe these stages one at a time; [the web dashboard](#optional--the-web-dashboard) shows how each one feeds the next.
 
 ## Artifact Evaluation (ACSAC 2026)
 
@@ -58,12 +58,12 @@ For a native installation, run `./install.sh` and `conda activate cesal-edge` in
 
 The four claims take about **5 h 20 m** in total on the tested workstation, excluding downloads. The expected results are the values reported in the paper.
 
-| #   | Claim (paper)                                                       | Command and environment                                                                                                             | Runtime   | Expected result                                                                                                                                                         |
-| --- | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| C1  | Cloud–edge collaborative detection on OpenStack (Table 3, Sec. 3.6) | `python run.py all os` in `cesal-edge` (equivalently `run.py infer os` once checkpoints are present); the cloud stage starts itself | ~3 h 20 m | End-of-run summary, table `reported scores (%)`: row **Edge** = Q-BAT P 98.09 / R 100.00 / F1 99.03; row **Hybrid** = CESAL (10% routed) P 99.90 / R 100.00 / F1 99.95. |
-| C2  | Cloud-only BAT ensemble of 81 EM-AT learners on OpenStack (Table 3) | `python run.py eval os` in `cesal-cloud`                                                                                            | ~8 min    | End-of-run summary, row **majority** = BAT P 99.99 / R 100.00 / F1 99.99.                                                                                               |
-| C3  | Open-set incident classification on HDFS (Table 7, Sec. 4.6)        | `python run.py classify qwen2.5-14b-instruct` in `cesal-cloud`                                                                      | ~1 h 51 m | Macro P 79.71 / R 92.07 / F1 83.03 for Qwen2.5-14B-Instruct.                                                                                                            |
-| C4  | Predefined response-workflow selection (Table 1, Sec. 3.7)          | `python -m incident_response.workflows --results outputs/hdfs/llm/results_Qwen_Qwen2.5-14B-Instruct.csv` in `cesal-cloud`, after C3 | seconds   | Workflows match Table 1.                                                                                                                                                |
+| #   | Claim (paper)                                                       | Command and environment                                                                                                                    | Runtime   | Expected result                                                                                                                                                         |
+| --- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| C1  | Cloud–edge collaborative detection on OpenStack (Table 3, Sec. 3.6) | `python run.py all os` in `cesal-edge` (equivalently `run.py infer os` once checkpoints are present); the cloud stage starts automatically | ~3 h 20 m | End-of-run summary, table `reported scores (%)`: row **Edge** = Q-BAT P 98.09 / R 100.00 / F1 99.03; row **Hybrid** = CESAL (10% routed) P 99.90 / R 100.00 / F1 99.95. |
+| C2  | Cloud-only BAT ensemble of 81 EM-AT learners on OpenStack (Table 3) | `python run.py eval os` in `cesal-cloud`                                                                                                   | ~8 min    | End-of-run summary, row **majority** = BAT P 99.99 / R 100.00 / F1 99.99.                                                                                               |
+| C3  | Open-set incident classification on HDFS (Table 7, Sec. 4.6)        | `python run.py classify qwen2.5-14b-instruct` in `cesal-cloud`                                                                             | ~1 h 51 m | Macro P 79.71 / R 92.07 / F1 83.03 for Qwen2.5-14B-Instruct.                                                                                                            |
+| C4  | Predefined response-workflow selection (Table 1, Sec. 3.7)          | `python -m incident_response.workflows --results outputs/hdfs/llm/results_Qwen_Qwen2.5-14B-Instruct.csv` in `cesal-cloud`, after C3        | seconds   | Workflows match Table 1.                                                                                                                                                |
 
 **Optional — training reproducibility (Functional).** `python run.py train os` (`cesal-cloud`, ~24 min) retrains the 81 OpenStack learners; then `python run.py eval os` recalibrates their thresholds and `python run.py convert os` (`cesal-edge`, ~34 min) quantizes and exports them. Each learner takes a stable seed derived from a master seed (62 by default), deterministic kernels are required, and `checkpoints/bat/os/training_manifest.json` records the seeds, hashes, software versions and hardware; it ends with `"status": "complete"` on success. Training and downloading write to the same checkpoint directories, so all later steps are identical.
 
@@ -105,7 +105,7 @@ An **edge-first, cloud-assisted** pipeline, in four stages:
 
 ### Framework Overview
 
-The figure above illustrates the overall architecture of CESAL, a security-aware cloud-edge framework for log-based incident detection, classification, and controlled response. Raw logs generated by cloud servers, gateways, and edge devices are collected near their sources, parsed, and converted into structured log sequences. The collaborative LAD pipeline then applies Q-BAT for lightweight edge-side inference and BAT for high-capacity cloud-side verification of selected uncertain samples. A Mahalanobis distance-based routing policy estimates edge-side prediction uncertainty and forwards only samples near the decision boundary to the cloud. This edge-first design keeps confident samples local, reduces unnecessary edge-to-cloud transmission of security-sensitive logs, and preserves strong detection performance.
+The figure above illustrates the overall architecture of CESAL, a security-aware cloud-edge framework for log-based incident detection, classification, and controlled response. Raw logs generated by cloud servers, gateways, and edge devices are collected near their sources, parsed, and converted into structured log sequences. The collaborative log-based anomaly detection (LAD) pipeline then applies Q-BAT for lightweight edge-side inference and BAT for high-capacity cloud-side verification of selected uncertain samples. A Mahalanobis distance-based routing policy estimates edge-side prediction uncertainty and forwards only samples near the decision boundary to the cloud. This edge-first design keeps confident samples local, reduces unnecessary edge-to-cloud transmission of security-sensitive logs, and preserves strong detection performance.
 
 After abnormal sequences are detected, CESAL can optionally invoke a cloud-side LLM-based open-set classification and controlled response module. With retrieval-augmented generation (RAG), the module classifies each detected abnormal sequence into a predefined anomaly type or assigns it to the "Unknown Anomaly Types" class when no known category is sufficiently supported. Known anomaly types are mapped to predefined response workflows to support controlled mitigation through the LLM agent, while unknown anomaly types are preserved and flagged for human investigation.
 
@@ -117,7 +117,7 @@ After abnormal sequences are detected, CESAL can optionally invoke a cloud-side 
 
 **Q-BAT — the edge detector.** For efficient edge-side inference, Q-BAT keeps **3** learners and quantizes them with TorchAO (8-bit activations, 4-bit weights), exporting each as an ExecuTorch program — ensemble robustness at a size a Raspberry Pi can run.
 
-**LLM classifier.** Qwen2.5-14B-Instruct is the paper's selected backbone. Retrieved reference sequences plus open-set decision rules and, when needed, LLM generation assign one of 10 known HDFS anomaly types or unknown. `run.py classify` without a model argument evaluates all four configured backbones.
+**LLM classifier.** Qwen2.5-14B-Instruct is the paper's selected backbone. Each sequence is compared with retrieved reference sequences; open-set decision rules, with LLM generation when needed, then assign one of 10 known HDFS anomaly types or "unknown". `run.py classify` without a model argument evaluates all four configured backbones.
 
 ### How this artifact differs from the paper's deployment
 
@@ -132,7 +132,7 @@ After abnormal sequences are detected, CESAL can optionally invoke a cloud-side 
 
 This setup preserves the model, threshold, routing and scoring configuration, while omitting the physical edge device and network hop. Compare detection scores with the [paper's results](#results); cross-device numerical identity is not guaranteed. Runtime and resource measurements depend on the hardware.
 
-**Physical edge resource measurements require the boards.** The latency, memory-footprint and power figures for Raspberry Pi 3B+, 4B and 5 cannot be reproduced on a workstation. The evaluation path here covers detection and classification [results](#results), plus the [workflow-selection commands](#step-4--incident-classification-and-controlled-response-hdfs), subject to the [runtime limits](#requirements).
+**Physical edge resource measurements require the boards.** The latency, memory-footprint and power figures for Raspberry Pi 3B+, 4B and 5 cannot be reproduced on a workstation. The evaluation path here covers detection and classification [results](#results), plus the [workflow-selection commands](#step-4--incident-classification-and-controlled-response-hdfs), within the runtimes listed under [Requirements](#requirements).
 
 ### Paper ↔ Code Mapping
 
@@ -157,13 +157,11 @@ This setup preserves the model, threshold, routing and scoring configuration, wh
 
 ## Running CESAL
 
-**`run.py` is the entry point for every stage** — all commands run from the project root.
-
 Choose one setup route: the [Docker image](#run-in-docker-no-environment-setup), which includes the environments and runtime, or a [native installation](#run-with-a-native-installation). Both routes below run pretrained OpenStack detection followed by a separate HDFS classification experiment.
 
 ### Run in Docker (no environment setup)
 
-The published `v1.3` image contains both environments from [Step 1](#step-1--set-up-environments), the ExecuTorch runtime, classification dependencies, and the `check` and `smoke` commands. Skip Step 1 when using this image. Local source changes require rebuilding the [Dockerfile](Dockerfile) to include them in a container.
+The published `v1.3` image contains both environments from [Step 1](#step-1--set-up-environments), the ExecuTorch runtime, classification dependencies, and the `check` and `smoke` commands. Skip Step 1 when using this image. If you change the source code locally, rebuild the image from the [Dockerfile](Dockerfile) to include your changes.
 
 **Host requirements.** The commands below use x86-64 Linux, Docker, an NVIDIA GPU and driver, and the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html). The `--gpus all` flag makes the GPU available inside the container for BAT verification and LLM classification.
 
@@ -185,7 +183,11 @@ python run.py classify qwen2.5-14b-instruct  # separate HDFS classification expe
 
 To decide up front instead of being asked, run `python run.py download os`, or the training commands from [Step 2](#step-2--obtain-the-bat-and-q-bat-models), before `all os`. The image carries both environments, so training works inside the container exactly as it does natively.
 
-`all os` finishes after detection; classification runs only when you invoke the separate command. Checkpoints and LLM weights are not in the image. `all` never fetches models on your behalf: if none are present it describes both routes — train or download — and asks which you want, then carries on with the rest of the pipeline. Without a terminal (a Docker build, CI, `nohup`) there is nobody to ask, so it prints the commands for both and stops with exit status 2 rather than hanging. The first `classify` run fetches the LLM weights. The two named volumes retain these downloads. `docker start -ai cesal-v1.3` returns to the same container later, and `docker cp cesal-v1.3:/app/outputs ./outputs` copies results out. For the gated Llama and Gemma backbones, add `-e HF_TOKEN=<your token>` to `docker run`.
+`all os` stops after detection; classification runs only when you call `classify`. The image contains neither checkpoints nor LLM weights:
+
+- If no checkpoints are present, `all` explains both options (train or download), asks which you want, and then continues. It never downloads models without asking. Without a terminal (a Docker build, CI, `nohup`), it prints the commands for both options and exits with status 2 instead of waiting.
+- The first `classify` run downloads the LLM weights.
+- The two named volumes keep these downloads between runs.
 
 **CPU-only option.** For software checks or the small detection experiment, omit `--gpus all` from `docker run`, then use `python run.py check` or `python run.py smoke os`. The small experiment requires checkpoints; run `python run.py download os` first if they are missing. Training is impractical without the GPU, so downloading is the route to take here. Full detection and classification timings assume GPU acceleration.
 
@@ -260,14 +262,14 @@ For practical artifact evaluation, use OpenStack detection and standalone HDFS i
 ./install.sh
 ```
 
-That creates both Conda environments, installs their pinned requirements, installs CESAL into each, fetches the ExecuTorch 0.5.0 runtime, and finishes with the core software checks. Existing environments are reused on reinstallation, and packages may be updated. Skip installation when using a prepared [Docker image](#run-in-docker-no-environment-setup).
+That creates both Conda environments, installs their pinned requirements, installs CESAL into each, fetches the ExecuTorch 0.5.0 runtime, and finishes with the core software checks. Rerunning it reuses existing environments but may update their packages. Skip installation when using a prepared [Docker image](#run-in-docker-no-environment-setup).
 
 CESAL uses **two Conda environments**, one for each inference tier:
 
-| Environment   | Tier      | Stack                                       | What runs in it                                                                                                                                                                                                             |
-| ------------- | --------- | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `cesal-edge`  | **Edge**  | PyTorch 2.6 (CPU) + ExecuTorch 0.5          | Dashboard, Q-BAT edge inference (`.pte` via ExecuTorch), pipeline orchestration. CPU is sufficient.                                                                                                                         |
-| `cesal-cloud` | **Cloud** | PyTorch 2.4 + CUDA 12.4 + transformers 4.47 | BAT ensemble training (81 models), cloud re-check inference, and LLM-based incident classification and response (`incident_response/`). GPU required; the inference pipeline launches this env as a subprocess.      |
+| Environment   | Tier      | Stack                                       | What runs in it                                                                                                                                                                                                 |
+| ------------- | --------- | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cesal-edge`  | **Edge**  | PyTorch 2.6 (CPU) + ExecuTorch 0.5          | Dashboard, Q-BAT edge inference (`.pte` via ExecuTorch), pipeline orchestration. CPU is sufficient.                                                                                                             |
+| `cesal-cloud` | **Cloud** | PyTorch 2.4 + CUDA 12.4 + transformers 4.47 | BAT ensemble training (81 models), cloud re-check inference, and LLM-based incident classification and response (`incident_response/`). GPU required; the inference pipeline launches this env as a subprocess. |
 
 **Why two?** Edge runs ExecuTorch (compact, CPU-only, `.pte` quantized models); cloud runs full-precision PyTorch with CUDA. Separating them keeps each install minimal and avoids version conflicts between the two.
 
@@ -285,7 +287,7 @@ ExecuTorch **0.5.0** ([docs](https://docs.pytorch.org/executorch/0.5/)) and its 
 
 #### Cloud environment (`cesal-cloud`)
 
-Docker creates this environment from `environment/cloud/requirements.txt`, including the classification libraries; it does not copy a local Conda environment. An existing environment that runs BAT detection may still need classification dependencies.
+The Docker image builds this environment from `environment/cloud/requirements.txt`, including the classification libraries. If you reuse an older cloud environment that only ran BAT detection, reinstall these requirements so that classification works too.
 
 ```bash
 conda create -yn cesal-cloud python=3.10.0
@@ -305,7 +307,7 @@ conda env list   # should list both 'cesal-edge' and 'cesal-cloud'
 
 ### Step 2 — Obtain the BAT and Q-BAT models
 
-Both routes put the models in the same place — `checkpoints/bat/<dataset>` and `checkpoints/qbat/<dataset>` — so every later step is identical whichever you choose. `run.py all` offers the same choice when no models are present, and never downloads on your behalf.
+Both routes put the models in the same place `checkpoints/bat/<dataset>` and `checkpoints/qbat/<dataset>`, so every later step is identical whichever you choose. `run.py all` offers the same choice when no models are present, and never downloads without asking.
 
 **Either train them yourself** — training is seeded end to end, so a run is reproducible from the seed and configuration alone:
 
@@ -317,7 +319,7 @@ conda activate cesal-edge
 python run.py convert os              # quantize → .pte in checkpoints/qbat/os
 ```
 
-The `eval` step matters: thresholds are calibrated from the models' own energies, so newly trained weights need their own thresholds. It rewrites the 81 cloud thresholds and the three derived edge values together. Skipping it leaves `infer` scoring your models against the published models' thresholds, which fails quietly rather than loudly.
+The `eval` step matters: thresholds are calibrated from the models' own energies, so newly trained weights need their own thresholds. It rewrites the 81 cloud thresholds and the three derived edge values together. If you skip it, `infer` scores your models against the published models' thresholds and gives wrong results without any error message.
 
 **Or download the published checkpoints** — the models this artifact ships and reports its scores on, and the faster route if you only want to reproduce them:
 
@@ -343,11 +345,7 @@ conda activate cesal-edge
 python run.py check
 ```
 
-Reports which software components were verified: detection energy and voting,
-threshold calibration, pipeline failure handling, training/conversion control
-flow, progress reporting, and response workflow selection. Skipped optional
-checks are identified explicitly. Detailed diagnostics are saved under
-`outputs/checks/`.
+It reports which software components were verified: detection energy and voting, threshold calibration, pipeline failure handling, training/conversion control flow, progress reporting, and response workflow selection. Skipped optional checks are listed explicitly. Detailed diagnostics are saved under `outputs/checks/`.
 
 After downloading the checkpoints, run the small real detection experiment in `cesal-edge`:
 
@@ -357,13 +355,11 @@ python run.py smoke os
 
 It takes approximately 1–2 minutes on the documented setup, using 1,000 OpenStack events, all three Q-BAT learners, and three BAT learners. It shows component readiness rather than benchmark scores, saves diagnostics under `outputs/smoke/os/`, and leaves the published data, checkpoints, and calibration thresholds unchanged. This checks detection execution; use Step 4 for LLM classification.
 
-Once these checks succeed, proceed directly to normal inference or evaluation.
-`install.sh` already runs `python run.py check`, so a successful installation
-counts as that check; you do not need to repeat it manually. Repeat the software checks after changing code, updating dependencies, rebuilding the environment, or when troubleshooting. Repeat the small experiment if you change its models, data or inference configuration, or need to verify model execution again.
+Once these checks succeed, continue with Step 3. `install.sh` already runs `python run.py check`, so after a successful installation you do not need to run it again. Repeat the software checks after changing code, updating dependencies, rebuilding the environment, or when troubleshooting. Repeat the small experiment if you change its models, data or inference configuration, or need to verify model execution again.
 
 ### Step 3 — Run the detection pipeline
 
-**This is the evaluation path.**
+**This step produces the detection results (claim C1).**
 
 ```bash
 conda activate cesal-edge
@@ -380,9 +376,9 @@ One command runs the detection pipeline: Q-BAT scores events in complete test wi
 
 ### Step 4 — Incident classification and controlled response (HDFS)
 
-Open-set anomaly type classification uses a multi-class evaluation set built from abnormal log sequences in the HDFS public dataset. HDFS is used because its anomalous sequences can be associated with specific failure categories and further linked to the predefined response workflows. OpenStack is used only for binary LAD evaluation because its labels do not provide a reliable sequence-level correspondence between abnormal log sequences and specific anomaly types.
+Open-set anomaly type classification uses a multi-class evaluation set built from abnormal log sequences in the HDFS public dataset. HDFS is used because its anomalous sequences can be associated with specific failure categories and further linked to the predefined response workflows. OpenStack is used only for binary anomaly detection because its labels do not provide a reliable sequence-level correspondence between abnormal log sequences and specific anomaly types.
 
-Runs in `cesal-cloud` and needs a CUDA GPU. Llama-3.1-8B and gemma-2-9b are gated on Hugging Face — accept their licenses and run `hf auth login` first.
+Runs in `cesal-cloud` and needs a CUDA GPU. Llama-3.1-8B-Instruct and Gemma-2-9B-IT are gated on Hugging Face — accept their licenses and run `hf auth login` first.
 
 **On a 16 GB GPU**, especially one that also drives a display, Qwen2.5-14B-Instruct is partly offloaded to CPU RAM and can run out of GPU memory on its first sequence. Run `export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` before `run.py classify` or `run.py respond`; the Docker image sets it already.
 
@@ -394,15 +390,15 @@ python run.py classify                          # all four backbones in configs/
 python run.py classify qwen2.5-14b-instruct     # CESAL's default backbone only
 ```
 
-Classification evaluates HDFS log sequences using 703 sequences as references. Results are saved under `outputs/hdfs/llm/`; `model_summary.csv` contains the Table 7 macro scores. Per-backbone settings are in `configs/llm/hdfs.yaml`. Results are saved when each backbone finishes. Running one backbone at a time can help with interruptions. Each invocation replaces the combined summary tables with that run's backbones and retains separate result files for other backbones.
+Classification evaluates 4,124 abnormal HDFS log sequences, using 703 reference sequences for retrieval. Results are saved under `outputs/hdfs/llm/`; `model_summary.csv` contains the Table 7 macro scores, and per-backbone settings are in `configs/llm/hdfs.yaml`. Results are written as each backbone finishes, so running one backbone at a time limits what an interruption loses. Each run overwrites the combined summary tables with its own backbones but keeps the per-backbone result files from earlier runs.
 
-**Response (Table 1)** — connect detection to the module: queue every detected log sequence, classify it, and assign its workflow:
+**Response (Table 1)** — from detections to workflows: queue each detected log sequence, classify it, and select its workflow:
 
 ```bash
 conda activate cesal-cloud
 python run.py respond                           # queues → classification → workflows
-python -m incident_response.workflows --label "Replica immediately deleted"
-python -m incident_response.workflows --results outputs/hdfs/llm/results_Qwen_Qwen2.5-14B-Instruct.csv
+python -m incident_response.workflows --label "Replica immediately deleted"   # one anomaly type
+python -m incident_response.workflows --results outputs/hdfs/llm/results_Qwen_Qwen2.5-14B-Instruct.csv   # every sequence from run.py classify
 ```
 
 Response results are saved under `outputs/hdfs/llm/queues/`.
@@ -459,7 +455,7 @@ BAT is the cloud detector: **81 EM-AT learners**, each trained on its own bootst
 
 ### Hardware setup (Section 4.1)
 
-The hardware used in our experiments — what the published numbers were measured on. It is **not** a requirement for running CESAL: see [Requirements](#requirements) for what the code actually needs.
+The paper's results were measured on the hardware below. You do **not** need it to run CESAL; see [Requirements](#requirements) for what the code needs.
 
 | Platform                      | Hardware profile                                                     | OS                          | Role                               |
 | ----------------------------- | -------------------------------------------------------------------- | --------------------------- | ---------------------------------- |
@@ -579,18 +575,18 @@ CESAL/
 
 ### How the data is processed
 
-The data-processing overview follows three stages: parsing raw messages, grouping log events into sequences, and generating context vectors. Parsing and sequence grouping were performed before the bundled files were created; normal inference loads these sequences and constructs the context vectors.
+Data processing has three stages: parsing raw messages, grouping log events into sequences, and generating context vectors. Parsing and grouping were done before the files in [`data/`](data/) were created; at run time, CESAL loads these sequences and builds the context vectors.
 
-1. **Raw messages → parsed event IDs.** Paper Section 3.4 describes Spell parsing: a message template becomes a log key. The paper's source-log totals are shown as reference counts. Raw logs are not required for detection, but model checkpoints and the ExecuTorch runtime are still required.
-2. **Log sequence generator → bundled sequence lines.** The paper describes HDFS grouping by identifiers such as block IDs and OpenStack partitioning by fixed windows. The runtime reads the already prepared files in [`data/`](data/): each nonempty line contains a sequence of event IDs. HDFS log-sequence counts are compared with Section 4.1. OpenStack log-message counts use the paper's source references; the runtime separately reports loaded sequence groups and generated context rows.
+1. **Raw messages → parsed event IDs.** Paper Section 3.4 describes Spell parsing: a message template becomes a log key. The total log-message counts in the table below are the paper's source-log totals. Raw logs are not needed, because the bundled files already contain parsed event IDs; detection still needs the model checkpoints and the ExecuTorch runtime.
+2. **Log sequence generator → bundled sequence lines.** The paper describes HDFS grouping by identifiers such as block IDs and OpenStack partitioning by fixed windows. The runtime reads the already prepared files in [`data/`](data/): each nonempty line contains a sequence of event IDs. At load time, the log reports how many sequences were read and how many context rows were generated; for HDFS, the sequence counts can be compared with Section 4.1.
 3. **Sliding context sequence generator → one context row per event.** [`preprocessor.py`](cesal_core/data/preprocessor.py) maps event IDs within each input file and represents each event by its preceding `data_seq_len=10` events in the same source sequence. Missing history uses `NO_EVENT`; this adds feature padding, not extra events. A sequence containing `L` events produces `L` rows of 10 features. The log shows each split's matrix shape, then the concatenation of normal and abnormal test rows with labels 0 and 1.
 
 **Dataset statistics.** Total source log-message counts follow paper Section 4.1; training and testing columns count **log sequences** in the bundled files.
 
-| Dataset   | Total source log messages | Normal training Log Sequence | Normal testing Log Sequence | Abnormal testing Log Sequence |
-| --------- | ------------------------: | ---------------------------: | --------------------------: | ----------------------------: |
-| HDFS      |                11,175,629 |                        4,855 |                     553,366 |                        16,838 |
-| OpenStack |                   207,820 |                          386 |                       1,248 |                           138 |
+| Dataset   | Total source log messages | Normal training sequences | Normal test sequences | Abnormal test sequences |
+| --------- | ------------------------: | ------------------------: | --------------------: | ----------------------: |
+| HDFS      |                11,175,629 |                     4,855 |               553,366 |                  16,838 |
+| OpenStack |                   207,820 |                       386 |                 1,248 |                     138 |
 
 ### Provenance and ethics
 
@@ -615,5 +611,6 @@ Reviewers received git tag **`v1.1`** and Docker image **`ghcr.io/kismetzz28/ces
 - 2026-09-27 and 2026-09-29: reworded the "New in v1.1" note at the top of this README.
 - 2026-10-05: added the [Artifact Evaluation](#artifact-evaluation-acsac-2026) section and this change log; aligned the OpenStack detection runtime with the submitted abstract (~3 h 20 m); replaced references to reproduction tolerances with references to the paper's results.
 - 2026-10-06: improved the README according to the artifact-evaluation documentation requirements and improved the documentation overall.
+- 2026-10-07: clarified wording throughout the README.
 
 **Earlier versions.** `v1.0` (2026-09-27): detection, classification and response evaluation. `v1.1` (2026-09-27): adds the web dashboard demonstration of the whole HDFS pipeline.
