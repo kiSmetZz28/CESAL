@@ -132,8 +132,6 @@ After abnormal sequences are detected, CESAL can optionally invoke a cloud-side 
 
 This setup preserves the model, threshold, routing and scoring configuration, while omitting the physical edge device and network hop. Compare detection scores with the [paper's results](#results); cross-device numerical identity is not guaranteed. Runtime and resource measurements depend on the hardware.
 
-**Physical edge resource measurements require the boards.** The latency, memory-footprint and power figures for Raspberry Pi 3B+, 4B and 5 cannot be reproduced on a workstation. The evaluation path here covers detection and classification [results](#results), plus the [workflow-selection commands](#step-4--incident-classification-and-controlled-response-hdfs), within the runtimes listed under [Requirements](#requirements).
-
 ### Paper ↔ Code Mapping
 
 | Paper component                                                                                                           | Code location                                                                                                                                                    |
@@ -405,7 +403,7 @@ Response results are saved under `outputs/hdfs/llm/queues/`.
   <img src="pictures/llm_module.png" width="850">
 </p>
 
-**How it works.** Detected sequences are buffered in edge-side `Q_E` or cloud-side `Q_C` queues for later classification. Each sequence is matched against reference sequences. Open-set retrieval rules either assign a label directly or pass the retrieved evidence and candidate labels to the LLM; label parsing and decision rules produce the final classification. The unknown category is `Other anomaly type`, mapped to the **Unknown Anomaly Types** workflow. [workflows.py](incident_response/workflows.py) defines the Table 1 response plans and marks actions as eligible for automation, requiring approval, or requiring human investigation. The artifact selects and reports these plans; it does not execute actions or send approval requests.
+**How it works.** Detected sequences are buffered in edge-side `Q_E` or cloud-side `Q_C` queues for later classification. Each sequence is matched against reference sequences. Open-set retrieval rules either assign a label directly or pass the retrieved evidence and candidate labels to the LLM; label parsing and decision rules produce the final classification. The unknown category is `Other anomaly type`, mapped to the **Unknown Anomaly Types** workflow. [workflows.py](incident_response/workflows.py) defines the Table 1 response plans and marks actions as eligible for automation, requiring approval, or requiring human investigation.
 
 ### Optional — the web dashboard
 
