@@ -293,17 +293,15 @@ pip install -r environment/cloud/requirements.txt \
 pip install -e .
 ```
 
-> Edge and cloud install different requirements files and PyTorch builds (CPU vs CUDA), so they must be separate envs. The inference pipeline also relies on this split: edge orchestrates and spawns cloud inference as a subprocess pointed at the cloud env's interpreter.
+> CESAL is designed to run the edge side and the cloud side on different devices: Q-BAT on a resource-constrained edge device, and BAT and the LLM on a cloud server. Each environment therefore contains only what its side needs, with its own requirements file and PyTorch build (CPU for the edge, CUDA for the cloud). In this artifact both run on one machine, and the edge pipeline starts cloud inference as a subprocess using the `cesal-cloud` Python interpreter.
 
 ### Step 2 — Obtain the BAT and Q-BAT models
-
-Both routes put the models in the same place `checkpoints/bat/<dataset>` and `checkpoints/qbat/<dataset>`, so every later step is identical whichever you choose. `run.py all` offers the same choice when no models are present, and never downloads without asking.
 
 **Option 1: train them yourself.**
 
 ```bash
 conda activate cesal-cloud
-python run.py train os                # 81 EM-AT models → checkpoints/bat/os
+python run.py train os                # 81 EM-AT base models → checkpoints/bat/os
 python run.py eval os                 # calibrate thresholds for the new models
 conda activate cesal-edge
 python run.py convert os              # quantize → .pte in checkpoints/qbat/os
@@ -321,8 +319,6 @@ python run.py download hdfs qbat      # HDFS quantized Q-BAT + ExecuTorch runtim
 ```
 
 BAT downloads use one ZIP per dataset (`ensemble_os.zip` or `ensemble_hdfs.zip`). The downloader verifies the archive and extracted models with SHA-256 checksums, then installs the 81 `.pth` files into the existing checkpoint directory. It reuses matching installed models and local archives under `checkpoints/bat/`; Q-BAT still downloads its three `.pte` files individually. Existing model files are never silently replaced.
-
-**What these models are.** Both detectors are ensembles of the same base learner, **EM-AT**, trained over a 3×3×3×3 grid. **BAT** (cloud) uses all 81 at full precision; **Q-BAT** (edge) keeps **3** of them, quantized to 8-bit activations / 4-bit weights and exported as ExecuTorch `.pte` programs — a separate, smaller ensemble from the same checkpoints, not a quantized copy of BAT.
 
 Whenever Q-BAT is in the download set, `run.py download` also installs the **ExecuTorch 0.5.0 runtime** and its bundled `torchao`, which `infer` and `convert` both need. Raw log files are not downloaded; only the optional dashboard uses them.
 
