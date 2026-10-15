@@ -88,7 +88,7 @@ def select_indices_by_distance(
     distance_type: str = "ma",
     tolerance: float = 0.1,
 ) -> List[int]:
-    """Select test samples with the highest distances from the threshold point.
+    """Select test samples with the smallest distances from the threshold point.
 
     Parameters
     ----------
@@ -102,7 +102,7 @@ def select_indices_by_distance(
     distance_type : {'eu', 'ma'}
         'eu' for Euclidean, 'ma' for Mahalanobis.
     tolerance : float
-        Fraction of samples to select (top by distance).
+        Fraction of samples to select (smallest distances first).
 
     Returns
     -------
@@ -131,7 +131,7 @@ def select_indices_by_distance(
             raise ValueError(f"Invalid distance type '{distance_type}'. Use 'eu' or 'ma'.")
         all_distances.append((i, float(dist)))
 
-    all_distances.sort(key=lambda x: x[1], reverse=True)
+    all_distances.sort(key=lambda x: x[1])
 
     num_select = max(int(len(all_distances) * tolerance), 0)
     selected_indices = sorted(idx for idx, _ in all_distances[:num_select])
