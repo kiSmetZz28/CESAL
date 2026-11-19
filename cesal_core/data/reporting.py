@@ -26,11 +26,7 @@ def _diagnostic_detail(label, value):
 
 @lru_cache(maxsize=32)
 def _session_count(path, mtime_ns, size):
-    """Count nonempty sequence lines once, even when loading many learners.
-
-    File metadata is part of the cache key so an edited split is recounted.
-    Event counts below come from the actual context tensors, not this scan.
-    """
+    """Count nonempty sequence lines once per file version (metadata is in the cache key)."""
     with open(path, 'rb') as source:
         return sum(1 for line in source if line.strip())
 

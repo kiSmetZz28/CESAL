@@ -44,15 +44,7 @@ def compute_edge_ensemble(
     edge_pred_files: list,
     label_file: str,
 ) -> tuple:
-    """Majority-vote across Q-BAT learner predictions and evaluate.
-
-    Returns
-    -------
-    edge_raw : np.ndarray
-        Ensemble binary predictions (majority vote).
-    gt : np.ndarray
-        Ground-truth labels.
-    """
+    """Majority-vote the Q-BAT learner predictions and evaluate; returns (edge_raw, gt)."""
     preds_list = [_load_arr(p) for p in edge_pred_files]
     gt = _load_arr(label_file)
 
@@ -79,19 +71,8 @@ def compute_hybrid(
     indices_file: str,
     gt: np.ndarray,
 ) -> np.ndarray:
-    """Merge edge and cloud predictions using routing indices, then evaluate.
-
-    Parameters
-    ----------
-    edge_raw : np.ndarray
-        Raw edge ensemble predictions.
-    cloud_pred_file : str
-        Path to cloud predictions for selected indices.
-    indices_file : str
-        Path to indices file produced by routing.py.
-    gt : np.ndarray
-        Ground-truth labels (full length).
-    """
+    """Replace edge predictions with the cloud ones at the routed indices (routing.py
+    output) and evaluate."""
     cloud_pred = _load_arr(cloud_pred_file)
     indices    = _load_arr(indices_file)
 

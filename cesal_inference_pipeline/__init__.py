@@ -1,21 +1,10 @@
-"""Inference pipeline — collaborative edge+cloud anomaly detection.
+"""Inference pipeline: collaborative edge (Q-BAT) + cloud (BAT) anomaly detection.
 
-Q-BAT (edge) and BAT (cloud) run in separate environments and are
-orchestrated by cesal_inference_pipeline.run. Published calibration thresholds
-are bundled for both datasets; training/evaluation can recalibrate them.
+1. edge   -- Q-BAT scores the test windows; majority vote gives the edge predictions
+2. route  -- Mahalanobis routing selects event vectors for the cloud
+3. cloud  -- BAT scores the routed events packed into complete windows
+4. hybrid -- merge edge + cloud predictions and report metrics
 
-Entry point (run from project root)
--------------------------------------
-python -m cesal_inference_pipeline.run --config configs/inference/os.yaml
-
-Or via the main CLI:
-  python run.py infer os
-
-Pipeline stages
----------------
-  1. edge   -- Q-BAT test inference: load pre-computed thresholds, score
-               test windows, majority-vote → edge predictions
-  2. route  -- Mahalanobis routing: select event vectors for cloud
-  3. cloud  -- BAT scores routed events packed into complete windows
-  4. hybrid -- Merge edge + cloud predictions, report metrics
+Run: python run.py infer os
+  (or python -m cesal_inference_pipeline.run --config configs/inference/os.yaml)
 """

@@ -127,8 +127,7 @@ def build_kb_docs_from_csv(kb_df: pd.DataFrame) -> List[Dict[str, Any]]:
         else:
             continue
 
-        # For open-set detection, the KB contains only known classes.
-        # Unknown classes are not added to the KB; they should be rejected as Other.
+        # Open set: the KB holds only known classes; unknown ones must end up as Other.
         if label not in KNOWN_LABELS:
             continue
 
@@ -175,9 +174,8 @@ class LexicalSequenceRetriever:
         token_score = multiset_jaccard(q_tokens, d_tokens)
         bigram_score = set_jaccard(seq_bigrams(q_tokens), seq_bigrams(d_tokens))
         exact_bonus = 1.5 if q_tokens == d_tokens else 0.0
-        # Only give contain_bonus when the doc is longer and contains the query —
-        # NOT when the doc is a short substring of the query, which would inflate
-        # scores for very short KB sequences (e.g. [E5, E22]) against long inputs.
+        # Bonus only when the doc contains the query, not the reverse, which would inflate
+        # short KB sequences (e.g. [E5, E22]) against long inputs.
         contain_bonus = 0.8 if query_seq in doc_text else 0.0
         prefix_bonus = 0.5 if len(q_tokens) <= len(d_tokens) and q_tokens == d_tokens[: len(q_tokens)] else 0.0
         suffix_bonus = 0.5 if len(q_tokens) <= len(d_tokens) and q_tokens == d_tokens[-len(q_tokens):] else 0.0
@@ -187,9 +185,8 @@ class LexicalSequenceRetriever:
 
         base_score = 0.40 * tfidf_score + 0.35 * token_score + 0.25 * bigram_score
         if self.length_penalty:
-            # Length similarity multiplier: penalises big length mismatches (1.0 at equal
-            # length, 0.7 at 2:1, 0.46 at 10:1). Applied only to the base score, not the
-            # exact/contain/prefix/suffix bonuses, so genuine structural matches still win.
+            # Length similarity (1.0 at equal length, 0.7 at 2:1, 0.46 at 10:1) scales only
+            # the base score, not the structural bonuses, so genuine matches still win.
             length_sim = min(len(q_tokens), len(d_tokens)) / max(len(q_tokens), len(d_tokens))
             base_score *= 0.4 + 0.6 * length_sim
         return base_score + exact_bonus + contain_bonus + prefix_bonus + suffix_bonus

@@ -2,24 +2,8 @@ import numpy as np
 
 
 def ensemble_method(method: str, ensemble_data: np.ndarray) -> np.ndarray:
-    """Apply ensemble voting to a matrix of per-model binary predictions.
-
-    Parameters
-    ----------
-    method : {'majority', 'at least one', 'consensus'}
-        Voting strategy.
-    ensemble_data : np.ndarray
-        Shape [n_samples, n_models], dtype int (0/1).
-
-    Returns
-    -------
-    np.ndarray of shape [n_samples] with final 0/1 predictions.
-
-    Raises
-    ------
-    ValueError
-        If method is not one of the recognised strategies.
-    """
+    """Combine per-model 0/1 predictions [n_samples, n_models] into [n_samples] by
+    'majority', 'at least one' or 'consensus' voting (ValueError otherwise)."""
 
     if method == 'majority':
         return (ensemble_data.sum(axis=1) >= (ensemble_data.shape[1] // 2 + 1)).astype(int)

@@ -1,18 +1,11 @@
 """Inference pipeline orchestrator.
 
-Stages
-------
-1. edge   : Q-BAT computes a per-learner energy score      [cesal-edge env]
-2. route  : Mahalanobis routing selects events             [cesal-edge env]
-3. cloud  : BAT scores routed events in complete windows   [cesal-cloud env — subprocess]
-4. hybrid : Merge predictions, report metrics [cesal-cloud env — subprocess]
+1. edge   : Q-BAT scores every window, per learner         [cesal-edge]
+2. route  : Mahalanobis routing selects events             [cesal-edge]
+3. cloud  : BAT scores routed events in complete windows   [cesal-cloud, subprocess]
+4. hybrid : merge predictions and report metrics           [cesal-cloud, subprocess]
 
-Stage 3+4 always run inside the cesal-cloud conda environment by calling
-cloud_runner.py as a subprocess.  The Python interpreter is located via
-_detect_cloud_python() which checks (in order):
-  1. CESAL_CLOUD_PYTHON environment variable
-  2. ~/miniconda3/envs/cesal-cloud/bin/python
-  3. sys.executable  (same-env fallback)
+Steps 3-4 run cloud_runner.py under the interpreter from _detect_cloud_python().
 """
 import argparse
 import logging
@@ -53,12 +46,8 @@ events keep their edge verdicts.
 
 
 def _detect_cloud_python() -> str:
-    """Return the path to the cesal-cloud env Python interpreter.
-
-    Override by setting the CESAL_CLOUD_PYTHON environment variable.
-    Falls back to sys.executable when the cesal-cloud env is not found
-    (single-environment setups where both edge and cloud share one env).
-    """
+    """cesal-cloud interpreter: $CESAL_CLOUD_PYTHON, else ~/miniconda3/envs/cesal-cloud,
+    else sys.executable (single-environment setups)."""
     env_var = os.environ.get("CESAL_CLOUD_PYTHON")
     if env_var:
         return env_var
@@ -96,13 +85,9 @@ def _point_adjust(gt: np.ndarray, pred: np.ndarray) -> np.ndarray:
 
 
 def _load_edge_result(cfg: dict, source_dir: str) -> lad_qbat_edge.EdgeResult:
-    """Rebuild an EdgeResult from a previous run's saved arrays.
-
-    The edge scan does not depend on the routing ratio, so a ratio sweep can
-    reuse it instead of re-scoring every window with Q-BAT — by far the most
-    expensive stage. Only the test windows are re-read (parsing, no inference),
-    because the routed feature vectors are cut from them.
-    """
+    """Rebuild an EdgeResult from a previous run's arrays. The edge scan (the costliest
+    stage) does not depend on the routing ratio; only the test windows are re-read,
+    since the routed feature vectors are cut from them."""
     import yaml as _yaml
 
     energy = np.load(os.path.join(source_dir, 'energy_matrix.npy'))
@@ -140,23 +125,10 @@ def run_inference(
     output_dir: Optional[str] = None,
     reuse_edge_from: Optional[str] = None,
 ) -> None:
-    """Run the full inference pipeline for one dataset.
+    """Run the inference pipeline for one dataset (configs/inference/*.yaml).
 
-    Parameters
-    ----------
-    inference_config_path : str
-        Path to per-dataset inference YAML (configs/inference/*.yaml).
-    ratio : float, optional
-        Fraction of events escalated to the cloud; overrides the config's
-        ``routing_tolerance``. This is the paper's routing ratio.
-    distance : {'ma', 'eu'}, optional
-        Overrides the config's ``routing_distance``.
-    output_dir : str, optional
-        Overrides the config's ``output_dir`` — used to keep each ratio of a
-        sweep in its own directory.
-    reuse_edge_from : str, optional
-        Directory of a previous run whose edge outputs should be reused
-        instead of re-running the Q-BAT scan.
+    ``ratio`` (the paper's routing ratio), ``distance`` ('ma'/'eu') and ``output_dir``
+    override the config; ``reuse_edge_from`` reuses a previous run's edge scan.
     """
     cfg      = load_config(inference_config_path)
     dataset  = cfg['dataset']
@@ -239,9 +211,8 @@ def run_inference(
             np.array(routed_indices, dtype=int),
         )
 
-        # Extract the feature vector of each routed line for cloud processing.
-        # cloud_runner packs these into complete windows; an incomplete tail keeps
-        # its edge verdicts. BAT returns one prediction per event it processes.
+        # Feature vectors of the routed lines; cloud_runner packs them into complete
+        # windows (an incomplete tail keeps its edge verdicts).
         if routed_indices:
             routed_lines = np.array([
                 result.test_windows[i // win_size][i % win_size]
@@ -258,13 +229,9 @@ def run_inference(
         })
 
     # ── Steps 3+4: Cloud BAT inference + hybrid merge ──────────────────────
-    # Always run in the cesal-cloud conda env via cloud_runner.py subprocess so that
-    # BAT checkpoints are never loaded inside the cesal-edge environment.
 
-    # An external orchestrator (the dashboard's two-env script) sets
-    # CESAL_STEP_HANDOFF and runs cloud_runner.py itself against a config that
-    # still has its cloud section. Hand our steps over and let that process
-    # close the run, rather than reporting steps 3-4 as skipped here.
+    # The dashboard's two-env script sets CESAL_STEP_HANDOFF and runs cloud_runner.py
+    # itself: hand the steps over instead of reporting 3-4 as skipped.
     external_handoff = os.environ.get("CESAL_STEP_HANDOFF")
 
     cloud_cfg = cfg.get('cloud')
@@ -287,8 +254,7 @@ def run_inference(
         rep.finish(outputs=out_base)
         return
 
-    # Hand the completed steps to the cloud process so that it can number its own
-    # steps 3 and 4 and print one summary covering the whole pipeline.
+    # The handoff lets the cloud process number steps 3-4 and print one summary.
     handoff = external_handoff or os.path.join(out_base, '.run_steps.json')
     rep.export(handoff)
 

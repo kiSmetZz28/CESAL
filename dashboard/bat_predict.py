@@ -1,20 +1,12 @@
 #!/usr/bin/env python3
 """BAT ensemble prediction for one pre-scaled log sequence window.
 
-Called by dashboard/app.py via CLOUD_PYTHON (the cesal-cloud environment):
+Run by dashboard/app.py under CLOUD_PYTHON (the cesal-cloud env):
+    python dashboard/bat_predict.py --input /tmp/window_scaled.npy \\
+        --config configs/inference/os.yaml --max-models 9
 
-    python dashboard/bat_predict.py \\
-        --input   /tmp/window_scaled.npy \\
-        --config  configs/inference/os.yaml \\
-        --max-models 9
-
-Input:  .npy file containing a float32 array of shape [n_events, input_c]
-        (the StandardScaler-normalised context window matrix produced by
-        the dashboard's in-memory scaler in the cesal-edge env).
-
-Output: single JSON object printed to stdout.
-        Errors are also returned as {"error": "..."} on stdout so the
-        caller can always parse the output with json.loads().
+Input: a float32 .npy [n_events, input_c] scaled by the dashboard's StandardScaler.
+Output: one JSON object on stdout; errors too, as {"error": "..."}.
 """
 import argparse
 import json
@@ -100,8 +92,7 @@ def main() -> None:
         return
 
     # ── Load BAT models and score (parallel, 4 workers) ──────────────────────
-    # 4 workers balances parallelism vs disk I/O contention on container storage.
-    # 8 workers causes I/O saturation; sequential takes ~25s; 4 workers ~6-8s.
+    # 4 workers: ~6-8 s vs ~25 s sequential; 8 saturates container disk I/O.
     import concurrent.futures
     from cesal_core.models.EMAT import EMAT
     from cesal_core.utils.energy import compute_energy_batch

@@ -47,20 +47,10 @@ def run_bat_ensemble(
     log_intermediate: bool = True,
     model_f1: dict = None,
 ) -> tuple:
-    """Run the full BAT ensemble and return (predictions, ground_truth).
+    """Run the BAT ensemble and return (predictions, ground_truth).
 
-    Parameters
-    ----------
-    config_path : str
-        Path to training YAML config.
-    voting_method : {'majority', 'at least one', 'consensus', 'all'}
-        Voting strategy. Majority is the rule the paper reports and the
-        default; the others remain available for comparison. 'all' evaluates
-        every rule and returns a dict mapping method -> predictions.
-    log_intermediate : bool
-        Log per-model and incremental ensemble metrics if True.
-    model_f1 : dict, optional
-        Collect each full-precision learner's measured F1 by checkpoint model name.
+    ``voting_method`` is 'majority' (the paper's rule), 'at least one', 'consensus', or
+    'all' (a dict of predictions per rule). ``model_f1`` collects each learner's F1.
     """
     yaml_config = load_config(config_path)
 
@@ -100,10 +90,8 @@ def run_bat_ensemble(
             model_records.append((f_score, values, pred.reshape(-1, 1)))
             st.tick("learners")
 
-        # Per-learner F1 is recorded in bat_evaluation.json (the Q-BAT candidate
-        # filter needs it) but not reported: after point adjustment a learner
-        # that catches a single event in an anomaly segment scores like a
-        # near-perfect detector, so only the ensemble figure is meaningful.
+        # Per-learner F1 goes to bat_evaluation.json (the Q-BAT filter needs it) but is not
+        # reported: point adjustment makes any learner that hits a segment look near-perfect.
         n_thresh = st._counters.get("thresholds written", {}).get("done", 0)
         st.outcome(**{
             "learners scored": len(model_records),

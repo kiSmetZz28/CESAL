@@ -23,8 +23,7 @@ def run_pipeline(config, output):
         'hybrid': 'Prediction merge and scoring',
     }
     command = [sys.executable, '-m', 'cesal_inference_pipeline.run', '--config', str(config)]
-    # This environment belongs only to the smoke child and its cloud process.
-    # Normal infer/eval output and all scoring calculations remain unchanged.
+    # Only for the smoke child and its cloud process; scoring is unchanged.
     env = dict(os.environ, CESAL_EVENTS='1', PYTHONUNBUFFERED='1')
     with (output / 'pipeline.log').open('w', encoding='utf-8') as log:
         log.write('SMOKE READINESS DIAGNOSTICS — subset metrics below are not paper-result estimates.\n'

@@ -16,7 +16,8 @@ from cesal_core.utils.config import load_config
 from cesal_core.utils.metrics import evaluate
 from cesal_core.utils.reproducibility import environment, sha256, write_json
 from cesal_inference_pipeline.cloud_runner import _point_adjust
-from training_pipeline.solver import _fit_gmm, _log_cluster_percentages
+from cesal_core.models.EMAT import cluster_percentages as _log_cluster_percentages
+from cesal_core.models.EMAT import fit_gmm as _fit_gmm
 
 KEYS = ('gmm_n_components', 'gmm_covariance_type', 'gmm_max_iter',
         'gmm_init_params', 'gmm_n_init')
@@ -26,10 +27,9 @@ def displays_as_99_99(value):
     """Whether a percentage would print as 99.99 or 100.00 to two decimals."""
     return 0 <= value <= 100 and f'{value:.2f}' in ('99.99', '100.00')
 
-# Which energies the EM-GMM is fitted on, and which pool the percentile is taken
-# from. 'train+thre' is the original CECO-LAD behaviour (Solver.COMPUTE_THRE_ENERGY
-# = True); the thre loader reads the test split, so that pool contains the test
-# energies. 'train' calibrates on the training energies alone.
+# Energies the EM-GMM is fitted on (and the percentile pool). 'train+thre' matches
+# Solver.COMPUTE_THRE_ENERGY = True; the thre loader reads the test split, so that pool
+# includes test energies. 'train' calibrates on training energies alone.
 CALIBRATION = 'calibration_energy'
 CALIBRATIONS = ('train+thre', 'train')
 
@@ -58,11 +58,8 @@ def _component_scan(baseline):
 
 
 def _refine(baseline):
-    """Everything except the component count, which a `components` scan already covered.
-
-    gmm_max_iter is left out on purpose: the fits converge in a handful of
-    iterations, so raising the cap cannot change the result.
-    """
+    """All parameters except the component count (covered by a `components` scan) and
+    gmm_max_iter (the fits converge in a few iterations, so the cap never binds)."""
     for key, values in (
         ('gmm_covariance_type', ('tied', 'full')),
         ('gmm_init_params', ('k-means++', 'kmeans', 'random_from_data')),

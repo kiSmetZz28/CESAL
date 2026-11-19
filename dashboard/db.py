@@ -8,11 +8,10 @@ DB_PATH = Path(__file__).parent / "cesal.db"
 # HDFS raw-log line counts from the pre-split files at LOG_ROOT.
 # Line numbers are continuous across all three files (train first, then test).
 HDFS_N_TRAIN_LINES         = 95_125        # lines in train.log
-HDFS_N_TEST_NORMAL_LINES   = 10_792_213    # lines in test_normal.log (actual stored count; one blank line skipped during ingest)
+HDFS_N_TEST_NORMAL_LINES   = 10_792_213    # test_normal.log (one blank line skipped at ingest)
 HDFS_N_TEST_ABNORMAL_LINES = 284_786       # lines in test_abnormal.log
 
-# Pipeline event-space boundaries for OpenStack (from outputs/os/ground_truth.npy).
-# npy is per-line: test_normal lines first, then test_abnormal.
+# OpenStack event-space boundaries (outputs/os/ground_truth.npy: test_normal, then test_abnormal).
 OS_N_NORMAL_EVENTS       = 136_913  # npy entries from test_normal
 OS_N_ABNORMAL_EVENTS     = 18_387   # npy entries from test_abnormal
 OS_N_TEST_NORMAL_LINES   = 137_074  # raw log lines in test_normal block (DB count)
@@ -208,11 +207,7 @@ async def query_windows(
 
 # ── OS Pipeline view ──────────────────────────────────────────────────────────
 
-# Approximate raw log lines per log sequence for each OS source file
-# Computed from: file_line_count / session_count
-# normal1.log: 52312 lines / 386 log sequences ≈ 136
-# normal2.log: 137074 lines / 1248 log sequences ≈ 110
-# abnormal.log: 18434 lines / 138 log sequences ≈ 134
+# Approximate raw log lines per OpenStack log sequence (file lines / sequences).
 OS_RAW_PER_SESSION = {
     "train_normal":  136,
     "test_normal":   110,
@@ -221,17 +216,8 @@ OS_RAW_PER_SESSION = {
 
 
 def _sync_get_os_session(session_idx: int, split: str) -> dict:
-    """
-    Return the processed window and corresponding raw log lines for one
-    OpenStack log sequence.
-
-    Raw log mapping strategy:
-      Each source file is stored in raw_logs with a consistent block_id tag.
-      Lines are ordered by global line_number within each block_id group.
-      Log sequence i within that group starts at approximately OFFSET = i * lines_per.
-      We use LIMIT/OFFSET rather than line_number ranges to avoid global-offset
-      confusion (test_normal lines start at global line 52312, not 0).
-    """
+    """Processed window and raw log lines for one OpenStack log sequence. Sequence i
+    starts near i * lines_per within its block_id (LIMIT/OFFSET per block)."""
     with _conn() as c:
         win = c.execute(
             "SELECT * FROM windows WHERE dataset='os' AND split=? AND window_index=?",
@@ -244,10 +230,7 @@ def _sync_get_os_session(session_idx: int, split: str) -> dict:
         blk = d.get("block_id") or ""
         lines_per = OS_RAW_PER_SESSION.get(blk, 110)
 
-        # Local index within the source file group
-        #   train_normal:  session_idx is already local (0-based within train.txt)
-        #   test_normal:   session_idx 0-1247 → local 0-1247 (within test_normal.txt)
-        #   test_abnormal: session_idx 1248-1385 → local 0-137 (within test_abnormal.txt)
+        # Index local to the source file (test_abnormal sequences start at 1248).
         local_idx = session_idx - 1248 if blk == "test_abnormal" else session_idx
         offset    = max(0, local_idx * lines_per)
 
@@ -430,20 +413,9 @@ def _sync_query_pipeline_raw(
         w = " AND ".join(where)
         total = c.execute(f"SELECT COUNT(*) FROM raw_logs WHERE {w}", params).fetchone()[0]
 
-        # Build ORDER BY for test views:
-        #   test-all:    interesting first (0), normal middle (1), anomaly last (2)
-        #   test-normal: interesting first (0), rest by line_number — matches normal
-        #                part of test-all ordering
-        #   test-anomaly / train: plain line_number ASC
-        # test-all and test-normal use identical priority logic for normal lines so
-        # the first pages of both views show the same rows in the same order.
-        #
-        #   0 = interesting normal line (disagree edge models, not label=1)
-        #   1 = non-interesting normal line
-        #   2 = anomaly line (label=1) — always at the end in test-all
-        #
-        # In test-normal (label="0") only tiers 0 and 1 exist, which exactly
-        # matches what you'd see filtering test-all to normal lines.
+        # ORDER BY tiers for test views: 0 = interesting normal line (edge learners
+        # disagree), 1 = other normal, 2 = anomaly (test-all only). test-normal uses the
+        # same tiers, so its first pages match test-all; other views sort by line_number.
         _SEL = (
             "SELECT line_number, label, timestamp, component, level, "
             "CASE WHEN length(content)>300 THEN substr(content,1,300)||'…' "
@@ -451,12 +423,8 @@ def _sync_query_pipeline_raw(
             "FROM raw_logs"
         )
 
-        # ── Padding-zone SQL expression ────────────────────────────────────────
-        # Returns 1 when an entry is in the first _CTX (=10) positions of its
-        # sub-split file, meaning it sits at a log sequence start and always has
-        # NO_EVENT padding in its forward sequence.  Used as secondary sort so
-        # these entries are pushed to the back of every tier while all other
-        # interesting-case ordering is preserved.
+        # _pad = 1 for the first _CTX entries of each sub-split file (always NO_EVENT-padded);
+        # a secondary sort that pushes them back within each tier.
         _CTX = 10
         if dataset == "hdfs":
             _tn0 = HDFS_N_TRAIN_LINES                                # 95_125
@@ -473,16 +441,9 @@ def _sync_query_pipeline_raw(
         else:
             _pad = "0"
 
-        # ── Two-query path: ALL datasets, test split, with interesting lines ───
-        # Solves two problems at once:
-        #  1. HDFS (very large table): CASE ORDER BY triggers a full filesort (minutes).
-        #  2. All datasets: SQL ORDER BY within "interesting" tier uses
-        #     line_number ASC, silently discarding the has_padding sort already
-        #     applied to _interesting_lines.  Two-query restores that order so
-        #     complete-context cases truly come first.
-        # Layout:  interesting lines (no-padding first per _interesting_lines)
-        #       →  remaining rows: non-interesting normal (pad-back, ln ASC)
-        #                       then anomaly (pad-back, ln ASC)
+        # Test views with interesting lines use two queries: a CASE ORDER BY filesorts the
+        # HDFS table (minutes) and would lose the padding order of _interesting_lines.
+        # Layout: interesting lines, then other normal rows, then anomalies (pad-back, ln ASC).
         if (interesting_lines and split == "test" and label in ("", "0")
                 and not search):
             in_vals   = ",".join(str(x) for x in interesting_lines[:500])
@@ -504,10 +465,7 @@ def _sync_query_pipeline_raw(
                 # Whole page fits inside interesting lines — no second query needed
                 rows = int_rows[start:end]
             else:
-                # Query 2: remaining rows — exclude interesting set, then:
-                #   - for test-all (label=""): normal first, anomaly last within
-                #     each group → pad-back secondary sort preserves context quality
-                #   - for test-normal (label="0"): only normal rows, pad-back
+                # Query 2: the remaining rows (normal before anomaly, padding last).
                 ni_offset = max(0, start - n_int)
                 ni_limit  = per_page - max(0, n_int - start)
                 if label == "":
@@ -525,11 +483,8 @@ def _sync_query_pipeline_raw(
             return {"total": total, "page": page, "per_page": per_page,
                     "rows": [dict(r) for r in rows]}
 
-        # ── HDFS test-anomaly fast path ───────────────────────────────────────
-        # The standard CASE-expression sort triggers a filesort of ~284k rows.
-        # Two range queries on idx_rl_lbl_ln (dataset, label, line_number) avoid
-        # any filesort: non-padded rows served first in line_number order, then
-        # the ≤10 padded rows appended at the back.
+        # HDFS test-anomaly fast path: two range queries on idx_rl_lbl_ln avoid a filesort
+        # of ~284k rows (unpadded rows first, then the <= 10 padded ones).
         if dataset == "hdfs" and split == "test" and label == "1" and not search:
             _ta0_v  = HDFS_N_TRAIN_LINES + HDFS_N_TEST_NORMAL_LINES  # 10_887_338
             _ta_end = _ta0_v + _CTX - 1                               # 10_887_347
@@ -556,9 +511,7 @@ def _sync_query_pipeline_raw(
             return {"total": total, "page": page, "per_page": per_page,
                     "rows": [dict(r) for r in rows]}
 
-        # ── Standard path: train, filtered/search views, and test-anomaly ─────
-        # Add _pad as secondary sort for test views so first-sequence padding
-        # entries are pushed to the back without changing the primary tier order.
+        # Standard path; test views push the padding zone back within each tier.
         if split == "test" and not label:
             # test-all without interesting_lines: anomaly last, padding back
             priority = f"CASE WHEN label='1' THEN 1 ELSE 0 END ASC, {_pad} ASC"

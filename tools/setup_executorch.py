@@ -1,10 +1,7 @@
 """Fetch and install the pre-built ExecuTorch 0.5.0 runtime.
 
-The edge stage runs Q-BAT `.pte` models through ExecuTorch, so `run.py download`
-and `run.py infer` need this whether or not the web dashboard is ever started.
-It lives here, next to the other asset fetchers, so the terminal pipeline does
-not import anything from the dashboard launcher; `launch_dashboard.py` imports
-it from here too, and both callers share one implementation.
+The edge stage runs Q-BAT `.pte` models through it, so `run.py download`/`infer` need it
+even without the dashboard; `launch_dashboard.py` imports it from here too.
 
 Usage (from project root):
   python tools/setup_executorch.py
@@ -81,13 +78,9 @@ def install_python_bindings() -> bool:
 
 
 def setup_executorch(prefix: str = "") -> bool:
-    """Install the runtime if it is missing. `prefix` labels the line for a caller
-    that prints a numbered sequence (the dashboard launcher does).
-
-    An existing C++ runtime is sufficient for inference. Leave its environment
-    unchanged; optional Python bindings must not trigger a reinstall on each
-    checkpoint download, especially inside a read-only container.
-    """
+    """Install the runtime if missing (``prefix`` labels the line for numbered output).
+    An existing C++ runtime suffices; missing optional Python bindings never trigger a
+    reinstall (e.g. in a read-only container)."""
     if executorch_present():
         print(f"{prefix}ExecuTorch runtime already installed — no setup needed.")
         return True

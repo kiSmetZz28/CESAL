@@ -47,7 +47,7 @@ outputs/*/llm/*
 # SQLite database (rebuilt at runtime, too large for GitHub)
 *.db
 
-# Large video files (>100 MB GitHub limit) — tools/deploy/deploy_hf.py uploads them to HF Space directly
+# Large video files (over GitHub's 100 MB limit)
 *.mp4
 *.mov
 

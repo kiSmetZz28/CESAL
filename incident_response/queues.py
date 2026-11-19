@@ -166,8 +166,7 @@ def main() -> None:
             "unique sequences": records["template_sequence"].nunique(),
         })
 
-    # Steps 2-4 run in process_queues.py; hand this run over so the two
-    # processes report as one numbered sequence with a single summary.
+    # Steps 2-4 run in process_queues.py; the handoff makes them one numbered run.
     handoff = os.environ.get("CESAL_STEP_HANDOFF") or os.path.join(
         cfg["queue_dir"], ".run_steps.json")
     rep.export(handoff)

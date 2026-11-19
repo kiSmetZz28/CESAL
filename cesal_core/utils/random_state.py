@@ -17,24 +17,9 @@ def get_random_state(
     e_layer_num: int,
     batch_size: int,
 ) -> int:
-    """Return a unique, reproducible random seed for the given hyperparameter combination.
-
-    Seeds are drawn once (random.seed(42)) from the full Cartesian product defined
-    in the YAML config, so each combination always maps to the same seed regardless
-    of the order models are trained.
-
-    Parameters
-    ----------
-    config_path : str
-        Path to the BAT training YAML config (relative to project root or absolute).
-    num_epochs, k, e_layer_num, batch_size : int
-        The specific hyperparameter values for this model.
-
-    Returns
-    -------
-    int
-        A unique seed in [10, 301).
-    """
+    """Reproducible seed in [10, 301) for one hyperparameter combination. Seeds are drawn
+    once (random.seed(42)) over the config's full grid, so a combination's seed does not
+    depend on training order. ``config_path`` may be relative to the project root."""
     resolved = Path(config_path)
     if not resolved.is_absolute():
         resolved = _PROJECT_ROOT / config_path

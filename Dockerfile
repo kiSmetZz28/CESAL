@@ -1,11 +1,7 @@
-# CESAL artifact image — both Conda environments and the ExecuTorch runtime pre-installed,
-# built by the same commands as README Step 1 and `run.py download`.
-#
-# Checkpoints and LLM weights are not baked in: `run.py download` and the first
-# `run.py classify` fetch them into the volumes mounted in the README's docker run command.
-#
-# linux/amd64 only: the pre-built ExecuTorch executor_runner is an x86-64 binary.
-# Ubuntu 24.04 because executor_runner and the ExecuTorch bindings need glibc >= 2.38.
+# CESAL artifact image: both Conda environments and the ExecuTorch runtime, built as in
+# README Step 1. Checkpoints and LLM weights are not baked in; `run.py download` and the
+# first `run.py classify` fetch them into the volumes mounted by the README's docker run.
+# linux/amd64 + Ubuntu 24.04: executor_runner is x86-64 and needs glibc >= 2.38.
 FROM --platform=linux/amd64 ubuntu:24.04
 
 LABEL org.opencontainers.image.source="https://github.com/kiSmetZz28/CESAL" \
@@ -46,16 +42,14 @@ RUN conda create -yn cesal-edge python=3.10.0 \
     && /opt/conda/envs/cesal-edge/bin/pip install -r environment/edge/requirements.txt \
         --extra-index-url https://download.pytorch.org/whl/cpu
 
-# cesal-edge first on PATH, as `conda activate cesal-edge` would do: ExecuTorch's build calls
-# the cmake that the edge requirements install, and one-off `docker run ... python` commands
-# use this environment.
+# cesal-edge first on PATH, as after `conda activate cesal-edge` (ExecuTorch's build uses its
+# cmake, and one-off `docker run ... python` commands use this environment).
 ENV PATH=/opt/conda/envs/cesal-edge/bin:$PATH
 
 # ── ExecuTorch 0.5.0 runtime (what `run.py download` installs) ────────────────
-# setup_executorch.py downloads the pre-built tree and runs its install_requirements.py.
-# PIP_EXTRA_INDEX_URL lets its final re-install of the edge requirements find torch 2.6.0+cpu.
-# The checks fail the build if the runner or the exir package (used by `run.py convert`) is missing.
-# pip-out/ is build scratch, removed in the same layer to keep the image smaller.
+# setup_executorch.py fetches the pre-built tree and runs its install_requirements.py
+# (PIP_EXTRA_INDEX_URL lets it find torch 2.6.0+cpu). The build fails if the runner or exir
+# (used by `run.py convert`) is missing; pip-out/ build scratch is removed in the same layer.
 COPY tools/__init__.py tools/setup_executorch.py tools/
 RUN PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu python tools/setup_executorch.py \
     && test -x cesal_inference_pipeline/executorch/cmake-out/executor_runner \

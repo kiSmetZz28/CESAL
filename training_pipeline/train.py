@@ -18,12 +18,6 @@ from cesal_core.utils.reproducibility import model_seed, seed_training, environm
 _ABOUT = """
 Train the BAT ensemble: a set of EM-AT base learners whose votes decide whether
 a window of log activity is normal.
-
-Each learner sees the same training logs under a different hyper-parameter
-setting, so their errors are not correlated and a vote across the ensemble is
-steadier than any single member. Training is unsupervised — no attack is ever
-labelled. Each learner models normal behaviour only, and whatever it cannot
-reconstruct afterwards is treated as anomalous.
 """
 
 

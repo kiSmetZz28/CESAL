@@ -78,10 +78,7 @@ def main() -> None:
         if rc != 0:
             sys.exit(rc)
 
-        # `.pte` files are useless without the ExecuTorch runtime, so when
-        # qbat checkpoints are in the download set, also fetch and install
-        # the runtime so that subsequent `run.py infer` / `run.py convert`
-        # have everything they need.
+        # .pte files need the ExecuTorch runtime, so fetch it along with Q-BAT checkpoints.
         if ckpt_type != "bat":
             print("[run] Ensuring ExecuTorch runtime is installed (needed for infer / convert) …")
             sys.path.insert(0, str(_ROOT))
@@ -109,9 +106,8 @@ def main() -> None:
         _run_module("training_pipeline.evaluate",
                     "--config", f"configs/training/{dataset}.yaml",
                     "--voting", voting)
-        # Scoring rewrites every cloud threshold, which fixes the three edge
-        # values too: a .pte reuses its .pth threshold unchanged. Re-derive them
-        # so edge inference cannot run against thresholds from older weights.
+        # Eval rewrites the cloud thresholds and each .pte reuses its .pth threshold, so
+        # re-derive the edge thresholds; they must never come from older weights.
         print(f"[run] Re-deriving Q-BAT edge thresholds from the cloud thresholds — dataset: {dataset}")
         _run_module("tools.calibrate_edge",
                     "--training-config", f"configs/training/{dataset}.yaml",
@@ -144,9 +140,7 @@ def main() -> None:
 
     elif command == "respond":
         model = argv[1] if len(argv) > 1 else None
-        # queues.py runs step 1 and process_queues.py runs steps 2-4. The handoff
-        # file carries the first process's step records to the second so the two
-        # report as one numbered run (see cesal_core/utils/steps.py).
+        # queues.py runs step 1 and process_queues.py steps 2-4, sharing one handoff file.
         import os
         os.environ.setdefault(
             "CESAL_STEP_HANDOFF",
@@ -159,10 +153,8 @@ def main() -> None:
                     *(["--model", model] if model else []))
 
     elif command == "all":
-        # Fetch published checkpoints and run detection; defaults to OpenStack like the
-        # other commands. Pass 'hdfs' for the full pipeline, which also classifies
-        # queued incidents and selects workflows. Standalone Table 7 evaluation
-        # and cloud-only Table 3 evaluation use the classify and eval commands.
+        # Fetch checkpoints and detect (default OpenStack); 'hdfs' also classifies and
+        # responds. Table 7 and Table 3 alone are `classify` and `eval`.
         dataset = argv[1] if len(argv) > 1 else "os"
         print(f"[run] Full pipeline — dataset: {dataset}\n")
 
@@ -176,15 +168,11 @@ def main() -> None:
                executorch_present()
 
         if have:
-            # Checking here rather than inside the fetcher keeps the common case
-            # fast: re-listing the remote folder takes minutes even when every
-            # file is already on disk.
+            # Checked here: re-listing the remote folder takes minutes even when complete.
             print("[run] 1/3  Checkpoints and edge runtime — already present, skipping")
         else:
-            # Obtaining the detectors is the evaluator's choice — training them is
-            # a reproduction step in its own right — so ask rather than silently
-            # downloading. Without a terminal (Docker build, CI, nohup) there is
-            # nobody to ask, so print both routes and stop instead of hanging.
+            # Download vs. train is the evaluator's choice, so ask; without a terminal
+            # (Docker, CI, nohup) print both routes and stop rather than hang.
             print(f"[run] 1/3  No detectors found for '{dataset}'. Choose how to obtain them:\n")
             print(f"  (a) Train them yourself — seeded, reproducible from the seed and config.")
             print(f"      81 BAT learners, their thresholds, then the quantized Q-BAT exports.")

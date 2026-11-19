@@ -1,32 +1,16 @@
 """Download pre-trained BAT and Q-BAT checkpoints from the CESAL Google Drive.
 
 Drive folder: https://drive.google.com/drive/folders/16nz-irtjK2vURmSdlurYq7dd8jZUJnio
-  pretrained_models/bat/ensemble_hdfs.zip — 81 BAT models → checkpoints/bat/hdfs/
-  pretrained_models/bat/ensemble_os.zip   — 81 BAT models → checkpoints/bat/os/
-  pretrained_models/qbat/hdfs/          — 3 Q-BAT learners (.pte) → checkpoints/qbat/hdfs/
-  pretrained_models/qbat/os/            — 3 Q-BAT learners (.pte) → checkpoints/qbat/os/
+  pretrained_models/bat/ensemble_{hdfs,os}.zip — 81 BAT models → checkpoints/bat/<dataset>/
+  pretrained_models/qbat/{hdfs,os}/           — 3 Q-BAT learners (.pte) → checkpoints/qbat/<dataset>/
 
-BAT archives are verified and extracted into the existing checkpoint directories.
-Q-BAT collections retain their individual-file downloads.
+BAT archives (a local copy in checkpoints/bat/ is reused) are checksum-verified before
+extraction. Existing models are never replaced.
 
-Usage
------
-  # Download everything (bat + qbat, all datasets):
-  python tools/download_checkpoints.py
-
-  # Download a specific checkpoint type only:
-  python tools/download_checkpoints.py --type bat
-  python tools/download_checkpoints.py --type qbat
-
-  # Download a specific dataset only:
-  python tools/download_checkpoints.py --dataset os
-
-  # Combine both filters:
-  python tools/download_checkpoints.py --type bat --dataset hdfs
-
-  # List already-downloaded checkpoints:
-  python tools/download_checkpoints.py --list
-
+Usage:
+  python tools/download_checkpoints.py                            # everything
+  python tools/download_checkpoints.py --type bat --dataset hdfs  # filters
+  python tools/download_checkpoints.py --list                     # what is installed
 """
 
 import argparse
@@ -63,17 +47,12 @@ _DRIVE_FOLDER_IDS = {
     },
 }
 
-# Project root is one level above this file  (tools/ → project root)
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _CHECKPOINTS_DIR = _PROJECT_ROOT / "checkpoints"
 
 _VALID_TYPES = ("bat", "qbat")
 _VALID_DATASETS = ("hdfs", "os")
 
-
-# ---------------------------------------------------------------------------
-# Dependency check
-# ---------------------------------------------------------------------------
 
 def _check_gdown() -> None:
     try:
@@ -88,16 +67,11 @@ def _check_gdown() -> None:
         sys.exit(1)
 
 
-# ---------------------------------------------------------------------------
-# Download helpers
-# ---------------------------------------------------------------------------
-
 def _download_folder(folder_id: str, dest: Path) -> None:
     import gdown
     dest.mkdir(parents=True, exist_ok=True)
     url = f"https://drive.google.com/drive/folders/{folder_id}"
-    # resume=True keeps files that finished downloading (and resumes partial ones),
-    # so a re-run after an interruption doesn't fetch completed checkpoints again.
+    # resume=True skips finished files and resumes partial ones after an interruption.
     gdown.download_folder(url=url, output=str(dest), quiet=False, resume=True)
 
 
@@ -145,8 +119,8 @@ def _download_bat(dataset: str, dest: Path) -> None:
         logging.info("Using local BAT archive: %s", archive)
     _verify_file(archive, spec)
 
-    # Stage and verify every missing model before installing any of them. Read
-    # members explicitly rather than extractall, preserving the expected layout.
+    # Stage and verify every missing model before installing any; members are read
+    # explicitly (not extractall) to keep the expected layout.
     with zipfile.ZipFile(archive) as bundle, tempfile.TemporaryDirectory(
         prefix=f".extract_{dataset}_", dir=dest.parent,
     ) as staging:
@@ -182,20 +156,9 @@ def _download_bat(dataset: str, dest: Path) -> None:
                  dataset, len(missing))
 
 
-# ---------------------------------------------------------------------------
-# Main download logic
-# ---------------------------------------------------------------------------
-
 def download(ckpt_type: Optional[str], dataset: Optional[str]) -> None:
-    """Download and install checkpoints matching the given filters.
-
-    Parameters
-    ----------
-    ckpt_type : {'bat', 'qbat'} or None
-        Which checkpoint type to install. None means both.
-    dataset : {'hdfs', 'os'} or None
-        Which dataset to download. None means both.
-    """
+    """Download and install checkpoints; ``ckpt_type`` ('bat'/'qbat') and ``dataset``
+    ('hdfs'/'os') filter, None meaning both."""
     types = [ckpt_type] if ckpt_type else list(_VALID_TYPES)
     datasets = [dataset] if dataset else list(_VALID_DATASETS)
 
@@ -272,10 +235,6 @@ def _dir_size_mb(path: Path) -> float:
         return 0.0
 
 
-# ---------------------------------------------------------------------------
-# Inventory
-# ---------------------------------------------------------------------------
-
 def _verify(types: List[str], datasets: List[str]) -> None:
     print("--- Checkpoint inventory ---")
     for t in types:
@@ -288,10 +247,6 @@ def _verify(types: List[str], datasets: List[str]) -> None:
             else:
                 print(f"  {t}/{ds}: (not downloaded)")
 
-
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(

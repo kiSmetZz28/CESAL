@@ -19,22 +19,15 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 ROOT = Path(__file__).parent.parent
-# Make dashboard/ importable so db.py / ingest.py can be imported directly
+# dashboard/ (db, ingest) and the project root (cesal_core, ...) must be importable.
 sys.path.insert(0, str(Path(__file__).parent))
-# Make project root importable so cesal_core / cesal_inference_pipeline are accessible
 sys.path.insert(0, str(ROOT))
 import db as _db
 
 app = FastAPI(title="CESAL Dashboard")
 
-# Serve static assets (demo video etc.) from the dashboard directory.
-#
-# Subclass adds `Cache-Control: no-cache, must-revalidate` for .mp4 files so
-# browsers always send a conditional request before reusing a cached copy. The
-# demo video occasionally gets re-uploaded; without this header a stale entry
-# in the visitor's HTTP cache (e.g. a 134-byte LFS pointer from an earlier
-# broken deploy) is served indefinitely. Range requests still work — that
-# behaviour lives in the parent class's `file_response`, which we delegate to.
+# Static assets. .mp4 responses get `Cache-Control: no-cache` so a re-uploaded demo
+# video is revalidated rather than served stale (range requests still work).
 class _RevalidatingStatic(StaticFiles):
     def file_response(self, full_path, stat_result, scope, status_code=200):
         response = super().file_response(full_path, stat_result, scope, status_code)
@@ -50,7 +43,7 @@ app.mount("/static", _RevalidatingStatic(directory=str(_static_dir)), name="stat
 DEMO_MODE = os.getenv("DEMO_MODE", "0") == "1"
 
 # ── Per-dataset StandardScaler (matches loaders.py: Preprocessor.text → scaler) ─
-_CTX_LEN = 10  # matches Preprocessor.sequence() context_length=10 (all preceding events)
+_CTX_LEN = 10  # Preprocessor context length
 
 # txt file root — same files the loaders use
 _DATA_DIR = ROOT / "data"
@@ -67,24 +60,15 @@ _TXT_PATHS: dict[str, dict[str, list[Path]]] = {
     },
 }
 
-# scaler state per dataset
 _scalers: dict[str, Optional[dict]] = {"hdfs": None, "os": None}
 
-# Cache of "interesting" test line_numbers per dataset:
-# lines kept at edge where the three edge models disagree (not all 0 or all 1).
-# Used to sort these cases to the front of the raw-log pages.
+# Test line_numbers where the edge learners disagree, shown first in raw-log pages.
 _interesting_lines: dict[str, list[int]] = {}
 
 
 def _build_interesting_lines(dataset: str) -> None:
-    """Compute and cache test line_numbers to surface at the top of the test-all view.
-
-    Selects an interleaved mix of:
-      - disagree + kept at edge  (mixed 0/1 edge votes, not routed to cloud)
-      - disagree + routed to cloud (mixed 0/1 edge votes, routed to cloud)
-    Both groups appear on the first pages so users see diverse routing outcomes.
-    Anomaly lines are left at the end by the SQL ORDER BY.
-    """
+    """Cache the test line_numbers to show first: an interleaved mix of lines with
+    disagreeing edge votes that stayed at the edge or were routed to the cloud."""
     out_dir = ROOT / "outputs" / dataset.lower()
     pm_path = out_dir / "edge_preds_per_model.npy"
     ri_path = out_dir / "routed_indices.npy"
@@ -129,17 +113,13 @@ def _build_interesting_lines(dataset: str) -> None:
     import db as _db_local
     import sqlite3 as _sqlite3
 
-    # Map npy indices → raw log line_numbers using arithmetic, NOT a full DB
-    # fetch.  For HDFS the naive approach (get_test_line_numbers) returns many
-    # rows and takes several minutes; direct arithmetic is O(1).
-    # Line_numbers are assigned sequentially during ingest (no gaps), so
-    # all_lns[db_pos] == first_test_ln + db_pos exactly.
+    # Map npy indices to raw line_numbers arithmetically: ingest numbers lines without
+    # gaps, so all_lns[db_pos] == first_test_ln + db_pos (a DB fetch takes minutes for HDFS).
     if dataset == "hdfs":
         first_test_ln = _db_local.HDFS_N_TRAIN_LINES
         n_db = _db_local.HDFS_N_TEST_NORMAL_LINES + _db_local.HDFS_N_TEST_ABNORMAL_LINES
     elif dataset == "os":
-        # OS train_normal occupies lines 0..N-1; test starts immediately after.
-        # Look up the exact start with a single MIN query (fast, indexed).
+        # OS test lines follow train_normal; one MIN query finds where they start.
         _db_path = str(Path(__file__).parent / "cesal.db")
         try:
             with _sqlite3.connect(_db_path, timeout=30) as _c:
@@ -164,17 +144,10 @@ def _build_interesting_lines(dataset: str) -> None:
 
     result = list(dict.fromkeys(result))
 
-    # Push entries whose forward sequence contains NO_EVENT padding (fewer than
-    # _CTX_LEN preceding entries in the same log sequence) to the back while
-    # preserving the relative interesting-case order within each group.
-    #
-    # Strategy differs by dataset because of how line_numbers are assigned:
-    #   OS        — split-level block_id; entries are CONSECUTIVE within a split
-    #               file, so position = ln − MIN(ln in split).  2 batch queries.
-    #   HDFS      — block-level block_id (blk_-XXX); entries from the same block
-    #               are INTERLEAVED in the raw log with other blocks, so
-    #               ln − MIN(ln in block) >> actual preceding count.  Needs real
-    #               COUNT per entry, but blocks are tiny (≤42 events) and indexed.
+    # Move entries whose context contains NO_EVENT padding (< _CTX_LEN predecessors in
+    # their sequence) to the back, keeping order within each group. OS lines are
+    # consecutive within a split, so position = ln - MIN(ln); HDFS blocks interleave in
+    # the raw log, so each entry needs a COUNT (blocks are small and indexed).
     db_path = str(Path(__file__).parent / "cesal.db")
     has_padding: set[int] = set()
     try:
@@ -189,9 +162,7 @@ def _build_interesting_lines(dataset: str) -> None:
             ln_to_bid = {r[0]: r[1] for r in bid_rows}
 
             if dataset == "hdfs":
-                # Exact COUNT per entry — necessary because HDFS blocks are
-                # interleaved in the raw log so ln−min_ln ≠ preceding count.
-                # ~500 queries, each O(block_size ≤ 42) via idx_rl_blk index.
+                # HDFS blocks interleave, so count predecessors exactly (indexed, <= 42 rows).
                 for ln in result:
                     bid = ln_to_bid.get(ln)
                     if bid:
@@ -203,8 +174,7 @@ def _build_interesting_lines(dataset: str) -> None:
                         if cnt < _CTX_LEN:
                             has_padding.add(ln)
             else:
-                # OS: entries within the same split file have consecutive
-                # line_numbers, so position = ln − MIN(ln in split). 1 more query.
+                # OS: lines in a split are consecutive, so position = ln - MIN(ln).
                 bid_set = list(set(ln_to_bid.values()))
                 if bid_set:
                     ph2 = ",".join("?" * len(bid_set))
@@ -241,8 +211,7 @@ def _read_txt_lines(paths: list[Path]) -> list[str]:
 
 
 def _sync_fit_scaler(dataset: str) -> None:
-    """Fit StandardScaler for one dataset from its training txt file.
-    Uses partial_fit to stay memory-efficient on large training files."""
+    """Fit one dataset's StandardScaler on its training file (partial_fit in batches)."""
     try:
         from sklearn.preprocessing import StandardScaler
         paths  = _TXT_PATHS[dataset]["train"]
@@ -344,8 +313,7 @@ _N_EDGE_MODELS  = 3
 _N_CLOUD_MODELS = 999
 
 # ── In-process BAT model cache ────────────────────────────────────────────────
-# Models are loaded from disk once at startup and kept in RAM (~3.5 GB per dataset).
-# Subsequent single-window predictions use the cache → ~2-3s instead of 78s.
+# Loaded once (~3.5 GB per dataset): single-window predictions take ~2-3 s instead of 78 s.
 _bat_cache: dict[str, dict] = {}        # dataset → {mname: {"model": EMAT, "threshold": float}}
 _bat_cache_ready: dict[str, bool] = {}  # dataset → bool
 _bat_cache_lock  = threading.Lock()
@@ -480,10 +448,7 @@ def _run_bat_subprocess(
 
 
 def _lookup_pipeline_result(dataset: str, session_idx: int) -> Optional[dict]:
-    """Return single-sequence results from the last full pipeline run's .npy files.
-
-    Returns None if pipeline outputs don't exist (fall back to fresh prediction).
-    """
+    """Single-sequence results from the last pipeline run's .npy files, or None if absent."""
     out_base = ROOT / "outputs" / dataset.lower()
     needed   = ["edge_preds.npy", "hybrid_preds.npy"]
     if not all((out_base / f).exists() for f in needed):
@@ -505,16 +470,14 @@ def _lookup_pipeline_result(dataset: str, session_idx: int) -> Optional[dict]:
             win_size    = _cfg.get("win_size", 100)
             routing_pct = int(_cfg.get("routing_tolerance", 0.1) * 100)
 
-    # Map the index returned by _find_window_for_raw to the correct position in
-    # the npy event arrays so predictions match the pipeline exactly.
+    # Map the window index to its position in the npy event arrays.
     if dataset == "os":
         # OS npy is per-line; session_idx is the direct npy position.
         start = min(session_idx, len(hybrid) - 1)
         end   = start + 1
     elif dataset == "hdfs":
-        # HDFS: session_idx = local test line index (direct npy position).
-        # Guard: if npy arrays are from an old short demo run, refuse to clamp
-        # silently — return None so _fresh_predict is used instead.
+        # HDFS: session_idx is the test-local line index. Arrays from an old short demo
+        # run are rejected (None -> _fresh_predict) rather than clamped.
         N_HDFS_TEST = _db.HDFS_N_TEST_NORMAL_LINES + _db.HDFS_N_TEST_ABNORMAL_LINES
         if len(hybrid) < N_HDFS_TEST // 2:   # clearly a stale short array
             return None
@@ -622,12 +585,8 @@ def _lookup_pipeline_result(dataset: str, session_idx: int) -> Optional[dict]:
 
 
 def _fresh_predict(dataset: str, content: str) -> dict:
-    """Score one log sequence through the full three-stage pipeline.
-
-    Uses in-RAM model cache when available (loaded at startup) so inference
-    takes ~2-3s instead of 78s.  Falls back to subprocess on first call if
-    the cache is not yet ready.
-    """
+    """Score one log sequence through the pipeline: in-RAM model cache when ready
+    (~2-3 s), else a bat_predict.py subprocess (~78 s)."""
     import time
     t0 = time.time()
 
@@ -722,11 +681,8 @@ def _fresh_predict(dataset: str, content: str) -> dict:
 
 
 def _find_window_for_raw(dataset: str, split: str, line_number: int, block_id: str) -> Optional[int]:
-    """Approximate: map a raw log line_number to the txt-file sequence index that contains it.
-
-    The mapping is an estimate based on average raw-log lines per log sequence.
-    For HDFS the block_id gives an exact match.
-    """
+    """Map a raw log line_number to its pipeline index: OS estimates the sequence from
+    average lines per sequence; HDFS returns the test-local line index."""
     import sqlite3
     db_path = str(Path(__file__).parent / "cesal.db")
 
@@ -749,15 +705,12 @@ def _find_window_for_raw(dataset: str, split: str, line_number: int, block_id: s
             return _db.OS_N_NORMAL_EVENTS + k
 
     elif dataset == "hdfs":
-        # HDFS npy arrays are indexed by raw test line.
-        # Return the test-local line index so _lookup_pipeline_result can index
-        # directly into hybrid_preds.npy / routed_indices.npy.
+        # HDFS npy arrays are indexed by test-local raw line.
         if split == "train":
             return None   # no pipeline results for train
         local = max(0, line_number - _db.HDFS_N_TRAIN_LINES)
-        # The npy has one extra normal entry vs the DB (a blank line in
-        # test_normal.log was skipped during ingest). Shift anomaly indices
-        # by +1 so they align with the npy's anomaly region.
+        # The npy has one extra normal entry (a blank test_normal line skipped at
+        # ingest), so anomaly indices shift by +1.
         if local >= _db.HDFS_N_TEST_NORMAL_LINES:
             local += 1
         return local
@@ -772,12 +725,7 @@ async def predict_from_raw(
     line_number: int = 0,
     block_id:    str = "",
 ):
-    """Find the log sequence that contains a raw log line and predict its label.
-
-    The log sequence is looked up by mapping the raw log line_number to the
-    corresponding entry in the source txt file, then scored with the
-    cloud BAT ensemble exactly as predict_single does.
-    """
+    """Predict the label of the log sequence containing a raw log line."""
     if line_number < 0:
         raise HTTPException(400, "line_number must be >= 0")
 
@@ -812,12 +760,9 @@ async def predict_from_raw(
 
     result["line_index"] = window_idx
 
-    # Derive ground truth from line/npy position for HDFS and OS,
-    # or from the windows table for other datasets.
+    # Ground truth: from the line/npy position for HDFS and OS, else the windows table.
     if dataset == "hdfs":
-        # Ground truth derived directly from line_number: test_abnormal lines
-        # start at HDFS_N_TRAIN_LINES + HDFS_N_TEST_NORMAL_LINES in the DB.
-        # This is reliable regardless of npy file size.
+        # Test anomalies start at HDFS_N_TRAIN_LINES + HDFS_N_TEST_NORMAL_LINES.
         if split == "test" and line_number is not None:
             abnormal_start = _db.HDFS_N_TRAIN_LINES + _db.HDFS_N_TEST_NORMAL_LINES
             result["ground_truth"] = 1 if line_number >= abnormal_start else 0
@@ -839,10 +784,8 @@ async def predict_from_raw(
                          dataset, split, window_idx, exc)
             result["ground_truth"] = None
 
-    # A raw line belongs to a sequence, and it is the sequence that gets
-    # classified — so the line inherits its sequence's incident rather than
-    # getting one of its own. Present only when that sequence was detected as
-    # anomalous and therefore queued.
+    # A raw line inherits its sequence's incident (present only if that sequence
+    # was detected and queued).
     if split == "test":
         try:
             result["incident"] = await asyncio.to_thread(
@@ -898,18 +841,14 @@ async def predict_single(
 # ── Startup ───────────────────────────────────────────────────────────────────
 @app.on_event("startup")
 async def _startup():
-    # Always clear the interesting-lines cache so the padding-aware ordering
-    # is recomputed fresh on the first request after every server restart.
+    # Recompute the padding-aware line ordering after every restart.
     _interesting_lines.clear()
     await asyncio.to_thread(_db.init_db)
-    # Always ingest if data is missing — ingest functions skip gracefully when
-    # external log files are absent, and fall back to synthetic raw logs for OS.
+    # Ingest whatever is missing (absent log files are skipped; OS falls back to synthetic logs).
     st = await _db.get_status()
     if not st.get("win_os_test") or not st.get("raw_os"):
         _trigger_ingest()
-    # Warm the pipeline line ordering so the first request never pays for it.
-    # (It is fast now that raw_logs carries idx_rl_ds_blk_ln; before that index
-    # the HDFS build issued ~500 counts that each scanned half the table.)
+    # Warm the pipeline line ordering so the first request doesn't pay for it.
     async def _warm_interesting():
         for _ds in ("hdfs", "os"):
             try:
@@ -921,17 +860,9 @@ async def _startup():
     # Fit StandardScaler for all datasets (needed for single-sequence prediction)
     for _ds in ("os", "hdfs"):
         asyncio.create_task(asyncio.to_thread(_sync_fit_scaler, _ds))
-    # Preload BAT models into RAM only when no separate cloud env is available
-    # (i.e. a container where CLOUD_PYTHON == this interpreter).
-    # Locally, the hybrid conda env subprocess is faster and uses the GPU.
-    #
-    # In a container the full HDFS ingest and the ~7 GB of PyTorch model
-    # weights would compete for the same RAM if started simultaneously.
-    # Deferring model loading until ingest finishes keeps peak usage low:
-    #   - ingest runs alone  →  HDFS DB is built faster with less I/O contention
-    #   - models load after  →  reads from warm page-cache, no extra I/O pressure
-    # When no ingest is running (_ingest_running is False from the start) the
-    # while-loop exits immediately and models are preloaded right away.
+    # Preload BAT models in-process only without a separate cloud env (a container);
+    # locally the cloud-env subprocess is faster and uses the GPU. Loading waits for a
+    # running ingest so the two don't compete for RAM.
     if CLOUD_PYTHON == sys.executable:
         async def _preload_after_ingest():
             while _ingest_running:
@@ -966,9 +897,7 @@ def _load_incidents(dataset: str) -> dict:
     """Incidents plus per-sequence classifications, cached on the incidents file mtime."""
     qdir, inc_path = _incident_paths(dataset)
     if inc_path is None:
-        # The classifier's label set and knowledge base are HDFS-specific, so
-        # there is nothing to run for other datasets — say so rather than
-        # suggesting a command that cannot help here.
+        # The classifier's labels and knowledge base are HDFS-specific.
         if dataset.lower() != "hdfs":
             return {"available": False, "hdfs_only": True,
                     "reason": "Incident classification and response are defined for HDFS only — "
@@ -1012,9 +941,8 @@ def _load_incidents(dataset: str) -> dict:
     data = {
         "available": True, "key": key, "model": model,
         "incidents": incidents, "classified": classified, "evaluation": evaluation,
-        # session_id is the index into the concatenated test sequences, which is
-        # the same index predict_from_raw resolves a raw log line to, so a clicked
-        # line can be joined straight to its incident.
+        # session_id indexes the concatenated test sequences, the same index
+        # predict_from_raw resolves a raw line to.
         "by_session": {r["session_id"]: r for r in incidents
                        if isinstance(r.get("session_id"), int)},
         "files": {
@@ -1031,13 +959,8 @@ _SESSION_ENDS_CACHE: dict = {}
 
 
 def _session_index_for_event(dataset: str, event_index: int) -> int | None:
-    """Map a per-event index to the log sequence that contains it.
-
-    predict_from_raw resolves an HDFS raw line to a position in the flattened
-    event stream, whereas incidents are keyed by sequence. queues.py lays the
-    stream out as the concatenated test sequences, so the sequence is found by
-    bisecting their cumulative lengths.
-    """
+    """Map a flattened HDFS event index to its test sequence (bisects the cumulative
+    sequence lengths, laid out as in queues.py)."""
     if dataset != "hdfs" or event_index is None or event_index < 0:
         return None
     ends = _SESSION_ENDS_CACHE.get(dataset)
@@ -1055,11 +978,7 @@ def _session_index_for_event(dataset: str, event_index: int) -> int | None:
 
 
 def _incident_for_session(dataset: str, session_id: int) -> dict | None:
-    """Classification and response for the sequence a raw log line belongs to.
-
-    Only sequences detection flagged are queued, so this returns None for a
-    sequence that was never detected as anomalous — there is nothing to show.
-    """
+    """Classification and response for a sequence; None if it was never detected."""
     data = _load_incidents(dataset)
     if not data.get("available"):
         return None
@@ -1104,12 +1023,8 @@ _TABLE7_PAPER_MACRO_F1 = 0.8303
 
 
 def _table7_per_class(dataset: str) -> tuple[list, str]:
-    """Per-class Table 7 scores for the default backbone, measured if available.
-
-    Both files carry the same columns and cover the bundled classification test
-    set, which is the population Table 7 reports. The reference file ships with
-    the artifact; the long file is written by `run.py classify`.
-    """
+    """Per-class Table 7 scores for the default backbone: measured (`run.py classify`)
+    if available, else the shipped reference; both cover the classification test set."""
     base = ROOT / "outputs" / dataset / "llm"
     for path, source in ((base / "per_class_metrics_long.csv", "measured"),
                          (base / "table7_reference_metrics.csv", "paper")):
@@ -1122,8 +1037,7 @@ def _table7_per_class(dataset: str) -> tuple[list, str]:
             continue
         models = {r.get("model", "") for r in rows}
         pick = next((m for m in sorted(models) if "14B" in m), next(iter(sorted(models)), ""))
-        # The reference file ends with a 'macro avg' row; it is the KPI above,
-        # not an anomaly type, so it must not render as one.
+        # Skip aggregate rows such as 'macro avg'; they are not anomaly types.
         aggregates = {"macro avg", "weighted avg", "micro avg", "accuracy", "macro average"}
         out = []
         for r in rows:
@@ -1143,11 +1057,8 @@ def _table7_per_class(dataset: str) -> tuple[list, str]:
 
 
 def _table7_macro_f1(dataset: str) -> tuple[float, str]:
-    """Macro-F1 for the default backbone: measured if a run wrote one, else the paper's.
-
-    model_summary.csv is written by `run.py classify` over the bundled
-    classification test set, which is the population Table 7 reports.
-    """
+    """Default-backbone macro-F1 from model_summary.csv (`run.py classify`), else the
+    paper's Table 7 value."""
     path = ROOT / "outputs" / dataset / "llm" / "model_summary.csv"
     if path.is_file():
         try:
@@ -1175,8 +1086,7 @@ async def incidents_summary(dataset: str = "hdfs"):
             "automated_response": r["automated_response"],
             "approval_steps": r.get("approval_steps", 0),
             "escalation_steps": r.get("escalation_steps", 0),
-            # The selected response itself, so the UI can show what will be done
-            # and not only that something was selected.
+            # The selected response itself, not only that one was selected.
             **{k: v for k, v in _workflow_payload(r["pred_label"]).items()
                if k in ("description", "steps")},
         })
@@ -1195,8 +1105,7 @@ async def incidents_summary(dataset: str = "hdfs"):
             "human_investigation": sum(not r["automated_response"] for r in inc),
             "with_approval_step": sum((r.get("approval_steps") or 0) > 0 for r in inc),
         },
-        # Known types by volume; the unknown type last, since it is the open-set
-        # fallback rather than one of the predefined categories.
+        # Known types by volume; the open-set unknown type last.
         "labels": sorted(labels.values(),
                          key=lambda x: (not x["automated_response"], -x["count"])),
         "unique_sequences": len(cls) or len({r["template_sequence"] for r in inc}),
@@ -1208,10 +1117,8 @@ async def incidents_summary(dataset: str = "hdfs"):
             sum(e["f1"] * e["support"] for e in data["evaluation"])
             / sum(e["support"] for e in data["evaluation"])
         ) if data["evaluation"] else None,
-        # The paper reports this module with macro averaging (Table 7), so show
-        # that rather than a weighted mean. macro_f1 comes from the Table 7
-        # summary the classify run writes; queue_macro_f1 is the same statistic
-        # over the detected incidents, which is a different population.
+        # Macro averaging, as in Table 7. macro_f1 covers the classification test set;
+        # queue_macro_f1 is the same statistic over the detected incidents.
         "macro_f1": _table7_macro_f1(dataset)[0],
         "macro_f1_source": _table7_macro_f1(dataset)[1],
         "queue_macro_f1": (
@@ -1274,13 +1181,8 @@ async def index():
 
 
 async def _pick_default_dataset() -> str:
-    """Which dataset the dashboard should open on.
-
-    HDFS is the paper's primary dataset and the only one with incident
-    classification and response, so it is preferred — but only once its raw
-    logs have been ingested, since every panel that reads them would otherwise
-    be empty. Falls back to OpenStack, which is small and always ready.
-    """
+    """Open on HDFS (primary dataset, with incident response) once its raw logs are
+    ingested; otherwise OpenStack, which is always ready."""
     try:
         st = await _db.get_status()
     except Exception:
@@ -1300,11 +1202,8 @@ async def info():
 # ── Process control ───────────────────────────────────────────────────────────
 @app.get("/api/response-readiness")
 async def response_readiness(dataset: str = "hdfs"):
-    """Can the response stage be chained onto a run, and will it be quick?
-
-    Classification is cached per unique sequence, so a run that finds a full
-    cache finishes in seconds while a cold one needs a GPU and hours.
-    """
+    """Whether the response stage can be chained onto a run and how long it takes
+    (classification is cached per sequence: seconds when warm, GPU-hours when cold)."""
     if dataset.lower() != "hdfs":
         return {"supported": False,
                 "reason": "Incident response is defined for HDFS only."}
@@ -1350,11 +1249,8 @@ async def run(req: RunRequest):
     if _proc is not None and _proc.returncode is None:
         raise HTTPException(status_code=409, detail="A process is already running")
 
-    # Ensure any prior drain task has fully exited before we attach a new one.
-    # Without this, the previous task can still be mid-iteration and end up
-    # calling readline() on the *new* stdout while the new drain task is also
-    # awaiting on it — RuntimeError("readuntil() called while another coroutine
-    # is already waiting").
+    # Wait for the previous drain task to exit, or it may readline() the new stdout
+    # concurrently ("readuntil() called while another coroutine is already waiting").
     if _drain_task is not None and not _drain_task.done():
         try:
             await asyncio.wait_for(_drain_task, timeout=2.0)
@@ -1373,9 +1269,8 @@ async def run(req: RunRequest):
         _log_buf.clear()
 
     cmd = _build_cmd(req)
-    # CESAL_EVENTS makes the runners emit structured "@@CESAL {json}" progress
-    # events (cesal_core/utils/steps.py) alongside their human-readable output,
-    # so the front-end tracks steps from real data rather than by matching prose.
+    # CESAL_EVENTS makes runners emit "@@CESAL {json}" step events (cesal_core/utils/steps.py),
+    # so the front end tracks progress from data rather than prose.
     env = {**os.environ, "PYTHONUNBUFFERED": "1", "FORCE_COLOR": "0",
            "CESAL_EVENTS": "1"}
     _proc = await asyncio.create_subprocess_exec(
@@ -1403,13 +1298,8 @@ async def stop():
 
 
 async def _drain_proc(proc: asyncio.subprocess.Process) -> None:
-    """Background task: read stdout of one subprocess into _log_buf.
-
-    Bound to a specific `proc` (not the global `_proc`) so a stale task can
-    never race against a freshly-started subprocess if /api/run is called
-    again after a stop. This prevents asyncio's
-    "readuntil() called while another coroutine is already waiting" error.
-    """
+    """Read one subprocess's stdout into _log_buf. Bound to `proc`, not the global
+    `_proc`, so a stale task can't race a newly started run."""
     global _last_run_ok
     while proc.stdout and not proc.stdout.at_eof():
         line = await proc.stdout.readline()
@@ -1548,8 +1438,7 @@ async def get_config_summary(dataset: str):
 
     cloud = cfg.get("cloud") or {}
 
-    # Count actual trained checkpoint files as the authoritative model count.
-    # Fall back to the YAML sweep combination count if the directory is absent.
+    # Model count: trained checkpoint files, else the config's sweep size.
     n_cloud_ckpt = 0
     if cloud:
         ckpt_dir = cloud.get("model_save_path", "")
@@ -1631,21 +1520,14 @@ def _parse_log_metrics(lines: list[str]) -> dict:
 
 
 # ── Environment configuration ─────────────────────────────────────────────────
-# Python interpreters for each pipeline phase.
-# Override EDGE_PYTHON / CLOUD_PYTHON env vars to use a different interpreter
-# (e.g. set both to sys.executable in Docker where conda envs don't exist).
+# Interpreters per pipeline tier; override with EDGE_PYTHON / CLOUD_PYTHON
+# (e.g. sys.executable in Docker, which has no conda envs).
 _CONDA = Path.home() / "miniconda3" / "envs"
 
 
 def _resolve_python(path: str, var: str, tier: str) -> str:
-    """Interpreter for one pipeline tier, falling back to this one if it is absent.
-
-    The conda layout below is a default, not a guarantee: a checkout may name its
-    environments differently, and a container may have no conda at all. Without
-    this check a missing interpreter reaches the shell as a bare
-    "No such file or directory", which names a path but not the environment the
-    user actually has to create or point at.
-    """
+    """Interpreter for one tier; falls back to this one, naming the variable to set,
+    when the default conda path is absent."""
     if Path(path).exists():
         return path
     print(f"[env] {tier} interpreter not found at {path} — using {sys.executable}. "
@@ -1661,8 +1543,7 @@ CLOUD_PYTHON = _resolve_python(
     os.getenv("CLOUD_PYTHON", str(_CONDA / "cesal-cloud" / "bin" / "python")),
     "CLOUD_PYTHON", "Cloud")
 
-# True when the full inference pipeline (run.py + ExecuTorch executor_runner) is present.
-# Falls back to demo_runner.py when either component is missing.
+# Full pipeline (run.py + ExecuTorch executor_runner) present; otherwise demo_runner.py.
 _RUNNER_BIN = (
     ROOT / "cesal_inference_pipeline" / "executorch" / "cmake-out" / "executor_runner"
 )
@@ -1674,9 +1555,8 @@ _FULL_PIPELINE_AVAILABLE = (
 
 # ── Config helpers ────────────────────────────────────────────────────────────
 def _build_precomputed_infer_cmd(ds: str) -> list[str]:
-    """Last-resort fallback: stream a brief status message then exit 0.
-    Used when neither the full pipeline nor BAT checkpoints are available.
-    The frontend then loads whatever is already in outputs/{ds}/."""
+    """Last resort without the full pipeline or BAT checkpoints: print a status message
+    and exit 0, so the front end loads the existing outputs/{ds}/."""
     script = "\n".join([
         f'echo "=== CESAL  [{ds.upper()}] — no checkpoints available ==="',
         f'echo "Pre-computed results loaded from outputs/{ds}/. See the Results tab."',
@@ -1685,18 +1565,9 @@ def _build_precomputed_infer_cmd(ds: str) -> list[str]:
 
 
 def _build_container_infer_cmd(ds: str, tolerance: float, distance: str) -> list[str]:
-    """Inference for container deployments using demo_runner.py.
-
-    demo_runner.py runs the full four-stage pipeline entirely in Python using
-    the BAT .pth checkpoints (no ExecuTorch required):
-      Stage 1 — 3 fast BAT models as edge-proxy scan (parallel)
-      Stage 2 — Mahalanobis routing
-      Stage 3 — full BAT ensemble on routed windows (parallel)
-      Stage 4 — hybrid metrics
-
-    Falls back to the pre-computed status message when BAT checkpoints or a
-    cloud section are absent for the requested dataset (e.g. HDFS).
-    """
+    """Container inference via demo_runner.py: all four stages in Python on the BAT
+    .pth checkpoints (3 BAT learners as the edge proxy; no ExecuTorch). Falls back to
+    the precomputed status message without checkpoints or a cloud section."""
     # Need both a cloud section in the config and actual .pth checkpoints.
     if not _cfg_has_cloud(ds):
         return _build_precomputed_infer_cmd(ds)
@@ -1712,8 +1583,7 @@ def _build_container_infer_cmd(ds: str, tolerance: float, distance: str) -> list
 def _build_cmd(req: RunRequest) -> list[str]:
     ds = req.dataset
     if req.command == "infer" and not _FULL_PIPELINE_AVAILABLE:
-        # Full inference pipeline not present (container):
-        # use demo_runner.py which executes BAT models for both edge and cloud.
+        # No full pipeline (container): demo_runner.py runs BAT for edge and cloud.
         return _build_container_infer_cmd(ds, req.routing_tolerance, req.routing_distance)
     if req.command == "train":
         return [CLOUD_PYTHON, "-m", "training_pipeline.train",
@@ -1734,12 +1604,8 @@ def _build_cmd(req: RunRequest) -> list[str]:
 
 
 def _respond_script(ds: str) -> str:
-    """Shell lines that turn detections into classified, actioned incidents.
-
-    Runs only for HDFS (the classifier's label set is HDFS-specific) and never
-    in demo mode, where there is no GPU. The two modules share a step handoff so
-    they report as one numbered sequence.
-    """
+    """Shell lines that classify and act on detections. HDFS only (HDFS-specific labels)
+    and never in demo mode (no GPU); shares the step handoff so numbering continues."""
     if ds.lower() != "hdfs" or DEMO_MODE:
         return ""
     handoff = ROOT / "outputs" / "hdfs" / "llm" / "queues" / ".run_steps.json"
@@ -1761,10 +1627,8 @@ def _build_infer_cmd(ds: str, tolerance: float, distance: str,
     has_cloud = _cfg_has_cloud(ds)
 
     if has_cloud and EDGE_PYTHON != CLOUD_PYTHON:
-        # Steps 1-2 and steps 3-4 run in different conda envs. CESAL_STEP_HANDOFF
-        # carries the first process's step records to the second, so the two
-        # halves report as one numbered run with a single closing summary
-        # (see cesal_core/utils/steps.py).
+        # Steps 1-2 and 3-4 run in different envs; CESAL_STEP_HANDOFF carries the step
+        # records across so they report as one run (cesal_core/utils/steps.py).
         handoff = f"{_output_dir_for(ds)}/.run_steps.json"
         script = (
             f'set -euo pipefail\n'
@@ -1889,23 +1753,15 @@ async def api_context_window(
     line_number: int = 0,
     block_id:    str = "",
 ):
-    """Return the preceding _CTX_LEN (=10) raw log entries for one log line.
-
-    For HDFS the context is scoped to the same block_id (identifier partition).
-    For OpenStack the context is the preceding lines in the same split file
-    (time-based partition — consecutive raw log entries form one sequence).
-    """
+    """The _CTX_LEN raw entries preceding one log line, within the same block (HDFS)
+    or split file (OpenStack)."""
     import sqlite3 as _sqlite3
     db_path = str(Path(__file__).parent / "cesal.db")
 
     def _fetch():
         with _sqlite3.connect(db_path, timeout=30) as c:
             c.row_factory = _sqlite3.Row
-            # For HDFS, block_id is the block identifier (e.g. blk_-XXX) so this
-            # naturally scopes context to the same log sequence.
-            # For OpenStack, block_id is the split name (e.g. test_normal)
-            # so this scopes context to the same split file, which approximates
-            # the time-window sequence boundary for consecutive entries.
+            # block_id is the HDFS block or the OpenStack split, which scopes the context.
             rows = c.execute(
                 "SELECT line_number, content, timestamp, level, component "
                 "FROM raw_logs "
@@ -1963,10 +1819,7 @@ async def api_pipeline_raw_logs(
     label: str   = "",
 ):
     """Raw log lines for any dataset/split, with split-aware filtering."""
-    # Rebuild if missing or if the cached list has never had the padding-sort applied
-    # (detected by checking whether the list is present in _interesting_lines; a fresh
-    # server start always rebuilds, and _build_interesting_lines pops the key before
-    # writing so stale values from a previous code version are never silently reused).
+    # Built on first use after each restart (startup clears the cache).
     if dataset not in _interesting_lines:
         await asyncio.to_thread(_build_interesting_lines, dataset)
     interesting = _interesting_lines.get(dataset, [])

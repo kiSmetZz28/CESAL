@@ -138,7 +138,7 @@ This setup preserves the model, threshold, routing and scoring configuration, wh
 | ------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Log data processing: sequences → sliding context windows (Sec. 3.4; datasets are provided already parsed into log events) | [cesal_core/data/](cesal_core/data/)                                                                                                                             |
 | EM-AT base learner (Sec. 3.5.1)                                                                                           | [cesal_core/models/](cesal_core/models/)                                                                                                                         |
-| EM-GMM automated thresholding (Sec. 3.5.1)                                                                                | [training_pipeline/solver.py](training_pipeline/solver.py) (BAT), [cesal_inference_pipeline/lad_qbat_edge.py](cesal_inference_pipeline/lad_qbat_edge.py) (Q-BAT) |
+| EM-GMM automated thresholding (Sec. 3.5.1)                                                                                | [cesal_core/models/EMAT.py](cesal_core/models/EMAT.py) (`EMAT.fit_threshold`); Q-BAT reuses BAT thresholds ([tools/calibrate_edge.py](tools/calibrate_edge.py))  |
 | BAT training (Sec. 3.5.2, Algorithm 1)                                                                                    | [training_pipeline/](training_pipeline/)                                                                                                                         |
 | Q-BAT quantization and ExecuTorch export (Sec. 3.5.3)                                                                     | [quantization/qbat_export.py](quantization/qbat_export.py)                                                                                                       |
 | Edge-side inference with Q-BAT (Sec. 3.6, Algorithm 2)                                                                    | [cesal_inference_pipeline/lad_qbat_edge.py](cesal_inference_pipeline/lad_qbat_edge.py)                                                                           |
@@ -487,7 +487,7 @@ CESAL/
 │
 │ ── Shared library ───────────────────────────────────────────────────────
 ├── cesal_core/                    # Imported by every pipeline below
-│   ├── models/                    #   EM-AT architecture (attention, embedding)
+│   ├── models/                    #   EM-AT: architecture (attention, embedding) + EM-GMM thresholding
 │   ├── data/                      #   Dataset loaders + log preprocessor
 │   └── utils/                     #   Energy scoring, voting, config I/O, metrics
 │

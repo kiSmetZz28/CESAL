@@ -25,22 +25,14 @@ from executorch.exir import EdgeProgramManager, ExecutorchBackendConfig, to_edge
 from torchao.quantization import quantize_, int8_dynamic_activation_int4_weight
 from torchao.utils import unwrap_tensor_subclass
 
-# Run directly as a script (as run.py does), so put the project root on the path
-# the way the other entry points do rather than relying on `pip install -e .`.
+# Run as a script (as run.py does), so put the project root on the path.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
 def _ensure_flatc() -> None:
-    """Point ExecuTorch at its bundled flatc when it cannot find one itself.
-
-    ExecuTorch serializes .pte files by shelling out to flatc. It first looks
-    for a `flatbuffers-flatc` resource inside executorch.exir._serialize, then
-    falls back to $FLATC_EXECUTABLE or plain `flatc` on PATH. Several installs
-    ship neither the resource nor a flatc on PATH, yet do ship a working binary
-    at executorch/data/bin/flatc, and every export then fails with
-    "Failed to compile ... to ....pte". Wire that binary up rather than making
-    the caller export the variable. An existing FLATC_EXECUTABLE always wins.
-    """
+    """Point ExecuTorch at its bundled flatc (executorch/data/bin/flatc) when it finds
+    no flatc resource or flatc on PATH, which otherwise fails every export with
+    "Failed to compile ... .pte". An existing FLATC_EXECUTABLE wins."""
     import importlib.resources
     import shutil
 
@@ -84,13 +76,8 @@ full-precision checkpoints; only the edge tier uses these.
 
 
 class _ExportableEMAT(nn.Module):
-    """EMAT wrapper that fuses energy scoring into the forward pass.
-
-    Returns a 1-D float32 tensor of energy values (length win_size for
-    batch=1), making the full scoring pipeline exportable as a single
-    ExecuTorch program.  All operations are tensor-only — no numpy, no
-    in-place Python control flow that cannot be traced.
-    """
+    """EMAT with energy scoring fused into forward(): [1, win_size, input_c] -> 1-D
+    energies of length win_size, tensor-only so the scorer exports as one program."""
 
     def __init__(self, emat: nn.Module, win_size: int):
         super().__init__()
@@ -132,12 +119,7 @@ def convert_one(
     e_layer_num: int,
     seed: int = 42,
 ) -> None:
-    """Export and quantize one EMAT .pth checkpoint into a .pte file.
-
-    Reports the four sub-stages through the active step (see
-    cesal_core/utils/steps.py), so a long conversion shows what it is doing
-    rather than appearing to hang.
-    """
+    """Export and A8W4-quantize one EMAT .pth checkpoint into a .pte file."""
     seed_training(seed)
     device = torch.device("cpu")
     dtype = torch.float32
@@ -150,18 +132,12 @@ def convert_one(
     model = _ExportableEMAT(emat, win_size=win_size)
     model.eval().to(dtype=dtype, device=device)
 
-    # A8W4: int8 dynamic activations, int4 weights. This is the step that
-    # shrinks the model: weights drop from 32-bit floats to 4-bit integers,
-    # trading a little numeric precision for ~8x less space.
-    #
-    # Uses torchao's quantize_ API. The older Int8DynActInt4WeightQuantizer
-    # cannot be used here: its _create_quantized_state_dict asserts
-    # `not mod.bias`, and every one of EMAT's 16 Linear layers carries a bias
-    # (torchao drops bias entirely — see its own "TODO: support bias?").
+    # A8W4: int8 dynamic activations, int4 weights (~8x smaller). torchao's quantize_ is
+    # used because Int8DynActInt4WeightQuantizer asserts `not mod.bias`, and all 16 of
+    # EMAT's Linear layers have biases.
     step.progress_note(f"{Path(dst_pte).stem} — quantizing")
     quantize_(model, int8_dynamic_activation_int4_weight())
-    # quantize_ replaces weights with tensor subclasses; torch.export needs
-    # them unwrapped back into plain tensors first.
+    # torch.export needs quantize_'s tensor subclasses unwrapped into plain tensors.
     model = unwrap_tensor_subclass(model)
 
     sample_input = (torch.randn(1, win_size, input_c, dtype=dtype, device=device),)

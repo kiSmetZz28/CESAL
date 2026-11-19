@@ -75,13 +75,9 @@ def window_arrays(training):
 
 
 class EnsembleScorer:
-    """Point-adjusted scores without materialising the adjusted prediction.
-
-    A ground-truth anomaly segment counts fully once any event inside it is
-    detected, so true positives depend only on which segments were hit; false
-    positives can only occur on normal events, which point adjustment never
-    changes.
-    """
+    """Point-adjusted scores without materialising the adjusted prediction: true
+    positives depend only on which anomaly segments were hit, false positives only
+    on normal events."""
 
     def __init__(self, labels):
         self.labels = labels
@@ -128,12 +124,8 @@ def matches_paper(scores):
 
 
 def evaluate_candidates(training, inference, pte_dir, output, workers, depths=DEPTHS, cache=None):
-    """Score every candidate .pte once, caching each prediction for reuse.
-
-    ``cache`` may point at another run's prediction directory, so a narrower
-    selection can reuse work a wider run has already finished instead of
-    executing those models again.
-    """
+    """Score every candidate .pte once, caching predictions (``cache`` may point at
+    another run's prediction directory to reuse its work)."""
     report = output / 'candidate_pool.json'
     bat_f1 = json.loads((Path(training['threshold_output']).parent / 'bat_evaluation.json').read_text())['model_f1']
     selected, excluded = candidate_parameters(training, bat_f1, depths)

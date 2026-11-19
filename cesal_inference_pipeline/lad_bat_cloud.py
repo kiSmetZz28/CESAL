@@ -40,11 +40,8 @@ def _run_one_bat(
     device: torch.device,
     infer_batch_size: int = 64,
 ) -> Optional[np.ndarray]:
-    """Load one BAT checkpoint, score the routed windows in mini-batches.
-
-    Returns a column vector [N_windows * win_size, 1] of binary predictions, or None if
-    the checkpoint / threshold is missing.
-    """
+    """Score the routed windows with one BAT checkpoint in mini-batches: binary
+    predictions [N_windows * win_size, 1], or None if its checkpoint or threshold is missing."""
     num_epochs, k_val, e_layer_num, batch_size = combo
     fileparam  = f"e{num_epochs}_k{k_val}_l{e_layer_num}_b{batch_size}"
     model_name = f"{dataset}_{fileparam}"
@@ -77,29 +74,17 @@ def _run_one_bat(
     thresh = thresholds[model_name]
     preds  = (energy > thresh).astype(int)
 
-    # One line per checkpoint would bury the run in 81 near-identical messages,
-    # so the detail stays at DEBUG and the step reports milestone progress.
+    # 81 near-identical lines would bury the run; the step reports progress instead.
     logging.debug("BAT model '%s' done.", model_name)
     steps.current().tick("learners")
     return preds.reshape(-1, 1)
 
 
 def run(windows: np.ndarray, config: dict) -> np.ndarray:
-    """Run all BAT cloud checkpoints and return 1-D ensemble predictions.
-
-    On CUDA, models are processed sequentially — GPU ops serialize on a single
-    device stream regardless of thread count, so threads only add overhead and
-    VRAM pressure.  On CPU, a small thread pool is used.
-
-    Parameters
-    ----------
-    windows : np.ndarray
-        Shape [N_windows, win_size, features]. The event-routing pipeline packs
-        selected event vectors consecutively into complete windows.
-    config : dict
-        Cloud section of the inference config. Must include: dataset, win_size,
-        input_c, model_save_path, thresholds_yaml, voting, and the BAT sweep
-        lists num_epochs / k / e_layer_num / batch_size.
+    """Run all BAT checkpoints on windows [N_windows, win_size, features] (routed event
+    vectors packed into complete windows) and return 1-D ensemble predictions.
+    ``config`` is the inference config's cloud section. Models run sequentially on
+    CUDA (one device stream) and in a small thread pool on CPU.
     """
     if len(windows) == 0:
         raise ValueError("No routed windows to process.")
@@ -123,9 +108,7 @@ def run(windows: np.ndarray, config: dict) -> np.ndarray:
     voting           = config.get('voting', 'majority')
     infer_batch_size = config.get('infer_batch_size', 64)
 
-    # CUDA: sequential is optimal — GPU already handles one model at a time
-    # efficiently, and multiple threads only cause VRAM pressure + contention.
-    # CPU: a small pool helps; more than 4 gives diminishing returns.
+    # CUDA: sequential (threads only add VRAM pressure); CPU: a small pool (> 4 gains little).
     if 'max_parallel_models' in config:
         max_workers = config['max_parallel_models']
     elif device.type == 'cuda':

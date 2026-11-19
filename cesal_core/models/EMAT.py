@@ -1,9 +1,60 @@
+"""EM-AT base learner (paper Sec. 3.5.1): the Anomaly Transformer encoder plus
+EM-GMM automated thresholding.
+"""
+import logging
+from typing import List, Tuple
+
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 from .attn import AnomalyAttention, AttentionLayer
 from .embed import DataEmbedding, TokenEmbedding
+
+
+# EM-GMM automated thresholding
+GMM_RANDOM_STATE = 42
+# The fitted mixture can depend on the BLAS/OpenMP thread count (HDFS's ~11M energies),
+# so it is fitted on one thread: the released thresholds were, and the result is then
+# the same on any machine.
+GMM_THREADS = 1
+
+
+def fit_gmm(
+    energy: np.ndarray,
+    n_components: int = 7,
+    covariance_type: str = 'tied',
+    max_iter: int = 100,
+    init_params: str = 'k-means++',
+    n_init: int = 10,
+) -> np.ndarray:
+    """Fit a Gaussian mixture with EM to energies of shape [N, 1]; return each one's component."""
+    from sklearn.mixture import GaussianMixture
+    from threadpoolctl import threadpool_limits
+
+    with threadpool_limits(limits=GMM_THREADS):
+        gm = GaussianMixture(
+            n_components=n_components,
+            covariance_type=covariance_type,
+            max_iter=max_iter,
+            init_params=init_params,
+            n_init=n_init,
+            random_state=GMM_RANDOM_STATE,
+        ).fit(energy)
+        return gm.predict(energy)
+
+
+def cluster_percentages(labels: np.ndarray) -> List[Tuple[int, float]]:
+    """Share of the points (%) in each mixture component, largest first."""
+    unique, counts = np.unique(labels, return_counts=True)
+    total = len(labels)
+    label_pct = {label: (count / total) * 100 for label, count in zip(unique, counts)}
+    sorted_pct = sorted(label_pct.items(), key=lambda x: x[1], reverse=True)
+    logging.debug("Label counts: %s", dict(zip(unique, counts)))
+    for label, pct in sorted_pct:
+        logging.debug("  Label %d: %.6f%%", label, pct)
+    return sorted_pct
 
 
 class EncoderLayer(nn.Module):
@@ -59,10 +110,8 @@ class EMAT(nn.Module):
         super(EMAT, self).__init__()
         self.output_attention = output_attention
 
-        # Encoding
         self.embedding = DataEmbedding(enc_in, d_model, dropout)
 
-        # Encoder
         self.encoder = Encoder(
             [
                 EncoderLayer(
@@ -89,3 +138,25 @@ class EMAT(nn.Module):
             return enc_out, series, prior, sigmas
         else:
             return enc_out
+
+    @staticmethod
+    def fit_threshold(
+        energy: np.ndarray,
+        n_components: int = 7,
+        covariance_type: str = 'tied',
+        max_iter: int = 100,
+        init_params: str = 'k-means++',
+        n_init: int = 10,
+    ) -> Tuple[float, float, List[Tuple[int, float]]]:
+        """EM-GMM automated thresholding: fit a Gaussian mixture to the energies with EM,
+        take the largest component's share as the normal ratio (%), and set λ to the
+        energy at that percentile. Returns (λ, normal_ratio, every component's share).
+        An event is anomalous when its energy is strictly greater than λ.
+        """
+        energy = np.asarray(energy)
+        labels = fit_gmm(energy.reshape(-1, 1), n_components, covariance_type,
+                         max_iter, init_params, n_init)
+        cluster_pcts = cluster_percentages(labels)
+        normal_ratio = cluster_pcts[0][1]
+        threshold = float(np.percentile(energy, normal_ratio))
+        return threshold, normal_ratio, cluster_pcts

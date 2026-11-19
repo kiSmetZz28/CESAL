@@ -20,11 +20,8 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def prepare(dataset, models_dir, results_dir, seed):
-    """Snapshot independent training/inference configs for the new model set.
-
-    Models go under ``models_dir`` and everything else under ``results_dir``,
-    matching the repository's split between checkpoints and outputs.
-    """
+    """Snapshot training/inference configs for the new model set (models under
+    ``models_dir``, everything else under ``results_dir``)."""
     models_dir, results_dir = Path(models_dir).resolve(), Path(results_dir).resolve()
     models_dir.mkdir(parents=True, exist_ok=False)
     results_dir.mkdir(parents=True, exist_ok=False)

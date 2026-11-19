@@ -1,11 +1,7 @@
-"""CESAL shared core library.
+"""CESAL core library shared by the training and inference pipelines.
 
-Contains the model architecture, data loaders, and utilities used by
-both the training pipeline and the inference pipeline.
-
-Sub-packages
-------------
-cesal_core.models  -- EM-AT model architecture (EMAT, attention, embedding)
-cesal_core.data    -- Dataset loaders and log preprocessor
-cesal_core.utils   -- Shared utilities: energy scoring, voting, config I/O
+cesal_core.models -- EM-AT base learner (EMAT, attention, embedding) and EM-GMM
+                     thresholding (EMAT.fit_threshold)
+cesal_core.data   -- dataset loaders and log preprocessor
+cesal_core.utils  -- energy scoring, voting, config, logging and step reporting
 """

@@ -1,12 +1,8 @@
-"""
-Ingest log datasets into the CESAL SQLite database.
+"""Ingest log datasets into the CESAL SQLite database (run: python dashboard/ingest.py).
 
-Imports (in order):
-  1. HDFS processed windows  (train.csv + test.csv)
-  2. HDFS raw structured logs (HDFS.log_structured.csv — test-window rows only)
-  3. OpenStack raw logs       (openstack_*.log)
-
-Run standalone:  python dashboard/ingest.py
+Steps, each skipped once done: HDFS windows (LOG_ROOT/HDFS_v1), OpenStack windows
+(data/OpenStack/*.txt), HDFS raw logs (pre-split train/test_normal/test_abnormal.log)
+and OpenStack raw logs (openstack_*.log, else synthetic lines).
 """
 import csv
 import hashlib
@@ -29,8 +25,7 @@ BATCH  = 25_000   # rows per executemany call
 # ── Low-level helpers ─────────────────────────────────────────────────────────
 
 def _conn(fast: bool = False) -> sqlite3.Connection:
-    # Always use WAL mode — it allows concurrent reads while bulk-writing,
-    # preventing "database is locked" errors from the status-polling loop.
+    # WAL allows reads during bulk writes (avoids "database is locked" while polling).
     c = sqlite3.connect(str(DB_PATH), timeout=60.0)
     c.execute("PRAGMA journal_mode=WAL")
     c.execute("PRAGMA synchronous=OFF" if fast else "PRAGMA synchronous=NORMAL")
@@ -137,16 +132,9 @@ def ingest_hdfs_windows(cb: Optional[Callable] = None) -> None:
 # ── Raw-log imports ───────────────────────────────────────────────────────────
 
 def ingest_hdfs_raw(cb: Optional[Callable] = None) -> None:
-    """Ingest HDFS raw logs from the pre-split files in LOG_ROOT.
-
-    Files (one-to-one with the processed txt-file log sequences):
-      train.log         → line_numbers 0..N_TRAIN-1,               label=None
-      test_normal.log   → line_numbers N_TRAIN..,                  label=None
-      test_abnormal.log → line_numbers N_TRAIN+N_TEST_NORMAL..,    label='1'
-
-    Each line is stored with its extracted block ID so that
-    _find_window_for_raw can map any raw line to its log sequence.
-    """
+    """Ingest HDFS raw logs from LOG_ROOT's train.log, test_normal.log and
+    test_abnormal.log (label '1'), numbered consecutively and stored with their block
+    IDs so a raw line maps back to its log sequence."""
     if _already_done("hdfs_raw_v2", "SELECT COUNT(*) FROM raw_logs WHERE dataset='hdfs'"):
         cb and cb("HDFS raw logs already in DB — skipping."); return
 
@@ -206,9 +194,8 @@ def ingest_hdfs_raw(cb: Optional[Callable] = None) -> None:
 
 
 # ── Synthetic OpenStack log generator ────────────────────────────────────────
-# Realistic log message templates based on the Nova / Keystone / Neutron
-# patterns found in the LogHub OpenStack dataset.  Used when the original
-# openstack_*.log files are not available (demo / container deployments).
+# Synthetic OpenStack logs (Nova/Keystone/Neutron templates from LogHub), used when the
+# original openstack_*.log files are absent (demo / container deployments).
 
 _OS_COMPONENTS = [
     "nova.osapi_compute.wsgi.server",
@@ -304,7 +291,6 @@ def _synth_val(seed: int, key: str) -> str:
 def _make_log_line(seed: int, level: str, component: str, template: str,
                    ts: datetime, pid: int) -> tuple:
     """Render one synthetic log line and return a raw_logs insert tuple."""
-    # Fill in all placeholders deterministically from the seed
     import re as _re
     def _sub(m):
         return _synth_val(seed, m.group(1))
@@ -314,15 +300,8 @@ def _make_log_line(seed: int, level: str, component: str, template: str,
 
 
 def _ingest_os_synthetic_raw(cb: Optional[Callable] = None) -> None:
-    """Generate realistic OpenStack log messages when source .log files are absent.
-
-    Produces one log row per event in each processed log sequence, using realistic
-    Nova / Keystone message templates so the Raw Log Lines panel shows actual
-    log-style content instead of event IDs.
-
-    Detection marker: timestamp is a real datetime string (NOT NULL), so the
-    _find_window_for_raw mapping still uses the lines-per-sequence estimates.
-    """
+    """One synthetic OpenStack log line per processed event, used when the source .log
+    files are absent so the Raw Log Lines panel shows log-style content."""
     data_dir = Path(__file__).parent.parent / "data" / "OpenStack"
     if not data_dir.exists():
         _set_status("os_raw_v2", "skipped:missing_data_dir")
@@ -385,17 +364,8 @@ def _ingest_os_synthetic_raw(cb: Optional[Callable] = None) -> None:
 
 
 def ingest_os_raw(cb: Optional[Callable] = None) -> None:
-    """
-    Import OpenStack raw log files into raw_logs.
-
-    Split labelling based on source file:
-      normal1.log   → split=train,      label=0  (block_id='train_normal')
-      normal2.log   → split=test/normal, label=0  (block_id='test_normal')
-      abnormal.log  → split=test/abnorm, label=1  (block_id='test_abnormal')
-
-    Falls back to synthetic entries from data/OpenStack/*.txt when the source
-    log files are not present (e.g. demo deployments without full data).
-    """
+    """Import openstack_normal1/normal2/abnormal.log as train_normal, test_normal and
+    test_abnormal (label 1); falls back to data/OpenStack/raw/, then synthetic lines."""
     if _already_done("os_raw_v2", "SELECT COUNT(*) FROM raw_logs WHERE dataset='os'"):
         cb and cb("OpenStack raw logs already in DB — skipping."); return
     os_dir = LOG_ROOT / "OpenStack"
@@ -458,17 +428,8 @@ def ingest_os_raw(cb: Optional[Callable] = None) -> None:
 
 
 def ingest_os_windows(cb: Optional[Callable] = None) -> None:
-    """
-    Import processed OpenStack sequences from data/OpenStack/*.txt into windows.
-
-    Each line in the txt file = one log sequence (sequence of event template IDs).
-    - train.txt          → split='train', label=0,  window_index 0..N-1
-    - test_normal.txt    → split='test',  label=0,  window_index 0..M-1
-    - test_abnormal.txt  → split='test',  label=1,  window_index M..M+K-1
-
-    The concatenated test window order (normal first, then abnormal) matches
-    the order used by OpenStackSegLoader for ground_truth / predictions.
-    """
+    """Import processed OpenStack sequences (data/OpenStack/*.txt, one per line) as
+    windows: train, then test normal followed by abnormal, matching the loader order."""
     if _already_done("os_windows", "SELECT COUNT(*) FROM windows WHERE dataset='os'"):
         cb and cb("OpenStack windows already in DB — skipping."); return
     data_dir = Path(__file__).parent.parent / "data" / "OpenStack"

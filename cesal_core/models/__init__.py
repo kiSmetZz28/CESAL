@@ -1,3 +1,3 @@
-from .EMAT import EMAT
+from .EMAT import EMAT, cluster_percentages, fit_gmm
 
-__all__ = ["EMAT"]
+__all__ = ["EMAT", "cluster_percentages", "fit_gmm"]

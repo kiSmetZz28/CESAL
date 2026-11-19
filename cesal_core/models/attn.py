@@ -35,7 +35,6 @@ class AnomalyAttention(nn.Module):
         B, L, H, E = queries.shape
         _, S, _, D = values.shape
 
-        # scale = self.scale or 1. / sqrt(E)
         scale = 1. / sqrt(E)
 
         # attention weights matrix (no softmax)
@@ -52,7 +51,6 @@ class AnomalyAttention(nn.Module):
         sigma = torch.sigmoid(sigma * 5) + 1e-5
         sigma = torch.pow(3, sigma) - 1
         sigma = sigma.unsqueeze(-1).repeat(1, 1, 1, window_size)  # B H L L
-        # prior = self.distances.unsqueeze(0).unsqueeze(0).repeat(sigma.shape[0], sigma.shape[1], 1, 1)
         prior = self.distances.to(queries.device).unsqueeze(0).unsqueeze(0).repeat(sigma.shape[0], sigma.shape[1], 1, 1)
         prior = 1.0 / (math.sqrt(2 * math.pi) * sigma) * torch.exp(-prior ** 2 / 2 / (sigma ** 2))
 

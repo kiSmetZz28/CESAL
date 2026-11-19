@@ -7,7 +7,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 import yaml
-from sklearn.mixture import GaussianMixture
 
 from cesal_core.data.loaders import get_loader_segment
 from cesal_core.models.EMAT import EMAT
@@ -15,30 +14,6 @@ from cesal_core.utils.energy import my_kl_loss
 from cesal_core.utils.metrics import evaluate as _evaluate
 from cesal_core.utils import steps as _steps
 from cesal_core.utils.steps import fmt_secs as _fmt_secs
-
-
-def _fit_gmm(energy: np.ndarray, n_components: int, covariance_type: str,
-             max_iter: int, init_params: str, n_init: int) -> np.ndarray:
-    gm = GaussianMixture(
-        n_components=n_components,
-        covariance_type=covariance_type,
-        max_iter=max_iter,
-        init_params=init_params,
-        n_init=n_init,
-        random_state=42,
-    ).fit(energy)
-    return gm.predict(energy)
-
-
-def _log_cluster_percentages(em_pred: np.ndarray):
-    unique, counts = np.unique(em_pred, return_counts=True)
-    total = len(em_pred)
-    label_pct = {label: (count / total) * 100 for label, count in zip(unique, counts)}
-    sorted_pct = sorted(label_pct.items(), key=lambda x: x[1], reverse=True)
-    logging.debug("Label counts: %s", dict(zip(unique, counts)))
-    for label, pct in sorted_pct:
-        logging.debug("  Label %d: %.6f%%", label, pct)
-    return sorted_pct
 
 
 def adjust_learning_rate(optimizer: torch.optim.Optimizer, epoch: int, lr: float) -> None:
@@ -100,14 +75,10 @@ _THRESHOLD_OUTPUT = {
 }
 
 
-# Caching the per-model energy vectors turns any later threshold question — a
-# different EM-GMM setting, a different percentile rule — into a CPU-only job
-# over saved arrays instead of a full GPU re-scoring pass.
+# Cached energies let later threshold experiments run on CPU without re-scoring.
 CACHE_ENERGY = True
 
-# thre_energy is concatenated with train_energy for EM-GMM threshold selection
-# (the original CECO-LAD behaviour). Setting this False skips that pass and
-# thresholds are then fitted on train energy alone.
+# Fit the EM-GMM threshold on train + thre energies (False: train energies only).
 COMPUTE_THRE_ENERGY = True
 
 
@@ -260,8 +231,6 @@ class Solver:
             train_loss = np.average(loss1_list)
             vali_loss1, vali_loss2 = self.vali(self.test_loader)
 
-            # A lower loss means the model reconstructs normal activity more
-            # closely, so it can tell normal from abnormal more sharply.
             logging.info(
                 "      epoch %d/%d · train loss %.6f · check loss %.6f · %s",
                 epoch + 1, self.num_epochs, train_loss, vali_loss1,
@@ -279,10 +248,8 @@ class Solver:
 
     def singlemodelpred(self) -> tuple:
         fileparam = f"e{self.num_epochs}_k{self.k}_l{self.e_layer_num}_b{self.batch_size}"
-        # Loaded exactly as when the committed thresholds were produced. torch
-        # warns once per call that its default will change; with 81 learners that
-        # buried the run's output, so the warning is filtered here rather than
-        # silenced by changing how the checkpoint is read.
+        # Loaded as when the committed thresholds were produced; torch's per-call
+        # FutureWarning (81 learners) is filtered rather than changing how it loads.
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=FutureWarning,
                                     message=".*weights_only.*")
@@ -374,23 +341,17 @@ class Solver:
         else:
             combined_energy = train_energy
 
-        # EM-GMM settings are per-dataset (configs/training/<dataset>.yaml); the
-        # defaults below are the original values. Note the energy is 1-D, so
-        # 'full', 'diag' and 'spherical' are equivalent — only 'tied' differs.
-        em_pred = _fit_gmm(
-            combined_energy.reshape(-1, 1),
-            getattr(self, 'gmm_n_components',   7),
-            getattr(self, 'gmm_covariance_type', 'tied'),
-            getattr(self, 'gmm_max_iter',       100),
-            getattr(self, 'gmm_init_params',    'k-means++'),
-            getattr(self, 'gmm_n_init',          10),
+        # EM-AT's EM-GMM automated thresholding
+        thresh, normal_ratio, _ = EMAT.fit_threshold(
+            combined_energy,
+            n_components=getattr(self, 'gmm_n_components',   7),
+            covariance_type=getattr(self, 'gmm_covariance_type', 'tied'),
+            max_iter=getattr(self, 'gmm_max_iter',       100),
+            init_params=getattr(self, 'gmm_init_params',    'k-means++'),
+            n_init=getattr(self, 'gmm_n_init',          10),
         )
-        sorted_pct = _log_cluster_percentages(em_pred)
-        normal_ratio = sorted_pct[0][1]
         logging.debug("Normal data ratio: %s", normal_ratio)
         logging.debug("Abnormal data ratio: %s", 100 - normal_ratio)
-
-        thresh = float(np.percentile(combined_energy, normal_ratio))
         logging.debug("Threshold: %g", thresh)
         self._update_threshold_config(thresh)
 
@@ -473,12 +434,8 @@ class Solver:
         _evaluate(gt, pred)
 
     def _cache_energy(self, kind: str, values: np.ndarray) -> None:
-        """Save a per-model energy (or label) vector next to the thresholds.
-
-        Written once per model per scoring run, so that sweeping EM-GMM
-        settings later needs no GPU: the threshold is a pure function of the
-        train energy, and the prediction a pure function of the test energy.
-        """
+        """Save a per-model energy (or label) vector next to the thresholds, so EM-GMM
+        settings can be swept later without a GPU."""
         if not CACHE_ENERGY:
             return
 
@@ -542,8 +499,6 @@ class Solver:
         try:
             with open(cfg_path, 'w') as f:
                 yaml.safe_dump(cfg_data, f, sort_keys=False)
-            # One line per model would be 81 during a full sweep; the eval step
-            # reports the count and the file it rewrote instead.
             logging.debug("Saved threshold %g for model '%s' into '%s'.", thresh, model_name, cfg_path)
             _steps.current().tick("thresholds written")
             _steps.current().detail("rewriting thresholds in", cfg_path)

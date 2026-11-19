@@ -1,15 +1,8 @@
-# Edge environment (cesal-edge) — pinned package list, captured from a
-# working `pip list --format=freeze`.
-#
-# Install with the CPU PyTorch index URL:
+# Edge environment (cesal-edge), pinned from a working `pip list --format=freeze`.
 #     pip install -r environment/edge/requirements.txt \
 #         --extra-index-url https://download.pytorch.org/whl/cpu
-#
-# After this, run `python run.py download` (or `python launch_dashboard.py`) —
-# either command installs ExecuTorch (and its bundled torchao build) from the
-# pre-built ExecuTorch tree. Those two packages are commented out below
-# because their PEP 440 local version labels ("+1bc0699", "+gitebc43034e")
-# are not accepted by PyPI.
+# executorch and torchao are commented out below (PyPI rejects their PEP 440 local
+# versions); `python run.py download` or `python launch_dashboard.py` installs them.
 
 annotated-doc==0.0.4
 annotated-types==0.7.0

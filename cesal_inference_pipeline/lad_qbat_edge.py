@@ -10,7 +10,6 @@ from typing import List, NamedTuple, Optional, Tuple
 import numpy as np
 import torch
 import yaml
-from sklearn.mixture import GaussianMixture
 
 from cesal_core.data.loaders import get_loader_segment
 from cesal_core.utils import steps
@@ -21,8 +20,7 @@ try:
 except ImportError:
     _EXECUTORCH_AVAILABLE = False
 
-# Per-window progress chatter emitted by the C++ executor_runner, e.g.
-#   [Q-BAT] window 17 — qbat_e6_k1_l3_b96
+# executor_runner's per-window progress line, e.g. "[Q-BAT] window 17 — qbat_e6_k1_l3_b96".
 _WINDOW_LINE = re.compile(r"^\[Q-BAT\]\s+window\s+\d+")
 
 # C++ executor_runner binary (fallback when Python bindings are unavailable)
@@ -39,50 +37,6 @@ class EdgeResult(NamedTuple):
     train_energy_matrix: np.ndarray
     thresholds: np.ndarray
     test_windows: np.ndarray
-
-
-def set_thresh_em(
-    energy: np.ndarray,
-    n_components: int = 7,
-    covariance_type: str = 'tied',
-    max_iter: int = 100,
-    init_params: str = 'k-means++',
-    n_init: int = 10,
-) -> np.ndarray:
-    """Fit a GMM on energy scores and return cluster labels."""
-    gm = GaussianMixture(
-        n_components=n_components,
-        covariance_type=covariance_type,
-        max_iter=max_iter,
-        init_params=init_params,
-        n_init=n_init,
-        random_state=42,
-    ).fit(energy)
-    return gm.predict(energy)
-
-
-def compute_threshold_from_energy(
-    energy: np.ndarray,
-    n_components: int = 7,
-) -> Tuple[float, float, List[Tuple[int, float]]]:
-    """Derive EM-GMM threshold from training energy scores.
-
-    Returns
-    -------
-    thresh : float
-        Energy percentile corresponding to the normal cluster ratio.
-    normal_ratio : float
-        Percentage of windows classified as normal (largest cluster).
-    cluster_pcts : list of (label, pct) sorted by pct descending
-    """
-    labels = set_thresh_em(energy.reshape(-1, 1), n_components=n_components)
-    unique, counts = np.unique(labels, return_counts=True)
-    total = len(labels)
-    label_pct = {lbl: (cnt / total) * 100 for lbl, cnt in zip(unique, counts)}
-    cluster_pcts = sorted(label_pct.items(), key=lambda x: x[1], reverse=True)
-    normal_ratio = cluster_pcts[0][1]
-    thresh = float(np.percentile(energy, normal_ratio))
-    return thresh, normal_ratio, cluster_pcts
 
 
 def compute_binary_predictions(energy: np.ndarray, threshold: float) -> np.ndarray:
@@ -115,13 +69,8 @@ def _run_et_model(method, windows: np.ndarray) -> np.ndarray:
 # ── C++ executor_runner path ──────────────────────────────────────────────────
 
 def _write_windows_csv(windows: np.ndarray, path: str) -> None:
-    """Write [N, win_size, features] as one float per line (flat row-major).
-
-    The C++ executor_runner reads values with a comma-delimiter parser, so
-    lines with spaces are read one value at a time (first token per line).
-    Writing one value per line gives exactly N * win_size * features values,
-    which the runner groups into N windows of shape [1, win_size, features].
-    """
+    """Write [N, win_size, features] as one float per line (row-major): the runner's
+    comma-delimited parser reads one value per line and regroups them into N windows."""
     with open(path, 'w') as f:
         for v in windows.reshape(-1):
             f.write(f'{v:.6f}\n')
@@ -132,18 +81,8 @@ _EXECUTORCH_DIR = Path(_RUNNER_BIN).parent.parent
 
 
 def _run_via_runner(pte_path: str, windows: np.ndarray, model_name: str) -> np.ndarray:
-    """Run test inference using the C++ executor_runner binary.
-
-    Mirrors the user command:
-        ./cmake-out/executor_runner
-            --model_path ../../checkpoints/qbat/os/<name>.pte
-            --data_path  ./dataset/<data>.csv
-            --model_name <name>
-
-    Writes a temporary data file inside the executorch directory so relative
-    paths resolve correctly, runs the binary, reads the score file, and
-    returns a 1-D float32 energy array (one score per event in complete windows).
-    """
+    """Score windows with the C++ executor_runner (run from the executorch directory so
+    relative paths resolve); returns one float32 energy per timestep."""
     pred_dir    = _EXECUTORCH_DIR / "prediction_results"
     dataset_dir = _EXECUTORCH_DIR / "dataset"
     pred_dir.mkdir(exist_ok=True)
@@ -161,10 +100,8 @@ def _run_via_runner(pte_path: str, windows: np.ndarray, model_name: str) -> np.n
         rel_data = os.path.join("dataset", os.path.basename(tmp_path))
 
         runner = Path("cmake-out") / _RUNNER_NAME
-        # executor_runner prints one "[Q-BAT] window N — <model>" line per window,
-        # which for a full dataset is thousands of lines per model. Consume them
-        # as progress ticks instead of letting them flood the run; the raw lines
-        # are still written to the log file at DEBUG.
+        # The runner prints one "[Q-BAT] window N" line per window: count them as progress
+        # (raw lines still go to the log at DEBUG).
         proc = subprocess.Popen(
             [
                 str(runner),
@@ -172,10 +109,8 @@ def _run_via_runner(pte_path: str, windows: np.ndarray, model_name: str) -> np.n
                 f"--data_path={rel_data}",
                 f"--model_name={model_name}",
                 "--mode=test",
-                # The runner defaults to win_size=100. The windows were built
-                # from the dataset's configured win_size, so pass it explicitly:
-                # otherwise a dataset using any other value is silently
-                # regrouped and returns the wrong number of energies.
+                # The runner defaults to win_size=100; pass the configured size or the
+                # flat values are regrouped wrongly.
                 f"--win_size={windows.shape[1]}",
             ],
             stdout=subprocess.PIPE,
@@ -201,8 +136,7 @@ def _run_via_runner(pte_path: str, windows: np.ndarray, model_name: str) -> np.n
                     del tail[:-20]
             proc.wait()
         except BaseException:
-            # Without this, interrupting the run (Ctrl-C) leaves the native
-            # runners orphaned and pinning a CPU core each until they finish.
+            # Kill on interrupt, or each orphaned runner keeps a CPU core busy.
             proc.kill()
             proc.wait()
             raise
@@ -216,10 +150,8 @@ def _run_via_runner(pte_path: str, windows: np.ndarray, model_name: str) -> np.n
         score_file = pred_dir / f"{model_name}_test_score.txt"
         energy = np.loadtxt(str(score_file), dtype=np.float32)
 
-        # One score per timestep: N windows x win_size. A mismatch means the
-        # runner grouped the flat values differently from how they were
-        # written — usually a .pte exported for a different win_size than the
-        # config asks for — which would otherwise misalign silently.
+        # One score per timestep (N x win_size); a mismatch usually means the .pte was
+        # exported for a different win_size, which would otherwise misalign silently.
         expected = windows.shape[0] * windows.shape[1]
         if energy.size != expected:
             raise RuntimeError(
@@ -258,11 +190,8 @@ def _run_one_edge_model(
     test_windows: np.ndarray,
     thresh_path: str,
 ) -> Optional[Tuple[np.ndarray, float]]:
-    """Run one Q-BAT learner against all test windows.
-
-    Returns (energy_col, threshold) on success, or None if the checkpoint
-    or threshold is missing. Called concurrently for all edge models.
-    """
+    """Score all test windows with one Q-BAT learner: (energy_col, threshold), or None
+    if its checkpoint or threshold is missing."""
     name = m_cfg['name']
     ckpt = m_cfg['checkpoint']
 
@@ -296,15 +225,9 @@ def select_test_windows(windows, labels, indices=None):
 
 
 def run(config: dict) -> EdgeResult:
-    """Run all Q-BAT edge models in parallel and return an EdgeResult.
-
-    All .pte models score the same test windows simultaneously. Since
-    ExecuTorch runs on CPU and releases the GIL during inference, each model
-    runs on its own CPU thread with true parallelism.
-
-    Thresholds must be pre-computed and stored in the file referenced by
-    config['threshold_output'] before calling this function.
-    """
+    """Score the test windows with all Q-BAT learners in parallel threads (ExecuTorch
+    releases the GIL) and majority-vote them. Thresholds must already exist in
+    config['threshold_output']."""
     dataset    = config['dataset']
     win_size   = config['win_size']
     batch_size = config['batch_size']
@@ -350,16 +273,12 @@ def run(config: dict) -> EdgeResult:
     step.detail("Q-BAT learners", f"{len(model_cfgs)} quantized EM-AT")
     step.detail("runtime", "ExecuTorch Python bindings" if _EXECUTORCH_AVAILABLE
                 else "ExecuTorch C++ executor_runner")
-    # Progress is reported as one combined percentage across all learners
-    # (each scores every window); a per-learner counter would only duplicate it
-    # at coarser resolution and sit at 0 until the very end.
+    # One combined percentage across learners (each scores every window).
     if not _EXECUTORCH_AVAILABLE and _RUNNER_AVAILABLE:
         step.expect("Q-BAT scan", len(test_windows) * len(model_cfgs))
 
     step.phase("scoring every window with Q-BAT")
 
-    # All models score the same read-only array concurrently.
-    # ExecuTorch (C inference) releases the GIL, so threads run in true parallel.
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(model_cfgs)) as executor:
         futures = [
             executor.submit(
@@ -390,8 +309,7 @@ def run(config: dict) -> EdgeResult:
 
     n_models = len(thresholds_list)
 
-    # ExecuTorch already outputs one energy score per timestep across all windows.
-    # Stack models, compare to threshold, majority vote.
+    # One energy per timestep per learner: threshold each, then majority vote.
     energy_matrix = np.concatenate(test_energy_cols, axis=1)
     thresholds    = np.array(thresholds_list)
 
@@ -420,11 +338,7 @@ def run(config: dict) -> EdgeResult:
 
 
 def _load_thresholds(yaml_path: str) -> dict:
-    """Load per-model thresholds from a pre-computed YAML file.
-
-    The file is produced by the training / evaluation pipeline and must exist
-    before edge inference is run.
-    """
+    """Per-model thresholds from the YAML written by eval/calibration (must exist)."""
     if not os.path.exists(yaml_path):
         raise FileNotFoundError(
             f"Edge threshold file not found: '{yaml_path}'. "

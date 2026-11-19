@@ -1,38 +1,24 @@
 """Uniform step-by-step progress reporting for the CESAL pipelines.
 
-Every runner — :mod:`cesal_inference_pipeline.run`, ``cesal_inference_pipeline/cloud_runner.py``
-and ``dashboard/demo_runner.py`` — reports through a single :class:`StepReporter`
-so that:
-
-* the terminal and the log file show the same numbered steps, each closed by an
-  indented outcome block and an elapsed time, and
-* the dashboard consumes *structured events* instead of regex-matching English
-  prose out of the log stream.
-
-Structured events are one-line JSON written to stdout with an ``@@CESAL``
-prefix, and only when the environment variable ``CESAL_EVENTS=1`` is set — the
-dashboard sets it when it spawns a runner, so interactive users never see them.
-
-Typical use::
+Every runner (cesal_inference_pipeline.run, cloud_runner.py, dashboard/demo_runner.py)
+reports through one :class:`StepReporter`, so the terminal and log file show the same
+numbered steps, and the dashboard reads structured events instead of parsing prose.
+Events are one-line JSON on stdout prefixed ``@@CESAL``, emitted only when
+``CESAL_EVENTS=1`` (set by the dashboard).
 
     rep = StepReporter("infer", dataset="HDFS", steps=INFER_STEPS)
     with rep.step("edge") as st:
-        st.detail("Q-BAT learners", "3 quantized EM-AT (.pte)")
         st.expect("learners", 3)
         ...
         st.tick("learners")
         st.outcome(**{"flagged anomalous": 5912})
     rep.finish(outputs="outputs/hdfs")
 
-The inference pipeline spans two processes: the edge runner performs steps 1-2
-and delegates steps 3-4 to ``cloud_runner.py`` in the cloud environment. The
-parent calls :meth:`StepReporter.export` before spawning, and the child passes
-``adopt=<path>`` so that step numbering continues correctly and the closing
-summary covers all four steps rather than only the child's two.
-
-Stage modules that do not own the reporter (``lad_qbat_edge``, ``lad_bat_cloud``)
-reach the active step with :func:`current`; when no run is active that returns a
-no-op step, so those modules still work standalone.
+Inference spans two processes: the edge runner does steps 1-2, then cloud_runner.py
+does 3-4. The parent calls :meth:`StepReporter.export` and the child passes
+``adopt=<path>``, so numbering continues and the summary covers all four steps.
+Stage modules reach the active step via :func:`current`, which returns a no-op step
+outside a run.
 """
 
 import json
@@ -44,9 +30,7 @@ import threading
 import time
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-# Progress milestone interval, in percent. Small enough that a slow stage
-# (the edge scan runs for hours) visibly advances, so it is never mistaken
-# for a hang; large enough not to flood the terminal.
+# Milestone interval (%): frequent enough that hours-long stages visibly advance.
 _STEP_PCT = 5
 
 __all__ = [
@@ -57,10 +41,8 @@ __all__ = [
     "leader", "body_indent",
 ]
 
-# Canonical step plans, defined once here so the CLI runners, the demo runner and
-# the dashboard all use the same ids, titles and ordering. The third element of
-# each entry is a plain-language line printed under the step's banner, so someone
-# who does not know the system can still follow what it is doing.
+# Step plans shared by the CLI runners, the demo runner and the dashboard:
+# (id, title, plain-language explanation printed under the step banner).
 
 INFER_STEPS: List[Tuple[str, str, str]] = [
     ("edge",   "Edge-side detection with Q-BAT",
@@ -139,13 +121,11 @@ RESPOND_STEPS: List[Tuple[str, str, str]] = [
 ]
 
 # ── Layout ───────────────────────────────────────────────────────────────────
-# Every banner, rule and summary row is exactly _WIDTH columns wide, and every
-# dot-leader value in the body starts at column _VALUE_COL, so a run reads as a
-# single two-column table regardless of which module wrote the line.
+# Banners, rules and summary rows are _WIDTH columns wide, and dot-leader values
+# start at _VALUE_COL, so every module's lines align as one two-column table.
 _WIDTH = 66
 _VALUE_COL = 37
-# Body lines are indented by _INDENT, or by _PHASE_INDENT while a phase is open
-# so that the phase's output is visibly nested underneath its heading.
+# Body indent; _PHASE_INDENT nests a phase's output under its heading.
 _INDENT = 3
 _PHASE_INDENT = 5
 _RULE = "─" * _WIDTH
@@ -160,15 +140,8 @@ def _events_enabled() -> bool:
 
 
 def bars_suppressed() -> bool:
-    """True when a subordinate tqdm progress bar should be turned off.
-
-    Three reasons to suppress: the dashboard reads the runner's output as plain
-    lines and a bar's carriage returns arrive there as unreadable fragments; the
-    output is not a terminal at all; or a step-level bar is already on screen, in
-    which case a second bar fighting for the same line only confuses. Bars stay
-    on for interactive runs that have no step bar of their own — parsing millions
-    of log lines genuinely benefits from one.
-    """
+    """True when a subordinate tqdm bar should be off: the dashboard is reading the
+    output, stderr is not a terminal, or a step-level bar is already on screen."""
     if _events_enabled() or not sys.stderr.isatty():
         return True
     with _bar_lock:
@@ -190,10 +163,8 @@ def fmt_secs(secs: float) -> str:
 
 
 # ── Terminal progress bar ─────────────────────────────────────────────────────
-# Drawn in place on stderr for interactive runs. Log lines and the bar share the
-# stream, so the console handler in cesal_core.utils.config clears the bar before
-# writing a line and redraws it afterwards; without that the two interleave and
-# leave fragments behind.
+# Drawn in place on stderr for interactive runs. The console handler in
+# cesal_core.utils.config clears it before each log line and redraws it after.
 
 _BAR_WIDTH = 26
 _bar_lock = threading.RLock()
@@ -270,10 +241,7 @@ def _leader(label: str, value: str, indent: int = _INDENT,
             col: int = _VALUE_COL) -> str:
     """``   routed ......................... 138 / 1,386``
 
-    The value always begins at column ``col``, whatever the indent, so detail
-    lines written inside a phase line up with those written outside it. A label
-    too long for that column is elided rather than allowed to push its value out
-    of alignment — two dots always remain, so the line stays readable.
+    The value starts at column ``col`` whatever the indent; over-long labels are elided.
     """
     limit = col - indent - 4          # longest label that still leaves two dots
     if len(label) > limit:
@@ -288,12 +256,7 @@ def leader(label: str, value: Any, indent: int = _INDENT) -> str:
 
 
 def _summary_row(label: str, value: str, indent: int = _INDENT) -> str:
-    """``   1. ✓ Edge-side detection ................... 3h 21m``
-
-    The closing summary right-aligns its values with the banner rules instead of
-    using the body's value column: its labels carry a step number and a status
-    glyph, and its values are all short, so a flush right edge reads best.
-    """
+    """``   1. ✓ Edge-side detection ................... 3h 21m`` (right-aligned)."""
     limit = _WIDTH - indent - len(value) - 4
     if len(label) > limit:
         label = label[:max(1, limit - 1)] + "…"
@@ -312,13 +275,7 @@ def _wrap(message: str, indent: int, marker: str = "") -> str:
 
 
 def _wrap_block(text: str, indent: int) -> List[str]:
-    """Fold a multi-line explanation to the banner width, paragraph by paragraph.
-
-    The plans in this module and the ``about`` blurbs in the runners carry their
-    own line breaks, authored against a wider margin than the banners use. Those
-    breaks are re-flowed here so the text always sits inside the rules, and a
-    blank line still separates one paragraph from the next.
-    """
+    """Re-flow a multi-line explanation to the banner width, keeping paragraph breaks."""
     lines: List[str] = []
     for para in text.strip().split("\n\n"):
         if not para.strip():
@@ -330,18 +287,12 @@ def _wrap_block(text: str, indent: int) -> List[str]:
 
 
 def body_indent() -> int:
-    """Indent a module outside :mod:`steps` should use for its own log lines.
-
-    Modules that print a table or a score line of their own (rather than going
-    through :meth:`Step.detail`) call this so their output nests correctly when
-    it lands inside a phase.
-    """
+    """Indent for log lines written outside :meth:`Step.detail`, so they nest in a phase."""
     return current().indent
 
 
 # ── Active-run registry ───────────────────────────────────────────────────────
-# Stage modules call current()/current_run() instead of taking a reporter
-# argument, so their public signatures stay unchanged.
+# Stage modules call current()/current_run() rather than taking a reporter argument.
 
 _active_lock = threading.Lock()
 _active_run: Optional["StepReporter"] = None
@@ -389,12 +340,7 @@ class Step:
         return _PHASE_INDENT if self._phase_name else _INDENT
 
     def detail(self, label: str, value: Any) -> None:
-        """Print one aligned ``label ... value`` line as the step runs.
-
-        Repeats of an identical label/value pair are dropped: a step that builds
-        many learners re-reports the same dataset facts each time, and printing
-        them once is the useful behaviour.
-        """
+        """Print one aligned ``label ... value`` line; identical repeats are dropped."""
         key = (label, str(value))
         with self._lock:
             if key in self._seen_details:
@@ -410,15 +356,8 @@ class Step:
         self._rep._emit({"t": "step_note", "id": self.id, "msg": message})
 
     def phase(self, name: str) -> None:
-        """Announce the sub-stage now running inside this step.
-
-        A step like the edge scan is several distinct pieces of work — parsing
-        the logs, scoring them, combining the votes — and a run that only says
-        "Edge Q-BAT scan" gives no idea which of them is taking the time. The
-        name is printed as the heading of the block, and everything the phase
-        reports is indented beneath it; its duration closes the block, and is
-        omitted for phases too brief to be worth a line.
-        """
+        """Start a named sub-stage (e.g. parsing, scoring, voting): its output is indented
+        beneath it and its duration closes the block (omitted for brief phases)."""
         self._close_phase()
         self._phase_name = name
         self._phase_started = time.perf_counter()
@@ -444,12 +383,8 @@ class Step:
         self._rep._emit({"t": "step_warn", "id": self.id, "msg": message})
 
     def expect(self, unit: str, total: int, bar: bool = True) -> None:
-        """Declare how many items of ``unit`` this step will process.
-
-        On an interactive terminal this also starts a progress bar. Where a bar
-        cannot be drawn (a redirected log, or the dashboard reading the stream)
-        progress falls back to a milestone line every ``_STEP_PCT`` percent.
-        """
+        """Declare how many ``unit`` items this step will process. Starts a progress bar
+        on a terminal; otherwise prints a milestone every ``_STEP_PCT`` percent."""
         global _active_bar
         with self._lock:
             self._counters[unit] = {"done": 0, "total": int(total),
@@ -472,15 +407,8 @@ class Step:
                 _active_bar.draw()
 
     def tick(self, unit: str, n: int = 1) -> None:
-        """Count ``n`` completed items.
-
-        Thread-safe: the edge and cloud stages tick from worker threads. To keep
-        the terminal readable a milestone line is printed at each ``_STEP_PCT``
-        percent of the expected total rather than once per item — per-item
-        records stay in the log file at DEBUG level. The interval is small
-        enough that a slow stage still shows movement, so a long scan is never
-        mistaken for a hang. The dashboard receives every tick as an event.
-        """
+        """Count ``n`` completed items (thread-safe). Prints a milestone every
+        ``_STEP_PCT`` percent; per-item records go to the log at DEBUG."""
         with self._lock:
             c = self._counters.setdefault(unit, {"done": 0, "total": 0,
                                                  "mark": 0, "epct": -1})
@@ -494,9 +422,7 @@ class Step:
                 if pct >= c["mark"] + _STEP_PCT or done == total:
                     c["mark"] = (pct // _STEP_PCT) * _STEP_PCT
                     show = True
-                # Events are throttled to whole-percent changes: a long stage can
-                # tick thousands of times, and one event each would swamp the
-                # dashboard's stream for no extra visible resolution.
+                # Events only on whole-percent changes, so long stages don't swamp the stream.
                 if pct != c["epct"] or done == total:
                     c["epct"] = pct
                     emit = True
@@ -511,9 +437,7 @@ class Step:
                 show = False  # the bar already conveys progress
         if show:
             if total:
-                # Percentage only: the raw counts are an internal unit (for the
-                # edge scan, windows x learners) and reading them as "windows"
-                # is misleading.
+                # Percentage only: raw counts are an internal unit (e.g. windows x learners).
                 logging.info("%s", _leader(unit, f"{done * 100 // total:>3}%",
                                            self.indent))
             else:
@@ -527,18 +451,11 @@ class Step:
         self._outcome.update(values)
 
     def fail(self, message: str) -> None:
-        """Mark this step as failed without raising.
-
-        For steps that process many items and finish the batch before deciding
-        the whole thing did not succeed — reporting "done" there would be
-        untrue. The closing block and the run summary both show the failure.
-        """
+        """Mark the step failed without raising (shown in its block and the summary)."""
         self._failure = message
 
     # ── lifecycle ─────────────────────────────────────────────────────────
-    # Usable either as a context manager (preferred) or explicitly via
-    # start()/done(), which suits runners whose stage body is a long if/else
-    # that would otherwise need re-indenting.
+    # Use as a context manager, or via start()/done() for long if/else stage bodies.
     def start(self) -> "Step":
         global _active_step
         self._started = time.perf_counter()
@@ -624,8 +541,7 @@ class _NullStep(Step):
         self.elapsed = 0.0
         self._phase_name = ""
 
-    # No run means no step block to nest inside, so callers of body_indent()
-    # write flush left.
+    # No run, no step block: body_indent() callers write flush left.
     indent = 0
 
     def detail(self, label: str, value: Any) -> None: pass
@@ -649,19 +565,9 @@ _NULL_STEP = _NullStep()
 class StepReporter:
     """Drives a numbered sequence of steps for one pipeline run.
 
-    Parameters
-    ----------
-    run : str
-        Short name of the run, e.g. ``"infer"``.
-    dataset : str
-        Dataset label shown in the header.
-    steps : sequence of (id, title)
-        The full pipeline plan. Ignored when ``adopt`` supplies one.
-    adopt : str, optional
-        Path to a handoff file written by :meth:`export` in a parent process.
-        Its plan, completed step records and metrics are absorbed, so this
-        reporter continues the parent's numbering and its summary covers the
-        whole pipeline.
+    ``steps`` is the plan of (id, title[, explanation]); ``adopt`` is a handoff file from
+    :meth:`export` in a parent process, whose plan, finished steps and metrics are
+    absorbed so numbering and the summary continue across processes.
     """
 
     def __init__(

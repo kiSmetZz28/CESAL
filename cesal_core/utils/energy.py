@@ -15,29 +15,11 @@ def compute_energy_batch(
     win_size: int,
     temperature: float = 50,
 ) -> np.ndarray:
-    """Compute attention-based anomaly energy scores for a batch of windows.
+    """Attention-based anomaly energy for a batch [B, win_size, n_features], scored as in
+    Solver.singlemodelpred (model already in eval mode; ``temperature`` scales the KL terms).
 
-    Mirrors the scoring logic in Solver.singlemodelpred. The model must
-    already be in eval mode when this function is called.
-
-    Parameters
-    ----------
-    model : nn.Module
-        EM-AT model (eval mode, on target device).
-    x : torch.Tensor
-        Input batch of shape [B, win_size, n_features].
-    win_size : int
-        Window length (must match model's win_size).
-    temperature : float
-        Scaling factor for KL loss terms (default: 50).
-
-    Returns
-    -------
-    np.ndarray
-        2-D array of shape [B, win_size]: one energy score per *time step*, not
-        per window. Callers that need per-line scores flatten with reshape(-1)
-        (see cesal_inference_pipeline/lad_bat_cloud.py); callers that need a
-        single score per window reduce with .mean() (see dashboard/bat_predict.py).
+    Returns [B, win_size]: one score per time step. Flatten with reshape(-1) for per-line
+    scores (lad_bat_cloud.py) or average for one score per window (dashboard/bat_predict.py).
     """
     criterion = nn.MSELoss(reduction='none')
     device = next(model.parameters()).device

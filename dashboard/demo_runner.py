@@ -1,22 +1,12 @@
 #!/usr/bin/env python3
-"""Container demo inference pipeline (Docker).
+"""Container demo of the inference pipeline (Docker): Python only, no ExecuTorch.
 
-Replaces the full two-environment pipeline (ExecuTorch edge + conda cloud)
-with a Python-only execution that uses the BAT .pth checkpoints for BOTH
-the edge scan and the cloud re-check:
+BAT .pth checkpoints serve both tiers: 3 fast BAT learners as the edge scan,
+Mahalanobis routing, the full BAT ensemble on routed-event windows, then hybrid
+metrics. It does not evaluate the quantized Q-BAT models of Table 3. Log lines
+mirror lad_qbat_edge.py / lad_bat_cloud.py so the dashboard's progress parser works.
 
-  Stage 1  Edge scan  — 3 fast BAT checkpoints on all test windows (parallel)
-  Stage 2  Routing    — Mahalanobis distance selects event vectors
-  Stage 3  Cloud      — full BAT ensemble on packed routed-event windows
-  Stage 4  Evaluation — hybrid metrics for this BAT-proxy demo
-
-This preview does not evaluate the quantized Q-BAT models used for Table 3.
-
-Log messages deliberately mirror lad_qbat_edge.py / lad_bat_cloud.py format so
-the dashboard's live-progress parser (parseLiveLine in index.html) works
-without any changes to the frontend.
-
-Called by dashboard/app.py when cesal_inference_pipeline/run.py is absent:
+Run by dashboard/app.py when cesal_inference_pipeline/run.py is absent:
     python dashboard/demo_runner.py --config configs/inference/<ds>.yaml
 """
 import argparse
@@ -79,11 +69,8 @@ def _run_edge_bat(
     x: torch.Tensor,
     device: torch.device,
 ) -> "tuple | None":
-    """Run one BAT checkpoint as an edge-scan model.
-
-    Returns (energy_col [N,1], threshold) or None if checkpoint/threshold missing.
-    Log format mirrors lad_qbat_edge.py so the frontend progress parser triggers.
-    """
+    """Run one BAT checkpoint as an edge learner: (energy_col [N,1], threshold), or
+    None if its checkpoint or threshold is missing."""
     ep, k, layers, bsz = combo
     name = f"{dataset}_e{ep}_k{k}_l{layers}_b{bsz}"
     ckpt = model_dir / f"{name}_checkpoint.pth"
@@ -218,10 +205,8 @@ def main() -> None:
         if demo_max > 0 and len(test_windows) > demo_max:
             n_windows = len(test_windows)
             idx = np.linspace(0, n_windows - 1, demo_max, dtype=int)
-            # ground_truth holds one label per *line* (win_size labels per window),
-            # so the window index must be expanded to the lines each selected
-            # window covers. Edge predictions are per line too, and evaluate()
-            # requires both arrays to have the same length.
+            # ground_truth is per line (win_size per window), so expand the selected
+            # windows to their lines; evaluate() needs equal-length arrays.
             line_idx = (idx[:, None] * win_size + np.arange(win_size)).reshape(-1)
             test_windows = test_windows[idx]
             ground_truth = ground_truth[line_idx]
@@ -285,8 +270,8 @@ def main() -> None:
     route_step.detail("distance", "Mahalanobis" if distance_type == "ma" else "Euclidean")
     route_step.detail("tolerance", f"{tolerance * 100:.0f}% of events")
 
-    # Compute training energy for routing covariance (uses normal distribution only).
-    # Try each edge combo as ensemble_param until one is accepted by the data loader.
+    # Routing covariance from training energies (normal only); try each edge combo as
+    # ensemble_param until the data loader accepts one.
     route_step.phase("estimating the energy covariance from the training scores")
     train_energy_matrix = None
     for combo in edge_combos:

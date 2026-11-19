@@ -7,6 +7,9 @@ dataset: "HDFS"
 mode: "train"
 data_path: "data/HDFS"
 model_save_path: "checkpoints/bat/hdfs"
+# Master seed (the released checkpoints' seed): eval scores every learner
+# deterministically with it, so rerunning reproduces the released thresholds.
+seed: 62
 
 num_epochs: [3, 6, 10]
 k: [3, 4, 5]

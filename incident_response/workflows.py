@@ -99,12 +99,7 @@ class Workflow:
 
 
 def _parse_steps(text: str) -> Tuple[WorkflowStep, ...]:
-    """Split a Table 1 row into its ';'-separated steps, word for word.
-
-    Only surrounding whitespace is removed: the clause keeps the paper's own
-    capitalisation, and the final one keeps its full stop, so what the dashboard
-    and CLI print is the wording in Table 1 rather than a reworded paraphrase.
-    """
+    """Split a Table 1 row into its ';'-separated steps, keeping the paper's wording verbatim."""
     steps = []
     for clause in text.split(";"):
         action = clause.strip()

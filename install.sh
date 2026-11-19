@@ -1,18 +1,12 @@
 #!/usr/bin/env bash
-# CESAL — one-command installation (README Step 1 + the ExecuTorch runtime).
+# CESAL one-command installation (README Step 1 + the ExecuTorch runtime): creates both
+# Conda environments, installs their pinned requirements and CESAL, and fetches the
+# pre-built ExecuTorch 0.5.0 runtime. Safe to re-run: existing environments are reused.
 #
-# Creates both Conda environments, installs their pinned requirements, installs
-# CESAL into each, and fetches the pre-built ExecuTorch 0.5.0 runtime the edge
-# tier executes. Safe to re-run: existing environments are reused.
+#   ./install.sh    then: conda activate cesal-edge && python run.py download os
 #
-#   ./install.sh
-#
-# Afterwards:  conda activate cesal-edge && python run.py download os
-#
-# Linux x86-64 only — the bundled executor_runner is an x86-64 binary
-# (on Windows use WSL2). Docker users can skip this entirely; the image at
-# Prepared images include the environments; build this revision's Dockerfile
-# to include its current source and readiness commands.
+# Linux x86-64 only (executor_runner is an x86-64 binary; on Windows use WSL2).
+# Docker users can skip this: the Dockerfile builds the same environments.
 set -euo pipefail
 
 EDGE_ENV="${EDGE_ENV:-cesal-edge}"

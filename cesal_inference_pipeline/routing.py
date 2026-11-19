@@ -8,11 +8,8 @@ from scipy.spatial.distance import euclidean, mahalanobis
 
 
 def load_scores(score_files: List[str]) -> np.ndarray:
-    """Load per-model scores and stack them into shape [n_samples, n_models].
-
-    Each file is expected to contain one score per line. All files must have
-    the same number of lines.
-    """
+    """Stack per-model score files (one score per line, equal lengths) into
+    [n_samples, n_models]."""
     arrays = []
     for path in score_files:
         scores = np.loadtxt(path, dtype=float).reshape(-1)
@@ -25,11 +22,8 @@ def load_scores(score_files: List[str]) -> np.ndarray:
 
 
 def compute_inv_cov(train_scores: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-    """Compute covariance and its inverse from the supplied reference scores.
-
-    train_scores shape: [n_samples, n_models]. The standalone CLI supplies training
-    scores; the inference orchestrator supplies its edge test-energy matrix.
-    """
+    """Covariance of the reference scores [n_samples, n_models] and its inverse
+    (training scores in the CLI, the edge test-energy matrix in the pipeline)."""
     cov_matrix = np.cov(train_scores, rowvar=False)
     inv_covmat = np.linalg.inv(cov_matrix)
     logging.debug("Covariance matrix computed from %d score vectors", train_scores.shape[0])
@@ -41,20 +35,8 @@ def load_thresholds_from_yaml(
     dataset: str,
     energy_names: List[str],
 ) -> np.ndarray:
-    """Load per-model thresholds from a YAML file.
-
-    This standalone CLI expects a nested threshold mapping:
-        {dataset: {energy_name: threshold, ...}, ...}
-
-    Parameters
-    ----------
-    yaml_path : str
-        Path to the YAML file with thresholds.
-    dataset : str
-        Dataset key under which thresholds are stored.
-    energy_names : List[str]
-        Ordered list of energy/model names; thresholds are returned in this order.
-    """
+    """Thresholds for ``energy_names``, in that order, from a nested YAML mapping
+    {dataset: {energy_name: threshold}}."""
     with open(yaml_path, "r") as f:
         data = yaml.safe_load(f) or {}
 
@@ -88,27 +70,8 @@ def select_indices_by_distance(
     distance_type: str = "ma",
     tolerance: float = 0.1,
 ) -> List[int]:
-    """Select test samples with the smallest distances from the threshold point.
-
-    Parameters
-    ----------
-    test_scores : np.ndarray
-        Test scores, shape [n_samples, n_models].
-    thresholds : np.ndarray
-        Threshold point in the same space, shape [n_models].
-    inv_covmat : np.ndarray or None
-        Inverse covariance matrix computed from reference scores. Required
-        when distance_type == 'ma'.
-    distance_type : {'eu', 'ma'}
-        'eu' for Euclidean, 'ma' for Mahalanobis.
-    tolerance : float
-        Fraction of samples to select (smallest distances first).
-
-    Returns
-    -------
-    selected_indices : List[int]
-        Sorted list of selected sample indices.
-    """
+    """Sorted indices of the ``tolerance`` fraction of test samples closest to the
+    threshold point, by Euclidean ('eu') or Mahalanobis ('ma', needs inv_covmat) distance."""
     threshold_point = np.asarray(thresholds, dtype=float).reshape(-1)
     samples = np.asarray(test_scores, dtype=float)
 

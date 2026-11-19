@@ -1,11 +1,7 @@
-"""Routing-ratio sweep: run the pipeline at several ratios and tabulate the result.
+"""Routing-ratio sweep: run the pipeline at several ratios and tabulate the results.
 
-The routing ratio is the fraction of events the edge escalates to the cloud. The
-paper reports detection quality as that ratio varies; this reproduces that table.
-
-Only the routing, cloud and merge stages depend on the ratio — the edge scan does
-not. So the edge scan runs once and every subsequent ratio reuses it, which is the
-difference between one Q-BAT pass and one per ratio (hours, on HDFS).
+The routing ratio is the fraction of events escalated to the cloud. Only routing, cloud
+and merge depend on it, so the edge scan (hours on HDFS) runs once and is reused.
 
 Usage (from project root):
     python -m cesal_inference_pipeline.sweep --config configs/inference/os.yaml \\
